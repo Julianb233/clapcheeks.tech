@@ -82,7 +82,8 @@ export default function TermsPage() {
               <li>Subscriptions are billed monthly via Stripe</li>
               <li>You may cancel your subscription at any time from your billing dashboard</li>
               <li>Cancellation takes effect at the end of the current billing period</li>
-              <li>No refunds for partial months of service</li>
+              <li>New subscribers may request a full refund within 7 days of their first payment</li>
+              <li>After the 7-day window, no refunds are issued for partial months of service</li>
               <li>We reserve the right to change pricing with 30 days notice</li>
             </ul>
           </section>
