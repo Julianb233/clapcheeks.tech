@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Copy, Check, Loader2, MessageSquare, User, Mic, ChevronRight } from 'lucide-react'
+import { Copy, Check, Loader2, MessageSquare, User, Mic, ChevronRight, Send } from 'lucide-react'
 import VoiceProfileSetup from './components/voice-profile-setup'
 
 interface Suggestion {
@@ -33,6 +33,8 @@ export default function ConversationPage() {
   const [suggestions, setSuggestions] = useState<Suggestion[]>([])
   const [loading, setLoading] = useState(false)
   const [copied, setCopied] = useState<number | null>(null)
+  const [sending, setSending] = useState<number | null>(null)
+  const [sent, setSent] = useState<Set<number>>(new Set())
 
   const [voiceProfile, setVoiceProfile] = useState<VoiceProfile | null>(null)
   const [showVoiceSetup, setShowVoiceSetup] = useState(false)
@@ -58,6 +60,7 @@ export default function ConversationPage() {
     if (!conversationContext.trim() || !matchName.trim()) return
     setLoading(true)
     setSuggestions([])
+    setSent(new Set())
     try {
       const res = await fetch('/api/conversation/suggest', {
         method: 'POST',
@@ -81,6 +84,27 @@ export default function ConversationPage() {
     await navigator.clipboard.writeText(text)
     setCopied(index)
     setTimeout(() => setCopied(null), 2000)
+  }
+
+  async function handleSend(text: string, index: number) {
+    setSending(index)
+    try {
+      const res = await fetch('/api/conversation/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text, matchName, platform }),
+      })
+      if (!res.ok) {
+        const data = await res.json()
+        alert(data.error || 'Failed to queue reply')
+        return
+      }
+      setSent(prev => new Set(prev).add(index))
+    } catch {
+      alert('Failed to send reply')
+    } finally {
+      setSending(null)
+    }
   }
 
   // Show voice setup if no profile yet and not loading
@@ -252,16 +276,37 @@ export default function ConversationPage() {
                   >
                     {s.tone}
                   </span>
-                  <button
-                    onClick={() => handleCopy(s.text, index)}
-                    className="text-white/30 hover:text-white/70 transition-colors p-1"
-                  >
-                    {copied === index ? (
-                      <Check className="w-4 h-4 text-green-400" />
+                  <div className="flex items-center gap-1">
+                    {sent.has(index) ? (
+                      <span className="text-green-400 text-xs flex items-center gap-1 pr-1">
+                        <Check className="w-3.5 h-3.5" />
+                        Sent to queue
+                      </span>
                     ) : (
-                      <Copy className="w-4 h-4" />
+                      <button
+                        onClick={() => handleSend(s.text, index)}
+                        disabled={sending === index}
+                        className="text-white/30 hover:text-brand-400 transition-colors p-1"
+                        title="Send reply"
+                      >
+                        {sending === index ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <Send className="w-4 h-4" />
+                        )}
+                      </button>
                     )}
-                  </button>
+                    <button
+                      onClick={() => handleCopy(s.text, index)}
+                      className="text-white/30 hover:text-white/70 transition-colors p-1"
+                    >
+                      {copied === index ? (
+                        <Check className="w-4 h-4 text-green-400" />
+                      ) : (
+                        <Copy className="w-4 h-4" />
+                      )}
+                    </button>
+                  </div>
                 </div>
                 <p className="text-white text-sm">{s.text}</p>
                 {s.reasoning && (
