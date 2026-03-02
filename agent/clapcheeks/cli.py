@@ -958,6 +958,95 @@ def proxy_test() -> None:
     console.print()
 
 
+@main.group()
+def ban() -> None:
+    """Ban detection and platform pause management."""
+    pass
+
+
+@ban.command(name="status")
+def ban_status() -> None:
+    """Show ban state for all platforms."""
+    from clapcheeks.session.ban_detector import BanDetector
+
+    detector = BanDetector()
+    summary = detector.get_status_summary()
+
+    if not summary:
+        console.print("[green]No ban signals recorded. All platforms clean.[/green]")
+        return
+
+    table = Table(title="Ban Status", show_header=True, header_style="bold magenta")
+    table.add_column("Platform", style="bold")
+    table.add_column("Status")
+    table.add_column("Paused Until", style="dim")
+    table.add_column("Empty Sessions", justify="right")
+    table.add_column("Signals", justify="right")
+
+    status_colors = {"clean": "green", "suspected": "yellow", "soft_ban": "red", "hard_ban": "bold red"}
+    for platform, info in sorted(summary.items()):
+        status = info["status"]
+        color = status_colors.get(status, "white")
+        paused = info["paused_until"] or "—"
+        table.add_row(
+            platform,
+            f"[{color}]{status}[/{color}]",
+            paused,
+            str(info["consecutive_empty_sessions"]),
+            str(info["signal_count"]),
+        )
+
+    console.print(table)
+
+
+@ban.command(name="pause")
+@click.argument("platform")
+@click.option("--hours", default=48.0, show_default=True, help="Hours to pause.")
+def ban_pause(platform: str, hours: float) -> None:
+    """Manually pause a platform."""
+    from clapcheeks.session.ban_detector import BanDetector
+
+    detector = BanDetector()
+    detector.pause_platform(platform, hours=hours)
+    console.print(f"[yellow]{platform} paused for {hours}h.[/yellow]")
+
+
+@ban.command(name="resume")
+@click.argument("platform")
+def ban_resume(platform: str) -> None:
+    """Manually resume a paused platform."""
+    from clapcheeks.session.ban_detector import BanDetector
+
+    detector = BanDetector()
+    detector.resume_platform(platform)
+    console.print(f"[green]{platform} resumed.[/green]")
+
+
+@ban.command(name="history")
+@click.argument("platform")
+def ban_history(platform: str) -> None:
+    """Show signal history for a platform."""
+    from clapcheeks.session.ban_detector import BanDetector
+
+    detector = BanDetector()
+    signals = detector.get_signal_history(platform)
+
+    if not signals:
+        console.print(f"[dim]No ban signals recorded for {platform}.[/dim]")
+        return
+
+    table = Table(title=f"Ban Signal History — {platform}", show_header=True, header_style="bold magenta")
+    table.add_column("Time", style="dim", no_wrap=True)
+    table.add_column("Type", style="bold")
+    table.add_column("Details")
+
+    for s in signals:
+        ts = s["detected_at"][:19].replace("T", " ")
+        table.add_row(ts, s["signal_type"], s.get("details", ""))
+
+    console.print(table)
+
+
 class _nullctx:
     """No-op context manager for drivers that don't support 'with'."""
     def __init__(self, val): self.val = val

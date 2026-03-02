@@ -6,6 +6,7 @@ import random
 import time
 
 from clapcheeks.session.rate_limiter import can_swipe, record_swipe, get_daily_summary
+from clapcheeks.session.ban_detector import check_response_for_ban
 
 logger = logging.getLogger(__name__)
 
@@ -126,6 +127,7 @@ class HappnClient:
                 proxies=self._proxies(),
                 timeout=15,
             )
+            check_response_for_ban("happn", resp.status_code, resp.text)
             resp.raise_for_status()
             return resp.json()
         except Exception as exc:
@@ -143,6 +145,7 @@ class HappnClient:
                 proxies=self._proxies(),
                 timeout=15,
             )
+            check_response_for_ban("happn", resp.status_code, resp.text)
             resp.raise_for_status()
             if resp.status_code == 204 or not resp.content:
                 return {}

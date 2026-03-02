@@ -14,6 +14,7 @@ from datetime import datetime
 import requests
 
 from clapcheeks.config import load, get_agent_token, CONFIG_DIR
+from clapcheeks.session.ban_detector import BanDetector
 
 LOG_FILE = CONFIG_DIR / "daemon.log"
 
@@ -141,6 +142,7 @@ def _platform_worker(
     from clapcheeks.session.manager import SessionManager
     from clapcheeks.conversation.manager import ConversationManager
 
+    ban_detector = BanDetector()
     interval_sec = daemon_cfg["swipe_interval_hours"] * 3600
     active_hours = daemon_cfg.get("active_hours", [9, 23])
     converse_after = daemon_cfg.get("conversation_after_swipe", True)
@@ -155,6 +157,14 @@ def _platform_worker(
             _shutdown.wait(900)
             continue
 
+        # --- Ban check ---
+        if ban_detector.is_paused(platform):
+            reason = ban_detector.get_pause_reason(platform)
+            log.warning("[%s] Platform paused: %s", platform, reason)
+            if not ban_detector.auto_resume_check(platform):
+                _shutdown.wait(3600)  # check again in 1 hour
+                continue
+
         # --- Swipe session ---
         swipe_result = {}
         try:
@@ -167,8 +177,13 @@ def _platform_worker(
             swipe_result = client.run_swipe_session()
             log.info("[%s] Swipe result: %s", platform, swipe_result)
 
+            # --- Ban detection on session result ---
+            ban_status = ban_detector.check_session_result(platform, swipe_result)
+            if ban_status.value in ("soft_ban", "hard_ban"):
+                log.warning("[%s] Ban signal detected: %s", platform, ban_status.value)
+
             # --- Conversation loop ---
-            if converse_after:
+            if converse_after and ban_status.value not in ("soft_ban", "hard_ban"):
                 log.info("[%s] Running conversation loop", platform)
                 cm = ConversationManager(client, platform, config)
                 convo_result = cm.run_loop()
