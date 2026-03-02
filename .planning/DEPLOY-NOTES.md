@@ -1,34 +1,45 @@
-# Vercel Deployment Notes
+# Deployment Status
 
-## Status
+Last updated: 2026-03-02
 
-Vercel CLI deployed successfully but **build fails** due to missing environment variables.
+## Vercel (Web App) ✅ LIVE
 
-- Vercel project: `ai-acrobatics/web`
-- Preview URL attempted: `https://web-2c44ept5r-ai-acrobatics.vercel.app`
-- Build error: `supabaseUrl is required` (from `/api/stripe/webhook` route)
+- **URL**: https://clapcheeks.tech
+- **Project**: `ai-acrobatics/clapcheeks-tech`
+- **All env vars set**: Supabase, Stripe, Anthropic, Resend, CRON_SECRET, price IDs
+- **Stripe webhook**: Registered → `we_1T6S04E8iqjFMOfSBqt7JCbp`
+  - Events: checkout.session.completed, customer.subscription.updated/deleted, invoice.payment_failed/paid
+  - Secret stored in Vercel as STRIPE_WEBHOOK_SECRET
 
-## Required Environment Variables
+## Stripe Webhook ✅ REGISTERED
 
-The following must be set in Vercel project settings (Settings > Environment Variables):
+- Endpoint: `https://clapcheeks.tech/api/stripe/webhook`
+- Webhook ID: `we_1T6S04E8iqjFMOfSBqt7JCbp`
+- All keys stored in 1Password: `op://API-Keys/STRIPE-clapcheeks`
 
-| Variable | Description |
-|----------|-------------|
-| `NEXT_PUBLIC_SUPABASE_URL` | Supabase project URL |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase anonymous/public key |
-| `SUPABASE_SERVICE_ROLE_KEY` | Supabase service role key (used in webhook) |
-| `STRIPE_SECRET_KEY` | Stripe secret API key |
-| `STRIPE_WEBHOOK_SECRET` | Stripe webhook signing secret |
-| `NEXT_PUBLIC_SITE_URL` | Production site URL (e.g. `https://clapcheeks.tech`) |
+## Railway (Node.js API) ⏳ PENDING
 
-## Steps to Complete Deployment
+- Service path: `api/`
+- Deploy: `railway login` → `railway link` → `railway up`
+- Required env vars in Railway dashboard:
+  - `SUPABASE_URL` = `op://API-Keys/Supabase - clapcheeks/url`
+  - `SUPABASE_SERVICE_KEY` = `op://API-Keys/Supabase - clapcheeks/service_role_key`
+  - `WEB_URL` = `https://clapcheeks.tech`
 
-1. Go to Vercel dashboard > `web` project > Settings > Environment Variables
-2. Add all variables listed above for Production + Preview environments
-3. Trigger a new deployment: `vercel --cwd web --yes` or push to git
-4. Configure custom domain `clapcheeks.tech` in Vercel project settings
-5. Set up Stripe webhook endpoint: `https://clapcheeks.tech/api/stripe/webhook`
+## Fly.io (Python AI Service) ⏳ PENDING
 
-## Local Build
+- App name: `clapcheeks-ai`
+- Service path: `ai/`
+- Now uses Anthropic Claude (no Kimi key needed)
+- Deploy:
+  ```bash
+  cd ai/
+  fly deploy
+  fly secrets set ANTHROPIC_API_KEY=$(op read "op://API-Keys/ANTHROPIC-global/credential")
+  ```
+- After deploy: update `NEXT_PUBLIC_AI_URL` in Vercel to `https://clapcheeks-ai.fly.dev`
 
-Local build passes with `.env.local` containing the required variables.
+## Resend DNS ⏳ PENDING
+
+DNS records to add for email delivery — see `RESEND-DNS-RECORDS.md`.
+Keys stored in 1Password: `op://API-Keys/RESEND-clapcheeks`

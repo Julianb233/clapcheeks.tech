@@ -164,7 +164,7 @@ export default function Pricing() {
             Start free — Tinder only, 50 swipes/day, no credit card required.
           </p>
           <Link
-            href="/signup"
+            href="/auth/sign-up"
             className="text-brand-400 hover:text-brand-300 text-sm font-semibold transition-colors"
           >
             Sign up free &rarr;

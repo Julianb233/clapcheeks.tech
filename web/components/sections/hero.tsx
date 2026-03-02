@@ -74,10 +74,10 @@ export default function Hero() {
         {/* CTAs */}
         <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-8">
           <Link
-            href="/#pricing"
+            href="/auth/sign-up"
             className="group flex items-center gap-2 bg-brand-600 hover:bg-brand-500 text-white font-semibold px-8 py-4 rounded-xl transition-all duration-200 shadow-xl shadow-brand-900/50 hover:shadow-brand-800/60 animate-glow active:scale-[0.98] text-base"
           >
-            Download Free
+            Get Started Free
             <ChevronRight size={16} className="group-hover:translate-x-0.5 transition-transform" />
           </Link>
           <a

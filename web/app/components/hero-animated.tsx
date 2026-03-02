@@ -265,7 +265,7 @@ export default function HeroAnimated() {
             {/* CTA Buttons */}
             <div ref={ctaRef} className="flex flex-col sm:flex-row gap-4 mb-8">
               <Link
-                href="/signup"
+                href="/auth/sign-up"
                 className="inline-flex items-center justify-center h-14 px-8 rounded-xl text-lg font-semibold
                            bg-gradient-to-r from-[#8B5CF6] to-[#7C3AED] text-white
                            hover:from-[#7C3AED] hover:to-[#6D28D9] transition-all duration-300

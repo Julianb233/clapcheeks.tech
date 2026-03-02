@@ -80,7 +80,7 @@ export default function SignupForm() {
             We&apos;ve sent you a confirmation link. Click it to activate your account and get started.
           </p>
           <Link
-            href="/login"
+            href="/auth/login"
             className="inline-block text-brand-400 hover:text-brand-300 text-sm transition-colors"
           >
             Back to sign in
@@ -231,7 +231,7 @@ export default function SignupForm() {
 
           <p className="text-center text-white/30 text-sm mt-6">
             Already have an account?{' '}
-            <Link href="/login" className="text-brand-400 hover:text-brand-300 transition-colors">
+            <Link href="/auth/login" className="text-brand-400 hover:text-brand-300 transition-colors">
               Sign in
             </Link>
           </p>

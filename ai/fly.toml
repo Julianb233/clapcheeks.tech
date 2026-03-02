@@ -14,3 +14,6 @@ primary_region = "lax"
   memory = "512mb"
   cpu_kind = "shared"
   cpus = 1
+
+# Required secrets (set via: fly secrets set KEY=value)
+# ANTHROPIC_API_KEY — from 1Password: op://API-Keys/ANTHROPIC-global/credential

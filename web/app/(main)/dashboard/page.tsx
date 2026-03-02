@@ -47,7 +47,7 @@ export default async function Dashboard() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
 
-  if (!user) redirect('/login')
+  if (!user) redirect('/auth/login')
 
   const displayName =
     user?.user_metadata?.full_name ??

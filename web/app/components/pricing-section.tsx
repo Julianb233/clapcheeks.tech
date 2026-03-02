@@ -146,7 +146,7 @@ export default function PricingSection() {
               </ul>
 
               <Link
-                href="/signup"
+                href="/auth/sign-up"
                 className={`inline-flex items-center justify-center h-12 rounded-xl font-semibold transition-all duration-300
                   ${
                     plan.highlight

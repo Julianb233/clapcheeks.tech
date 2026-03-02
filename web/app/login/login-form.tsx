@@ -136,7 +136,7 @@ export default function LoginForm() {
 
           <p className="text-center text-white/30 text-sm mt-6">
             Don&apos;t have an account?{' '}
-            <Link href="/signup" className="text-brand-400 hover:text-brand-300 transition-colors">
+            <Link href="/auth/sign-up" className="text-brand-400 hover:text-brand-300 transition-colors">
               Sign up
             </Link>
           </p>
