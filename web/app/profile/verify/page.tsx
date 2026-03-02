@@ -51,7 +51,7 @@ export default async function VerifyProfilePage() {
               </div>
               <CardTitle className="text-2xl">Get Verified</CardTitle>
               <CardDescription className="text-base">
-                Build trust with the SafeMove community by verifying your identity
+                Verify your identity to unlock full access
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">

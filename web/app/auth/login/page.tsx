@@ -32,7 +32,7 @@ export default function LoginPage() {
       if (error) throw error
 
       if (data.user && !data.user.email_confirmed_at) {
-        setError("Por favor verifica tu email antes de iniciar sesión. Revisa tu bandeja de entrada.")
+        setError("Please verify your email before signing in. Check your inbox for the verification link.")
         await supabase.auth.signOut()
         setIsLoading(false)
         return
@@ -52,7 +52,7 @@ export default function LoginPage() {
         <Card className="shadow-lg border-0">
           <CardHeader className="space-y-2 text-center">
             <CardTitle className="text-3xl font-bold bg-gradient-to-r from-pink-500 to-purple-600 bg-clip-text text-transparent">
-              SafeMove
+              Clapcheeks
             </CardTitle>
             <CardDescription className="text-base">Welcome back! Sign in to your account</CardDescription>
           </CardHeader>
@@ -64,7 +64,7 @@ export default function LoginPage() {
                   <Input
                     id="email"
                     type="email"
-                    placeholder="tu@email.com"
+                    placeholder="you@email.com"
                     required
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}

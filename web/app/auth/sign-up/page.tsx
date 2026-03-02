@@ -28,13 +28,13 @@ export default function SignUpPage() {
     setError(null)
 
     if (password !== repeatPassword) {
-      setError("Las contraseñas no coinciden")
+      setError("Passwords don't match")
       setIsLoading(false)
       return
     }
 
     if (password.length < 6) {
-      setError("La contraseña debe tener al menos 6 caracteres")
+      setError("Password must be at least 6 characters")
       setIsLoading(false)
       return
     }
@@ -57,7 +57,7 @@ export default function SignUpPage() {
         setShowSuccess(true)
       }
     } catch (error: unknown) {
-      setError(error instanceof Error ? error.message : "Ocurrió un error")
+      setError(error instanceof Error ? error.message : "Something went wrong. Please try again.")
     } finally {
       setIsLoading(false)
     }
@@ -79,21 +79,21 @@ export default function SignUpPage() {
                   />
                 </svg>
               </div>
-              <CardTitle className="text-2xl font-bold">Revisa tu correo</CardTitle>
+              <CardTitle className="text-2xl font-bold">Check your email</CardTitle>
               <CardDescription className="text-base">
-                Hemos enviado un enlace de verificación a <strong>{email}</strong>
+                We sent a verification link to <strong>{email}</strong>
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <p className="text-sm text-center text-muted-foreground">
-                Haz clic en el enlace del correo para verificar tu cuenta. Después de verificar, podrás iniciar sesión y
-                completar tu perfil.
+                Click the link in your email to verify your account. After verifying, you can sign in and complete your
+                setup.
               </p>
               <Button
                 onClick={() => router.push("/auth/login")}
                 className="w-full h-11 bg-gradient-to-r from-pink-500 to-purple-600 hover:from-pink-600 hover:to-purple-700"
               >
-                Ir a Iniciar Sesión
+                Go to Sign In
               </Button>
             </CardContent>
           </Card>
@@ -108,9 +108,9 @@ export default function SignUpPage() {
         <Card className="shadow-lg border-0">
           <CardHeader className="space-y-2 text-center">
             <CardTitle className="text-3xl font-bold bg-gradient-to-r from-pink-500 to-purple-600 bg-clip-text text-transparent">
-              Join SafeMove
+              Create your account
             </CardTitle>
-            <CardDescription className="text-base">Create your account and start connecting</CardDescription>
+            <CardDescription className="text-base">Join Clapcheeks — your AI dating co-pilot</CardDescription>
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSignUp}>
@@ -120,7 +120,7 @@ export default function SignUpPage() {
                   <Input
                     id="fullName"
                     type="text"
-                    placeholder="Maria Silva"
+                    placeholder="Your name"
                     required
                     value={fullName}
                     onChange={(e) => setFullName(e.target.value)}
@@ -132,7 +132,7 @@ export default function SignUpPage() {
                   <Input
                     id="email"
                     type="email"
-                    placeholder="tu@email.com"
+                    placeholder="you@email.com"
                     required
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
@@ -144,6 +144,7 @@ export default function SignUpPage() {
                   <Input
                     id="password"
                     type="password"
+                    placeholder="At least 6 characters"
                     required
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
@@ -155,6 +156,7 @@ export default function SignUpPage() {
                   <Input
                     id="repeat-password"
                     type="password"
+                    placeholder="Repeat your password"
                     required
                     value={repeatPassword}
                     onChange={(e) => setRepeatPassword(e.target.value)}
@@ -167,8 +169,11 @@ export default function SignUpPage() {
                   className="w-full h-11 bg-gradient-to-r from-pink-500 to-purple-600 hover:from-pink-600 hover:to-purple-700"
                   disabled={isLoading}
                 >
-                  {isLoading ? "Creating account..." : "Sign Up"}
+                  {isLoading ? "Creating account..." : "Create Account"}
                 </Button>
+                <p className="text-xs text-center text-muted-foreground">
+                  Free to start — no credit card required
+                </p>
               </div>
               <div className="mt-6 text-center text-sm">
                 Already have an account?{" "}

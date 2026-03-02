@@ -11,24 +11,23 @@ export default function VerifyEmailPage() {
             <Mail className="w-10 h-10 text-white" />
           </div>
 
-          <h1 className="text-3xl font-bold text-gray-900 mb-4">Verifica tu Email</h1>
+          <h1 className="text-3xl font-bold text-gray-900 mb-4">Verify your email</h1>
 
           <p className="text-gray-600 mb-6 leading-relaxed">
-            Te hemos enviado un correo de verificación. Por favor revisa tu bandeja de entrada y haz clic en el enlace
-            para verificar tu cuenta.
+            We sent you a verification email. Check your inbox and click the link to confirm your account.
           </p>
 
           <div className="bg-pink-50 border border-pink-200 rounded-2xl p-4 mb-6">
             <p className="text-sm text-pink-800">
-              <strong>Importante:</strong> No podrás iniciar sesión hasta que verifiques tu email. Si no ves el correo,
-              revisa tu carpeta de spam.
+              <strong>Important:</strong> You won&apos;t be able to sign in until you verify your email. If you
+              don&apos;t see it, check your spam folder.
             </p>
           </div>
 
           <Link href="/auth/login">
             <Button className="w-full bg-gradient-to-r from-pink-500 to-purple-500 hover:from-pink-600 hover:to-purple-600 text-white rounded-full h-12 text-lg font-semibold">
               <ArrowLeft className="w-5 h-5 mr-2" />
-              Volver al Login
+              Back to Sign In
             </Button>
           </Link>
         </div>

@@ -18,7 +18,7 @@ export default function SignUpSuccessPage() {
           <CardContent className="space-y-4">
             <p className="text-sm text-muted-foreground text-center">
               Please check your email and click the confirmation link to activate your account. Once confirmed, you'll
-              be able to sign in and start using SafeMove.
+              be able to sign in and start using Clapcheeks.
             </p>
             <Button asChild variant="outline" className="w-full bg-transparent">
               <Link href="/auth/login">Back to Sign In</Link>
