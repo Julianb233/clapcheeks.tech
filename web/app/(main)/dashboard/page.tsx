@@ -9,6 +9,9 @@ import EliteOnly from '@/components/elite-only'
 import CoachingSection from './components/coaching-section'
 import DashboardLive from './components/dashboard-live'
 import { getLatestCoaching } from '@/lib/coaching/generate'
+import { TrendCard } from './components/trend-card'
+import { DashboardCharts } from './components/dashboard-charts'
+import { calculateRizzScore, getRizzTrend } from '@/lib/rizz'
 
 export const metadata: Metadata = {
   title: 'Dashboard — Outward',
@@ -22,6 +25,14 @@ interface DailyRow {
   matches: number
   messages_sent: number
   dates_booked: number
+  date: string
+}
+
+interface ConvoRow {
+  platform: string
+  messages_sent: number
+  conversations_started: number
+  conversations_replied: number
   date: string
 }
 
@@ -52,13 +63,29 @@ export default async function Dashboard() {
   const sinceStr = since.toISOString().split('T')[0]
   const today = new Date().toISOString().split('T')[0]
 
-  const [analyticsRes, tokenRes, subRes, profileRes] = await Promise.all([
+  const sevenDaysAgo = new Date()
+  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7)
+  const fourteenDaysAgo = new Date()
+  fourteenDaysAgo.setDate(fourteenDaysAgo.getDate() - 14)
+
+  const [analyticsRes, convoRes, spendRes, tokenRes, subRes, profileRes] = await Promise.all([
     supabase
       .from('clapcheeks_analytics_daily')
       .select('platform, swipes_right, swipes_left, matches, messages_sent, dates_booked, date')
       .eq('user_id', user.id)
       .gte('date', sinceStr)
-      .order('date', { ascending: false }),
+      .order('date', { ascending: true }),
+    supabase
+      .from('clapcheeks_conversation_stats')
+      .select('platform, messages_sent, conversations_started, conversations_replied, date')
+      .eq('user_id', user.id)
+      .gte('date', sinceStr)
+      .order('date', { ascending: true }),
+    supabase
+      .from('clapcheeks_spending')
+      .select('amount, category, date')
+      .eq('user_id', user.id)
+      .gte('date', sinceStr),
     supabase
       .from('clapcheeks_agent_tokens')
       .select('last_seen_at')
@@ -87,6 +114,8 @@ export default async function Dashboard() {
   const userIsElite = userPlan === 'elite' && userSubStatus === 'active'
 
   const rows: DailyRow[] = analyticsRes.data || []
+  const convos: ConvoRow[] = convoRes.data || []
+  const spending = spendRes.data || []
   const agentToken: AgentToken | null = tokenRes.data?.[0] || null
   const agentOnline = isAgentOnline(agentToken?.last_seen_at || null)
   const hasAgent = !!agentToken
@@ -102,14 +131,73 @@ export default async function Dashboard() {
     }),
     { swipes: 0, swipes_right: 0, matches: 0, dates: 0, messages: 0 }
   )
-  const matchRate =
-    totals.swipes_right > 0
-      ? ((totals.matches / totals.swipes_right) * 100).toFixed(1)
-      : '0.0'
+  const convoTotals = convos.reduce(
+    (acc, r) => ({
+      conversations_started: acc.conversations_started + (r.conversations_started || 0),
+      conversations_replied: acc.conversations_replied + (r.conversations_replied || 0),
+    }),
+    { conversations_started: 0, conversations_replied: 0 }
+  )
+  const matchRate = totals.swipes_right > 0 ? (totals.matches / totals.swipes_right) * 100 : 0
 
   // Today's stats
   const todayRows = rows.filter((r) => r.date === today)
   const todaySwipes = todayRows.reduce((a, r) => a + r.swipes_right + r.swipes_left, 0)
+
+  // Week-over-week trends
+  const fmtDate = (d: Date) => d.toISOString().split('T')[0]
+  const thisWeekRows = rows.filter(r => r.date >= fmtDate(sevenDaysAgo))
+  const lastWeekRows = rows.filter(r => r.date >= fmtDate(fourteenDaysAgo) && r.date < fmtDate(sevenDaysAgo))
+
+  function weekTotal(wRows: DailyRow[]) {
+    return wRows.reduce(
+      (acc, r) => ({ swipes: acc.swipes + r.swipes_right, matches: acc.matches + r.matches, dates: acc.dates + r.dates_booked }),
+      { swipes: 0, matches: 0, dates: 0 }
+    )
+  }
+  const thisWeek = weekTotal(thisWeekRows)
+  const lastWeek = weekTotal(lastWeekRows)
+
+  function trend(curr: number, prev: number) {
+    if (prev === 0) return { direction: curr > 0 ? 'up' as const : 'same' as const, delta: curr > 0 ? 100 : 0 }
+    const pct = Math.round(((curr - prev) / prev) * 100)
+    if (Math.abs(pct) < 2) return { direction: 'same' as const, delta: 0 }
+    return { direction: pct > 0 ? 'up' as const : 'down' as const, delta: pct }
+  }
+
+  // Rizz Score
+  const rizzRows = (thisWeekRows.length > 0 ? thisWeekRows : rows).map(r => ({
+    swipes_right: r.swipes_right,
+    matches: r.matches,
+    messages_sent: r.messages_sent,
+    conversations_replied: convos.filter(c => c.date === r.date).reduce((s, c) => s + (c.conversations_replied || 0), 0),
+    dates_booked: r.dates_booked,
+  }))
+  const lastWeekRizzRows = lastWeekRows.map(r => ({
+    swipes_right: r.swipes_right,
+    matches: r.matches,
+    messages_sent: r.messages_sent,
+    conversations_replied: convos.filter(c => c.date === r.date).reduce((s, c) => s + (c.conversations_replied || 0), 0),
+    dates_booked: r.dates_booked,
+  }))
+  const rizzScore = calculateRizzScore(rizzRows)
+  const rizzTrend = getRizzTrend(rizzScore, calculateRizzScore(lastWeekRizzRows))
+
+  // Time series for charts
+  const dailyMap: Record<string, { date: string; swipes_right: number; matches: number }> = {}
+  for (const r of rows) {
+    if (!dailyMap[r.date]) dailyMap[r.date] = { date: r.date, swipes_right: 0, matches: 0 }
+    dailyMap[r.date].swipes_right += r.swipes_right
+    dailyMap[r.date].matches += r.matches
+  }
+  const timeSeries = Object.values(dailyMap).sort((a, b) => a.date.localeCompare(b.date))
+
+  // Spending
+  const totalSpent = spending.reduce((s, r) => s + Number(r.amount), 0)
+  const spendByCategory: Record<string, number> = {}
+  for (const r of spending) {
+    spendByCategory[r.category] = (spendByCategory[r.category] || 0) + Number(r.amount)
+  }
 
   // Per-platform breakdown (detailed for DashboardLive)
   const byPlatform: Record<string, { swipes_right: number; matches: number; messages_sent: number; dates_booked: number }> = {}
