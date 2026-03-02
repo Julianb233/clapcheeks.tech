@@ -11,7 +11,7 @@ from openai import OpenAI
 
 load_dotenv()
 
-app = FastAPI(title="Clapcheeks AI", version="0.2.0")
+app = FastAPI(title="Clapcheeks AI", version="0.3.0")
 
 KIMI_MODEL = os.environ.get("KIMI_MODEL", "moonshot-v1-8k")
 
@@ -49,6 +49,50 @@ def chat_with_history(system: str, messages: list[dict], max_tokens: int = 200) 
 @app.get("/health")
 def health():
     return {"status": "ok", "provider": "kimi", "model": KIMI_MODEL, "configured": bool(os.environ.get("KIMI_API_KEY"))}
+
+
+class PhotoScoreRequest(BaseModel):
+    image_base64: str
+    filename: str = "photo.jpg"
+
+
+@app.post("/photos/score")
+async def score_photo_endpoint(req: PhotoScoreRequest):
+    """Score a dating profile photo using Kimi vision or PIL heuristics."""
+    import base64
+    import tempfile
+    from pathlib import Path
+
+    # Decode image to a temp file
+    try:
+        img_bytes = base64.b64decode(req.image_base64)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid base64 image data")
+
+    suffix = Path(req.filename).suffix or ".jpg"
+    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+        tmp.write(img_bytes)
+        tmp_path = tmp.name
+
+    try:
+        from clapcheeks.photos.scorer import score_photo, PhotoScore
+        result = score_photo(tmp_path)
+        return {
+            "filename": req.filename,
+            "score": result.score,
+            "face_score": result.face_score,
+            "smile_score": result.smile_score,
+            "background_score": result.background_score,
+            "lighting_score": result.lighting_score,
+            "solo_score": result.solo_score,
+            "tips": result.tips,
+        }
+    except FileNotFoundError:
+        raise HTTPException(status_code=400, detail="Could not process image")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        Path(tmp_path).unlink(missing_ok=True)
 
 
 class CoachingRequest(BaseModel):

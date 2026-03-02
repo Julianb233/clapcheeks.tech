@@ -644,6 +644,127 @@ def upcoming_dates() -> None:
     console.print(table)
 
 
+@main.group()
+def photos() -> None:
+    """Photo scoring and optimization tools."""
+    pass
+
+
+@photos.command()
+@click.argument("path", type=click.Path(exists=True))
+def score(path: str) -> None:
+    """Score a single profile photo."""
+    from clapcheeks.photos.scorer import score_photo
+
+    with console.status("[bold green]Analyzing photo...[/bold green]"):
+        result = score_photo(path)
+
+    _print_photo_score(result)
+
+
+@photos.command()
+@click.argument("directory", type=click.Path(exists=True, file_okay=False))
+def rank(directory: str) -> None:
+    """Rank all photos in a directory."""
+    from pathlib import Path as P
+    from clapcheeks.photos.scorer import rank_photos
+
+    exts = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
+    images = sorted(p for p in P(directory).iterdir() if p.suffix.lower() in exts)
+
+    if not images:
+        console.print(f"[yellow]No images found in {directory}[/yellow]")
+        return
+
+    console.print(f"[dim]Found {len(images)} photos[/dim]\n")
+
+    with console.status(f"[bold green]Scoring {len(images)} photos...[/bold green]"):
+        ranked = rank_photos(images)
+
+    table = Table(title="Photo Rankings", show_header=True, header_style="bold magenta")
+    table.add_column("#", style="bold", width=3)
+    table.add_column("Photo", style="cyan")
+    table.add_column("Score", style="bold white", justify="right")
+    table.add_column("Face", justify="right")
+    table.add_column("Smile", justify="right")
+    table.add_column("BG", justify="right")
+    table.add_column("Light", justify="right")
+    table.add_column("Solo", justify="right")
+
+    for s in ranked:
+        color = "green" if s.score >= 70 else "yellow" if s.score >= 50 else "red"
+        table.add_row(
+            str(s.rank),
+            P(s.path).name,
+            f"[{color}]{s.score}[/{color}]",
+            str(s.face_score),
+            str(s.smile_score),
+            str(s.background_score),
+            str(s.lighting_score),
+            str(s.solo_score),
+        )
+
+    console.print(table)
+
+    # Show tips for the worst photo
+    if len(ranked) > 1 and ranked[-1].tips:
+        console.print(f"\n[bold]Tips for {P(ranked[-1].path).name}:[/bold]")
+        for tip in ranked[-1].tips:
+            console.print(f"  [yellow]*[/yellow] {tip}")
+    console.print()
+
+
+@photos.command()
+def tips() -> None:
+    """Get general improvement tips based on scored photos."""
+    from clapcheeks.photos.scorer import get_recommendations
+
+    console.print(Panel(
+        "\n".join(f"  [cyan]*[/cyan] {r}" for r in get_recommendations([])),
+        title="[bold]Photo Tips[/bold]",
+        border_style="magenta",
+        padding=(1, 2),
+    ))
+
+
+def _print_photo_score(result) -> None:
+    """Pretty-print a single PhotoScore."""
+    from pathlib import Path as P
+
+    color = "green" if result.score >= 70 else "yellow" if result.score >= 50 else "red"
+
+    lines = [
+        f"[bold]Score:[/bold] [{color}]{result.score}/100[/{color}]",
+        "",
+        f"  Face clarity:  {_bar(result.face_score, 30)} {result.face_score}/30",
+        f"  Smile/vibe:    {_bar(result.smile_score, 20)} {result.smile_score}/20",
+        f"  Background:    {_bar(result.background_score, 20)} {result.background_score}/20",
+        f"  Lighting:      {_bar(result.lighting_score, 15)} {result.lighting_score}/15",
+        f"  Solo shot:     {_bar(result.solo_score, 15)} {result.solo_score}/15",
+    ]
+
+    if result.tips:
+        lines.append("")
+        lines.append("[bold]Tips:[/bold]")
+        for tip in result.tips:
+            lines.append(f"  [yellow]*[/yellow] {tip}")
+
+    console.print(Panel(
+        "\n".join(lines),
+        title=f"[magenta]{P(result.path).name}[/magenta]",
+        border_style="magenta",
+        padding=(1, 2),
+    ))
+
+
+def _bar(value: float, maximum: float, width: int = 20) -> str:
+    """Render a simple progress bar."""
+    pct = value / max(maximum, 1)
+    filled = int(pct * width)
+    color = "green" if pct >= 0.7 else "yellow" if pct >= 0.5 else "red"
+    return f"[{color}]{'#' * filled}{'.' * (width - filled)}[/{color}]"
+
+
 class _nullctx:
     """No-op context manager for drivers that don't support 'with'."""
     def __init__(self, val): self.val = val
