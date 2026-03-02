@@ -76,9 +76,10 @@ mutation SendMessageMutation($userid: String!, $body: String!) {
 class OKCupidClient:
     """Automate OKCupid liking/passing via GraphQL API."""
 
-    def __init__(self, driver=None) -> None:
+    def __init__(self, driver=None, proxy_manager=None) -> None:
         # driver accepted for interface consistency but not used (REST/GraphQL-based)
         self.driver = driver
+        self._proxy_manager = proxy_manager
         self._token: str | None = None
         self._my_userid: str | None = None
 
@@ -112,6 +113,12 @@ class OKCupidClient:
     # Helpers
     # ------------------------------------------------------------------
 
+    def _proxies(self) -> dict | None:
+        if self._proxy_manager:
+            p = self._proxy_manager.get_proxy("okcupid")
+            return p.requests_dict if p else None
+        return None
+
     def _headers(self) -> dict:
         headers = {
             "Accept": "application/json",
@@ -141,6 +148,7 @@ class OKCupidClient:
                 OKC_GRAPHQL_URL,
                 headers=headers,
                 json={"query": query, "variables": variables or {}},
+                proxies=self._proxies(),
                 timeout=20,
             )
             resp.raise_for_status()

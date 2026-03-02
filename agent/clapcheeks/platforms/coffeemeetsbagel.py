@@ -29,9 +29,10 @@ DEFAULT_DAILY_RIGHT_LIMIT = 21  # Hard CMB cap — only 21 bagels per day
 class CMBClient:
     """Automate Coffee Meets Bagel liking/passing via REST API."""
 
-    def __init__(self, driver=None) -> None:
+    def __init__(self, driver=None, proxy_manager=None) -> None:
         # driver accepted for interface consistency but not used (REST-based)
         self.driver = driver
+        self._proxy_manager = proxy_manager
         self._token: str | None = None
         self._my_id: str | None = None
 
@@ -57,6 +58,7 @@ class CMBClient:
                 f"{CMB_API_BASE}{PHONE_AUTH_PATH}",
                 json={"phone": phone},
                 headers={"Content-Type": "application/json"},
+                proxies=self._proxies(),
                 timeout=15,
             )
             resp.raise_for_status()
@@ -82,6 +84,7 @@ class CMBClient:
                 f"{CMB_API_BASE}{VERIFY_OTP_PATH}",
                 json={"phone": phone, "otp": otp},
                 headers={"Content-Type": "application/json"},
+                proxies=self._proxies(),
                 timeout=15,
             )
             resp.raise_for_status()
@@ -96,6 +99,7 @@ class CMBClient:
             me_resp = requests.get(
                 f"{CMB_API_BASE}{ME_PATH}",
                 headers=self._headers(),
+                proxies=self._proxies(),
                 timeout=10,
             )
             me_resp.raise_for_status()
@@ -112,6 +116,12 @@ class CMBClient:
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
+
+    def _proxies(self) -> dict | None:
+        if self._proxy_manager:
+            p = self._proxy_manager.get_proxy("cmb")
+            return p.requests_dict if p else None
+        return None
 
     def _headers(self) -> dict:
         headers = {
@@ -131,6 +141,7 @@ class CMBClient:
                 f"{CMB_API_BASE}{path}",
                 headers=self._headers(),
                 params=params or {},
+                proxies=self._proxies(),
                 timeout=15,
             )
             resp.raise_for_status()
@@ -147,6 +158,7 @@ class CMBClient:
                 f"{CMB_API_BASE}{path}",
                 headers=self._headers(),
                 json=body or {},
+                proxies=self._proxies(),
                 timeout=15,
             )
             resp.raise_for_status()

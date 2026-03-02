@@ -31,9 +31,10 @@ HAPPN_CLIENT_SECRET = "brGoHSwZsPjJ-lB3HIKM29oOalkS4KiTly8T-pjv"
 class HappnClient:
     """Automate Happn liking/passing via REST API with Facebook OAuth."""
 
-    def __init__(self, fb_token: str | None = None, driver=None) -> None:
+    def __init__(self, fb_token: str | None = None, driver=None, proxy_manager=None) -> None:
         # driver accepted for interface consistency but not used (REST-based)
         self.driver = driver
+        self._proxy_manager = proxy_manager
         self._fb_token = fb_token
         self._access_token: str | None = None
         self._my_id: str | None = None
@@ -65,6 +66,7 @@ class HappnClient:
                     "scope": "mobile_app",
                 },
                 headers={"Content-Type": "application/x-www-form-urlencoded"},
+                proxies=self._proxies(),
                 timeout=15,
             )
             resp.raise_for_status()
@@ -79,6 +81,7 @@ class HappnClient:
             me_resp = requests.get(
                 f"{HAPPN_API_BASE}{ME_PATH}",
                 headers=self._headers(),
+                proxies=self._proxies(),
                 timeout=10,
             )
             me_resp.raise_for_status()
@@ -95,6 +98,12 @@ class HappnClient:
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
+
+    def _proxies(self) -> dict | None:
+        if self._proxy_manager:
+            p = self._proxy_manager.get_proxy("happn")
+            return p.requests_dict if p else None
+        return None
 
     def _headers(self) -> dict:
         headers = {
@@ -114,6 +123,7 @@ class HappnClient:
                 f"{HAPPN_API_BASE}{path}",
                 headers=self._headers(),
                 params=params or {},
+                proxies=self._proxies(),
                 timeout=15,
             )
             resp.raise_for_status()
@@ -130,6 +140,7 @@ class HappnClient:
                 f"{HAPPN_API_BASE}{path}",
                 headers=self._headers(),
                 json=body or {},
+                proxies=self._proxies(),
                 timeout=15,
             )
             resp.raise_for_status()

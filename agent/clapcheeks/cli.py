@@ -798,6 +798,83 @@ def _bar(value: float, maximum: float, width: int = 20) -> str:
     return f"[{color}]{'#' * filled}{'.' * (width - filled)}[/{color}]"
 
 
+@main.group()
+def proxy() -> None:
+    """Manage residential proxy rotation for platform isolation."""
+    pass
+
+
+@proxy.command(name="status")
+def proxy_status() -> None:
+    """Show configured proxy pools and their health."""
+    from clapcheeks.proxy.manager import ProxyManager, ALL_FAMILIES, PLATFORM_FAMILY
+
+    mgr = ProxyManager()
+
+    if mgr.provider == "none" or not mgr.provider:
+        console.print("[yellow]No proxy configured.[/yellow]")
+        console.print("[dim]Add a [cyan]proxy:[/cyan] section to ~/.clapcheeks/config.yaml[/dim]")
+        return
+
+    console.print(f"\n[bold]Provider:[/bold] {mgr.provider}")
+    console.print()
+
+    summary = mgr.status_summary()
+    if not summary:
+        console.print("[yellow]No proxy pools loaded.[/yellow]")
+        return
+
+    table = Table(show_header=True, header_style="bold dim", box=None, padding=(0, 2))
+    table.add_column("Family")
+    table.add_column("Proxies")
+    table.add_column("Platforms")
+
+    for fam in ALL_FAMILIES:
+        pool = summary.get(fam, [])
+        healthy = sum(1 for p in pool if p["healthy"])
+        count_str = f"[green]{healthy}[/green]/{len(pool)}" if pool else "[dim]0[/dim]"
+        platforms = ", ".join(p for p, f in sorted(PLATFORM_FAMILY.items()) if f == fam)
+        table.add_row(fam, count_str, platforms)
+
+    console.print(table)
+    console.print()
+
+
+@proxy.command(name="test")
+def proxy_test() -> None:
+    """Test proxy connectivity for each platform family."""
+    import requests as _req
+    from clapcheeks.proxy.manager import ProxyManager, ALL_FAMILIES
+
+    mgr = ProxyManager()
+
+    if mgr.provider == "none" or not mgr.provider:
+        console.print("[yellow]No proxy configured.[/yellow]")
+        return
+
+    console.print(f"[bold]Testing proxies[/bold] (provider: {mgr.provider})\n")
+
+    for fam in ALL_FAMILIES:
+        pool = mgr.pools.get(fam, [])
+        if not pool:
+            console.print(f"  {fam}: [dim]no proxies[/dim]")
+            continue
+
+        proxy_obj = pool[0]
+        try:
+            resp = _req.get(
+                "https://httpbin.org/ip",
+                proxies=proxy_obj.requests_dict,
+                timeout=15,
+            )
+            ip = resp.json().get("origin", "?")
+            console.print(f"  {fam}: [green]OK[/green] (IP: {ip})")
+        except Exception as exc:
+            console.print(f"  {fam}: [red]FAIL[/red] ({exc})")
+
+    console.print()
+
+
 class _nullctx:
     """No-op context manager for drivers that don't support 'with'."""
     def __init__(self, val): self.val = val
