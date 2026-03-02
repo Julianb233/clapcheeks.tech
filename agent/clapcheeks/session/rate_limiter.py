@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 DAILY_LIMITS = {
     "tinder": {"right": 50, "left": 300, "messages": 30},
     "bumble": {"right": 60, "left": 250, "messages": 25},
-    "hinge":  {"right": 60, "left": 200, "messages": 20},
+    "hinge":  {"right": 50, "left": 200, "messages": 20},
 }
 
 DELAY_CONFIG = {
