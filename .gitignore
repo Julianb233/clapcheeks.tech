@@ -21,6 +21,7 @@ venv/
 .env.local
 .env.production
 .env.*.local
+.env.stripe
 
 # OS
 .DS_Store
