@@ -30,9 +30,9 @@ export async function POST(req: NextRequest) {
   const body = await req.json()
   const { sampleMessages } = body
 
-  if (!sampleMessages || !Array.isArray(sampleMessages) || sampleMessages.length < 5) {
+  if (!sampleMessages || !Array.isArray(sampleMessages) || sampleMessages.length < 3) {
     return NextResponse.json(
-      { error: 'Provide at least 5 sample messages to analyze your voice' },
+      { error: 'Provide at least 3 sample messages to analyze your voice' },
       { status: 400 }
     )
   }
