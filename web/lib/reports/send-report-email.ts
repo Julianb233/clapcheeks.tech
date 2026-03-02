@@ -18,7 +18,7 @@ export async function sendReportEmail({
   rizzScore,
 }: SendReportEmailParams) {
   const { data, error } = await resend.emails.send({
-    from: 'Outward <reports@clapcheeks.tech>',
+    from: 'Clap Cheeks <hello@clapcheeks.tech>',
     to: [to],
     subject: `Your Week in Review - Outward (${weekStart} to ${weekEnd})`,
     html: buildEmailHtml(weekStart, weekEnd, rizzScore),
