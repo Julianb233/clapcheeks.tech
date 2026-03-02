@@ -75,6 +75,16 @@ def status() -> None:
     else:
         console.print("\n  [dim]No swipes yet today.[/dim]")
 
+    # Sync status
+    from outward.sync import get_last_sync_time
+    from outward.queue import get_queue_size
+    last_sync = get_last_sync_time()
+    pending = get_queue_size()
+    sync_line = f"[dim]{last_sync or 'never'}[/dim]"
+    if pending > 0:
+        sync_line += f" [yellow]({pending} queued)[/yellow]"
+    console.print(f"  Sync:    {sync_line}")
+
     console.print()
 
 
@@ -173,33 +183,56 @@ def menu() -> None:
 
 @main.command()
 def sync() -> None:
-    """Sync today's anonymized metrics to your Outward dashboard."""
-    config = load_config()
-    counts = get_daily_summary()
+    """Sync today's anonymized metrics to your dashboard."""
+    from outward.sync import push_metrics, record_sync_time
+    from outward.queue import get_queue_size
 
+    config = load_config()
     if not config.get("agent_token"):
         console.print("[yellow]Not connected. Run [cyan]outward setup[/cyan] first.[/yellow]")
         return
 
-    if not counts:
+    with console.status("[bold green]Syncing metrics...[/bold green]"):
+        synced, queued = push_metrics(config)
+
+    if synced > 0:
+        record_sync_time()
+        console.print(f"[green]Synced {synced} platform(s) to dashboard.[/green]")
+    if queued > 0:
+        console.print(f"[yellow]{queued} platform(s) queued (offline). Will retry next sync.[/yellow]")
+    if synced == 0 and queued == 0:
         console.print("[dim]No activity to sync today.[/dim]")
+
+    pending = get_queue_size()
+    if pending > 0:
+        console.print(f"[dim]{pending} item(s) pending in offline queue.[/dim]")
+
+
+@main.command()
+@click.option("--interval", default=3600, help="Sync interval in seconds.")
+def daemon(interval: int) -> None:
+    """Run background sync daemon (every hour by default)."""
+    import time as _time
+    from outward.sync import push_metrics, record_sync_time
+
+    config = load_config()
+    if not config.get("agent_token"):
+        console.print("[yellow]Not connected. Run [cyan]outward setup[/cyan] first.[/yellow]")
         return
 
-    try:
-        import requests
-        api_url = config.get("api_url", "https://api.clapcheeks.tech")
-        resp = requests.post(
-            f"{api_url}/analytics/sync",
-            headers={"Authorization": f"Bearer {config['agent_token']}"},
-            json={"date": __import__("datetime").date.today().isoformat(), "counts": counts},
-            timeout=15,
-        )
-        if resp.status_code == 200:
-            console.print("[green]✓[/green] Metrics synced to dashboard.")
-        else:
-            console.print(f"[yellow]Sync failed (HTTP {resp.status_code})[/yellow]")
-    except Exception as exc:
-        console.print(f"[red]Sync error:[/red] {exc}")
+    console.print(f"[bold green]Sync daemon started[/bold green] (every {interval}s)")
+    console.print("[dim]Press Ctrl+C to stop.[/dim]")
+
+    while True:
+        try:
+            synced, queued = push_metrics(config)
+            if synced > 0:
+                record_sync_time()
+            ts = __import__("datetime").datetime.now().strftime("%H:%M")
+            console.print(f"  [{ts}] synced={synced} queued={queued}")
+        except Exception as e:
+            console.print(f"  [red]Sync error:[/red] {e}")
+        _time.sleep(interval)
 
 
 @main.command()
