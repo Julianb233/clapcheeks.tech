@@ -2,12 +2,12 @@
 
 ## Current Position
 
-- Phase: 13 of 15 (Bumble Automation)
+- Phase: 14 of 15 (Hinge Automation)
 - Plan: 01 of 01
 - Status: Phase complete
-- Last activity: 2026-03-02 - Completed 13-01-PLAN.md
+- Last activity: 2026-03-02 - Completed 14-01-PLAN.md
 
-Progress: ████████████░░░ (M3: 3/5 phases)
+Progress: █████████████░░ (M3: 4/5 phases)
 
 ## Decisions
 
@@ -22,6 +22,9 @@ Progress: ████████████░░░ (M3: 3/5 phases)
 | bumble-selectors | data-qa-role primary selectors with class fallbacks | Bumble uses data-qa-role extensively; matches Phase 12 pattern | 13 |
 | existing-rate-limits | Keep existing per-direction bumble limits (60 right, 250 left) | Already registered in rate_limiter.py; more granular than flat 75 | 13 |
 | session-via-driver | Session persistence via BrowserDriver/SessionStore | Phase 11 established SessionStore pattern; reuse avoids duplication | 13 |
+| playwright-over-api | Rewrote Hinge from REST API to Playwright browser automation | Matches Tinder/Bumble pattern, no token management needed | 14 |
+| ai-comment-quality-gate | Regenerate AI comment if 3+ emojis, quotes, or >2 sentences | Natural-sounding comments avoid spam detection | 14 |
+| hinge-50-limit | 50/day enforced via rate_limiter integration | Hinge's actual daily free like cap | 14 |
 
 ## Blockers / Concerns
 
@@ -29,6 +32,6 @@ Progress: ████████████░░░ (M3: 3/5 phases)
 
 ## Session Continuity
 
-- Last session: 2026-03-02T06:30:00Z
-- Stopped at: Completed 13-01-PLAN.md
+- Last session: 2026-03-02T06:35:00Z
+- Stopped at: Completed 14-01-PLAN.md
 - Resume file: None
