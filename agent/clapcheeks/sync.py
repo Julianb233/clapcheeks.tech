@@ -6,11 +6,12 @@ No messages, names, photos, or match details are ever transmitted.
 from __future__ import annotations
 
 import json
+import os
 from datetime import date, datetime
 from pathlib import Path
 
 SYNC_STATE_FILE = Path.home() / ".clapcheeks" / "sync_state.json"
-PLATFORMS = ("tinder", "bumble", "hinge")
+PLATFORMS = ("tinder", "bumble", "hinge", "grindr", "badoo", "happn", "okcupid", "pof", "feeld", "cmb")
 
 
 def collect_daily_metrics() -> list[dict]:
@@ -49,20 +50,71 @@ def collect_daily_metrics() -> list[dict]:
     return rows
 
 
+def _load_supabase_env() -> tuple[str | None, str | None]:
+    """Load SUPABASE_URL and SUPABASE_SERVICE_KEY from env or ~/.clapcheeks/.env."""
+    url = os.environ.get("SUPABASE_URL")
+    key = os.environ.get("SUPABASE_SERVICE_KEY")
+    if url and key:
+        return url, key
+
+    env_file = Path.home() / ".clapcheeks" / ".env"
+    if env_file.exists():
+        try:
+            for line in env_file.read_text().splitlines():
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                if "=" in line:
+                    k, v = line.split("=", 1)
+                    k, v = k.strip(), v.strip().strip("'\"")
+                    if k == "SUPABASE_URL" and not url:
+                        url = v
+                    elif k == "SUPABASE_SERVICE_KEY" and not key:
+                        key = v
+        except Exception:
+            pass
+
+    return url if url else None, key if key else None
+
+
+def push_metrics_supabase(rows: list[dict]) -> int:
+    """Upsert rows into outward_analytics_daily via supabase-py. Returns count upserted."""
+    from supabase import create_client
+
+    url, key = _load_supabase_env()
+    if not url or not key:
+        raise RuntimeError("SUPABASE_URL or SUPABASE_SERVICE_KEY not set")
+
+    client = create_client(url, key)
+    result = client.table("outward_analytics_daily").upsert(rows).execute()
+    return len(result.data) if result.data else 0
+
+
 def push_metrics(config: dict) -> tuple[int, int]:
-    """POST each platform row to API. Returns (synced_count, queued_count)."""
+    """Sync metrics — tries Supabase direct upsert first, falls back to API POST."""
     import requests
 
     from clapcheeks.queue import flush_queue, queue_sync
-
-    api_url = config.get("api_url", "https://api.clapcheeks.tech")
-    token = config.get("agent_token", "")
-    headers = {"Authorization": f"Bearer {token}"}
 
     # Retry any previously queued items first
     flush_queue(config)
 
     rows = collect_daily_metrics()
+    if not rows:
+        return 0, 0
+
+    # Primary path: Supabase direct upsert
+    try:
+        count = push_metrics_supabase(rows)
+        return count, 0
+    except Exception:
+        pass
+
+    # Fallback: API POST per row
+    api_url = config.get("api_url", "https://api.clapcheeks.tech")
+    token = config.get("agent_token", "")
+    headers = {"Authorization": f"Bearer {token}"}
+
     synced = 0
     queued = 0
 

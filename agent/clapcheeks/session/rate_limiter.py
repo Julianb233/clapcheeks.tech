@@ -156,3 +156,21 @@ def get_daily_spend() -> dict:
 
 def get_total_daily_spend() -> float:
     return sum(get_daily_spend().values())
+
+
+def record_match(platform: str) -> None:
+    """Increment match count for a platform."""
+    state = _load_state()
+    counts = state.setdefault("counts", {})
+    key = f"{platform}_matches"
+    counts[key] = counts.get(key, 0) + 1
+    _save_state(state)
+
+
+def record_conversation(platform: str) -> None:
+    """Increment conversation count for a platform."""
+    state = _load_state()
+    counts = state.setdefault("counts", {})
+    key = f"{platform}_conversations"
+    counts[key] = counts.get(key, 0) + 1
+    _save_state(state)
