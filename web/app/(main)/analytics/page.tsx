@@ -9,12 +9,20 @@ import { TrendCard } from '../dashboard/components/trend-card'
 export default function AnalyticsPage() {
   const [days, setDays] = useState(30)
   const [summary, setSummary] = useState<AnalyticsSummary | null>(null)
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
+    setError(null)
     fetch(`/api/analytics/summary?days=${days}`)
-      .then((r) => r.json())
+      .then((r) => {
+        if (!r.ok) throw new Error('Failed to load analytics')
+        return r.json()
+      })
       .then(setSummary)
-      .catch(() => {})
+      .catch((err) => {
+        console.error('Analytics fetch error:', err)
+        setError('Failed to load analytics data')
+      })
   }, [days])
 
   const matchRate = summary
@@ -41,6 +49,13 @@ export default function AnalyticsPage() {
           </div>
           <DateRangePicker value={days} onChange={setDays} />
         </div>
+
+        {/* Error state */}
+        {error && (
+          <div className="bg-red-500/10 border border-red-500/20 rounded-lg px-4 py-3 mb-8 text-sm text-red-400">
+            {error}
+          </div>
+        )}
 
         {/* Trend cards row */}
         {summary && (

@@ -2,15 +2,9 @@
 
 import type React from "react"
 
-import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Textarea } from "@/components/ui/textarea"
 import { createClient } from "@/lib/supabase/client"
 import { useRouter } from "next/navigation"
 import { useState } from "react"
-import { Checkbox } from "@/components/ui/checkbox"
 
 type Profile = {
   full_name: string | null
@@ -19,16 +13,7 @@ type Profile = {
   phone: string | null
   city: string | null
   country: string | null
-  preferred_sports: string[] | null
 }
-
-const sportOptions = [
-  { id: "cycling", label: "Cycling" },
-  { id: "mtb", label: "Mountain Bike" },
-  { id: "trail_running", label: "Trail Running" },
-  { id: "trekking", label: "Trekking" },
-  { id: "running", label: "Running" },
-]
 
 export function EditProfileForm({ profile, userId }: { profile: Profile | null; userId: string }) {
   const router = useRouter()
@@ -39,18 +24,8 @@ export function EditProfileForm({ profile, userId }: { profile: Profile | null; 
     bio: profile?.bio || "",
     phone: profile?.phone || "",
     city: profile?.city || "",
-    country: profile?.country || "Chile",
-    preferred_sports: profile?.preferred_sports || [],
+    country: profile?.country || "",
   })
-
-  const handleSportToggle = (sportId: string) => {
-    setFormData((prev) => ({
-      ...prev,
-      preferred_sports: prev.preferred_sports.includes(sportId)
-        ? prev.preferred_sports.filter((s) => s !== sportId)
-        : [...prev.preferred_sports, sportId],
-    }))
-  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -68,7 +43,6 @@ export function EditProfileForm({ profile, userId }: { profile: Profile | null; 
           phone: formData.phone || null,
           city: formData.city || null,
           country: formData.country || null,
-          preferred_sports: formData.preferred_sports.length > 0 ? formData.preferred_sports : null,
         })
         .eq("id", userId)
 
@@ -76,7 +50,7 @@ export function EditProfileForm({ profile, userId }: { profile: Profile | null; 
 
       router.push("/profile")
     } catch (error) {
-      console.error("[v0] Error updating profile:", error)
+      console.error("Error updating profile:", error)
       alert("Failed to update profile. Please try again.")
     } finally {
       setLoading(false)
@@ -84,105 +58,93 @@ export function EditProfileForm({ profile, userId }: { profile: Profile | null; 
   }
 
   return (
-    <Card className="border-0 bg-white/80 backdrop-blur shadow-lg">
-      <CardHeader>
-        <CardTitle>Profile Information</CardTitle>
-      </CardHeader>
-      <CardContent>
-        <form onSubmit={handleSubmit} className="space-y-6">
-          <div className="grid md:grid-cols-2 gap-4">
-            <div>
-              <Label htmlFor="full_name">Full Name</Label>
-              <Input
-                id="full_name"
-                value={formData.full_name}
-                onChange={(e) => setFormData({ ...formData, full_name: e.target.value })}
-                placeholder="Maria Silva"
-              />
-            </div>
-
-            <div>
-              <Label htmlFor="display_name">Display Name</Label>
-              <Input
-                id="display_name"
-                value={formData.display_name}
-                onChange={(e) => setFormData({ ...formData, display_name: e.target.value })}
-                placeholder="Maria S."
-              />
-            </div>
-          </div>
-
+    <div className="bg-white/5 border border-white/10 rounded-xl p-6">
+      <h2 className="text-lg font-semibold text-white mb-6">Profile Information</h2>
+      <form onSubmit={handleSubmit} className="space-y-6">
+        <div className="grid md:grid-cols-2 gap-4">
           <div>
-            <Label htmlFor="bio">Bio</Label>
-            <Textarea
-              id="bio"
-              value={formData.bio}
-              onChange={(e) => setFormData({ ...formData, bio: e.target.value })}
-              placeholder="Tell us about yourself and your sports interests..."
-              rows={4}
+            <label htmlFor="full_name" className="block text-sm text-white/60 mb-1.5">Full Name</label>
+            <input
+              id="full_name"
+              type="text"
+              value={formData.full_name}
+              onChange={(e) => setFormData({ ...formData, full_name: e.target.value })}
+              placeholder="Your name"
+              className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white text-sm placeholder:text-white/25 focus:outline-none focus:border-brand-500/50"
             />
           </div>
 
-          <div className="grid md:grid-cols-2 gap-4">
-            <div>
-              <Label htmlFor="phone">Phone</Label>
-              <Input
-                id="phone"
-                type="tel"
-                value={formData.phone}
-                onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                placeholder="+56 9 1234 5678"
-              />
-            </div>
-
-            <div>
-              <Label htmlFor="city">City</Label>
-              <Input
-                id="city"
-                value={formData.city}
-                onChange={(e) => setFormData({ ...formData, city: e.target.value })}
-                placeholder="Santiago"
-              />
-            </div>
-          </div>
-
           <div>
-            <Label htmlFor="country">Country</Label>
-            <Input
-              id="country"
-              value={formData.country}
-              onChange={(e) => setFormData({ ...formData, country: e.target.value })}
-              placeholder="Chile"
+            <label htmlFor="display_name" className="block text-sm text-white/60 mb-1.5">Display Name</label>
+            <input
+              id="display_name"
+              type="text"
+              value={formData.display_name}
+              onChange={(e) => setFormData({ ...formData, display_name: e.target.value })}
+              placeholder="How others see you"
+              className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white text-sm placeholder:text-white/25 focus:outline-none focus:border-brand-500/50"
+            />
+          </div>
+        </div>
+
+        <div>
+          <label htmlFor="bio" className="block text-sm text-white/60 mb-1.5">Bio</label>
+          <textarea
+            id="bio"
+            value={formData.bio}
+            onChange={(e) => setFormData({ ...formData, bio: e.target.value })}
+            placeholder="Tell us about yourself..."
+            rows={4}
+            className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white text-sm placeholder:text-white/25 focus:outline-none focus:border-brand-500/50 resize-none"
+          />
+        </div>
+
+        <div className="grid md:grid-cols-2 gap-4">
+          <div>
+            <label htmlFor="phone" className="block text-sm text-white/60 mb-1.5">Phone</label>
+            <input
+              id="phone"
+              type="tel"
+              value={formData.phone}
+              onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+              placeholder="+1 555 123 4567"
+              className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white text-sm placeholder:text-white/25 focus:outline-none focus:border-brand-500/50"
             />
           </div>
 
-          <div className="space-y-3">
-            <Label>Preferred Sports</Label>
-            <div className="space-y-2">
-              {sportOptions.map((sport) => (
-                <div key={sport.id} className="flex items-center space-x-2">
-                  <Checkbox
-                    id={sport.id}
-                    checked={formData.preferred_sports.includes(sport.id)}
-                    onCheckedChange={() => handleSportToggle(sport.id)}
-                  />
-                  <Label htmlFor={sport.id} className="text-sm font-normal cursor-pointer">
-                    {sport.label}
-                  </Label>
-                </div>
-              ))}
-            </div>
+          <div>
+            <label htmlFor="city" className="block text-sm text-white/60 mb-1.5">City</label>
+            <input
+              id="city"
+              type="text"
+              value={formData.city}
+              onChange={(e) => setFormData({ ...formData, city: e.target.value })}
+              placeholder="Your city"
+              className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white text-sm placeholder:text-white/25 focus:outline-none focus:border-brand-500/50"
+            />
           </div>
+        </div>
 
-          <Button
-            type="submit"
-            disabled={loading}
-            className="w-full h-12 bg-gradient-to-r from-pink-500 to-purple-600 hover:from-pink-600 hover:to-purple-700"
-          >
-            {loading ? "Saving..." : "Save Changes"}
-          </Button>
-        </form>
-      </CardContent>
-    </Card>
+        <div>
+          <label htmlFor="country" className="block text-sm text-white/60 mb-1.5">Country</label>
+          <input
+            id="country"
+            type="text"
+            value={formData.country}
+            onChange={(e) => setFormData({ ...formData, country: e.target.value })}
+            placeholder="Your country"
+            className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white text-sm placeholder:text-white/25 focus:outline-none focus:border-brand-500/50"
+          />
+        </div>
+
+        <button
+          type="submit"
+          disabled={loading}
+          className="w-full bg-brand-600 hover:bg-brand-500 text-white text-sm font-semibold px-4 py-3 rounded-lg transition-colors disabled:opacity-50"
+        >
+          {loading ? "Saving..." : "Save Changes"}
+        </button>
+      </form>
+    </div>
   )
 }

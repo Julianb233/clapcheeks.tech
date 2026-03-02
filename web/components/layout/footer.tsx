@@ -5,11 +5,9 @@ const footerLinks = {
     { label: 'Features', href: '/#features' },
     { label: 'How It Works', href: '/#how-it-works' },
     { label: 'Pricing', href: '/#pricing' },
-    { label: 'Changelog', href: '/changelog' },
+    { label: 'Device', href: '/device' },
   ],
   Company: [
-    { label: 'About', href: '/about' },
-    { label: 'Blog', href: '/blog' },
     { label: 'Affiliates', href: '/affiliate/apply' },
     { label: 'Press', href: '/press' },
     { label: 'Contact', href: 'mailto:hello@clapcheeks.tech' },
@@ -17,7 +15,6 @@ const footerLinks = {
   Legal: [
     { label: 'Privacy Policy', href: '/privacy' },
     { label: 'Terms of Service', href: '/terms' },
-    { label: 'Cookie Policy', href: '/cookies' },
   ],
 }
 
@@ -57,7 +54,7 @@ export default function Footer() {
             {/* Social links */}
             <div className="flex items-center gap-4">
               <a
-                href="https://github.com"
+                href="https://github.com/clapcheeks"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-white/30 hover:text-white transition-colors"
@@ -68,7 +65,7 @@ export default function Footer() {
                 </svg>
               </a>
               <a
-                href="https://twitter.com"
+                href="https://twitter.com/clapcheeksai"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-white/30 hover:text-white transition-colors"
