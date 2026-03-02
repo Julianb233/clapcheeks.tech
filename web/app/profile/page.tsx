@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation"
 import { createClient } from "@/lib/supabase/server"
-import { Shield, Award, Calendar, Users, ArrowLeft, Edit } from "lucide-react"
+import { Shield, Heart, MessageSquare, Calendar, ArrowLeft, Edit } from "lucide-react"
 import Link from "next/link"
 
 export default async function ProfilePage() {
@@ -17,36 +17,27 @@ export default async function ProfilePage() {
   // Get user profile
   const { data: profile } = await supabase.from("profiles").select("*").eq("id", user.id).single()
 
-  // Get user's events
-  const { data: createdEvents } = await supabase
-    .from("events")
-    .select("*")
-    .eq("creator_id", user.id)
-    .order("event_date", { ascending: false })
-    .limit(5)
-
-  const { data: joinedEvents } = await supabase
-    .from("event_participants")
-    .select(
-      `
-      *,
-      event:events(*)
-    `,
-    )
+  // Get subscription info
+  const { data: subscription } = await supabase
+    .from("subscriptions")
+    .select("plan, status")
     .eq("user_id", user.id)
-    .order("joined_at", { ascending: false })
-    .limit(5)
+    .single()
 
-  // Get user's groups
-  const { data: groups } = await supabase
-    .from("group_members")
-    .select(
-      `
-      *,
-      group:groups(*)
-    `,
-    )
+  // Get aggregate dating stats
+  const since = new Date()
+  since.setDate(since.getDate() - 30)
+  const sinceStr = since.toISOString().split("T")[0]
+
+  const { data: analytics } = await supabase
+    .from("analytics_daily")
+    .select("matches, conversations_started, dates_booked")
     .eq("user_id", user.id)
+    .gte("date", sinceStr)
+
+  const totalMatches = analytics?.reduce((sum, row) => sum + (row.matches || 0), 0) || 0
+  const totalConvos = analytics?.reduce((sum, row) => sum + (row.conversations_started || 0), 0) || 0
+  const totalDates = analytics?.reduce((sum, row) => sum + (row.dates_booked || 0), 0) || 0
 
   return (
     <div className="min-h-screen bg-black">
@@ -103,33 +94,38 @@ export default async function ProfilePage() {
                       {profile.city}, {profile.country}
                     </p>
                   )}
+                  {subscription?.plan && (
+                    <span className="inline-block mt-1 text-xs font-medium px-2 py-0.5 rounded-full bg-brand-500/20 text-brand-300 border border-brand-500/30 capitalize">
+                      {subscription.plan} plan
+                    </span>
+                  )}
                 </div>
                 {profile?.bio && <p className="text-white/60 leading-relaxed">{profile.bio}</p>}
               </div>
             </div>
 
-            {/* Stats Grid */}
+            {/* Stats Grid — last 30 days */}
             <div className="grid grid-cols-3 gap-4 mt-6 pt-6 border-t border-white/[0.06]">
               <div className="text-center">
                 <div className="flex items-center justify-center gap-1 mb-1">
-                  <Calendar className="w-4 h-4 text-purple-400" />
-                  <span className="text-2xl font-bold text-purple-400">{profile?.total_events_attended || 0}</span>
+                  <Heart className="w-4 h-4 text-pink-400" />
+                  <span className="text-2xl font-bold text-pink-400">{totalMatches}</span>
                 </div>
-                <p className="text-sm text-white/50">Events Joined</p>
+                <p className="text-sm text-white/50">Matches (30d)</p>
               </div>
               <div className="text-center">
                 <div className="flex items-center justify-center gap-1 mb-1">
-                  <Users className="w-4 h-4 text-pink-400" />
-                  <span className="text-2xl font-bold text-pink-400">{profile?.total_events_created || 0}</span>
+                  <MessageSquare className="w-4 h-4 text-purple-400" />
+                  <span className="text-2xl font-bold text-purple-400">{totalConvos}</span>
                 </div>
-                <p className="text-sm text-white/50">Events Created</p>
+                <p className="text-sm text-white/50">Convos (30d)</p>
               </div>
               <div className="text-center">
                 <div className="flex items-center justify-center gap-1 mb-1">
-                  <Award className="w-4 h-4 text-teal-400" />
-                  <span className="text-2xl font-bold text-teal-400">{profile?.reputation_score || 0}</span>
+                  <Calendar className="w-4 h-4 text-teal-400" />
+                  <span className="text-2xl font-bold text-teal-400">{totalDates}</span>
                 </div>
-                <p className="text-sm text-white/50">Reputation</p>
+                <p className="text-sm text-white/50">Dates (30d)</p>
               </div>
             </div>
           </div>
@@ -144,7 +140,7 @@ export default async function ProfilePage() {
                 <div className="flex-1">
                   <h3 className="font-semibold text-white mb-2">Get Verified</h3>
                   <p className="text-sm text-white/50 mb-4">
-                    Verify your identity to build trust with the community and unlock additional features.
+                    Verify your identity to build trust and unlock additional features.
                   </p>
                   <Link
                     href="/profile/verify"
@@ -157,100 +153,57 @@ export default async function ProfilePage() {
             </div>
           )}
 
-          {/* Preferred Sports */}
-          {profile?.preferred_sports && profile.preferred_sports.length > 0 && (
-            <div className="bg-white/[0.03] border border-white/[0.08] rounded-xl overflow-hidden">
-              <div className="px-5 py-4 border-b border-white/[0.06]">
-                <h2 className="text-white font-semibold">Preferred Sports</h2>
-              </div>
-              <div className="p-5">
-                <div className="flex flex-wrap gap-2">
-                  {profile.preferred_sports.map((sport: string) => (
-                    <span key={sport} className="text-xs font-medium px-2.5 py-1 rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/30">
-                      {sport.replace("_", " ")}
-                    </span>
-                  ))}
-                </div>
-              </div>
+          {/* Connected Platforms */}
+          <div className="bg-white/[0.03] border border-white/[0.08] rounded-xl overflow-hidden">
+            <div className="px-5 py-4 border-b border-white/[0.06]">
+              <h2 className="text-white font-semibold">Connected Platforms</h2>
             </div>
-          )}
-
-          {/* Groups */}
-          {groups && groups.length > 0 && (
-            <div className="bg-white/[0.03] border border-white/[0.08] rounded-xl overflow-hidden">
-              <div className="px-5 py-4 border-b border-white/[0.06]">
-                <h2 className="text-white font-semibold">My Groups ({groups.length})</h2>
-              </div>
-              <div className="p-5 space-y-3">
-                {groups.map((membership: { id: string; role: string; group: { id: string; name: string; sport_type: string } }) => (
-                  <Link
-                    key={membership.id}
-                    href={`/groups/${membership.group.id}`}
-                    className="block p-3 rounded-lg bg-white/[0.03] border border-white/[0.06] hover:bg-white/[0.05] transition-colors"
-                  >
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="font-medium text-white">{membership.group.name}</p>
-                        <p className="text-sm text-white/40">{membership.group.sport_type.replace("_", " ")}</p>
-                      </div>
-                      {membership.role === "leader" && (
-                        <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/30">
-                          Leader
-                        </span>
-                      )}
+            <div className="p-5 space-y-3">
+              {[
+                { name: "Tinder", color: "from-red-400 to-orange-500" },
+                { name: "Bumble", color: "from-yellow-400 to-amber-500" },
+                { name: "Hinge", color: "from-pink-400 to-rose-600" },
+              ].map((platform) => (
+                <div key={platform.name} className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className={`w-8 h-8 rounded-lg bg-gradient-to-r ${platform.color} flex items-center justify-center`}>
+                      <span className="text-white text-xs font-bold">{platform.name[0]}</span>
                     </div>
-                  </Link>
-                ))}
-              </div>
+                    <span className="text-white/70 font-medium">{platform.name}</span>
+                  </div>
+                  <span className="text-sm text-white/30">Not connected</span>
+                </div>
+              ))}
+              <p className="text-xs text-white/30 pt-2">
+                Platforms are connected automatically when your local Clapcheeks agent is running.
+              </p>
             </div>
-          )}
+          </div>
 
-          {/* Created Events */}
-          {createdEvents && createdEvents.length > 0 && (
-            <div className="bg-white/[0.03] border border-white/[0.08] rounded-xl overflow-hidden">
-              <div className="px-5 py-4 border-b border-white/[0.06]">
-                <h2 className="text-white font-semibold">Events I Created</h2>
+          {/* Account Info */}
+          <div className="bg-white/[0.03] border border-white/[0.08] rounded-xl overflow-hidden">
+            <div className="px-5 py-4 border-b border-white/[0.06]">
+              <h2 className="text-white font-semibold">Account</h2>
+            </div>
+            <div className="p-5 space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-white/50">Email</span>
+                <span className="text-white/70 text-sm">{user.email}</span>
               </div>
-              <div className="p-5 space-y-3">
-                {createdEvents.map((event: { id: string; title: string; event_date: string; event_time: string }) => (
-                  <Link
-                    key={event.id}
-                    href={`/events/${event.id}`}
-                    className="block p-3 rounded-lg bg-white/[0.03] border border-white/[0.06] hover:bg-white/[0.05] transition-colors"
-                  >
-                    <p className="font-medium text-white">{event.title}</p>
-                    <p className="text-sm text-white/40">
-                      {new Date(event.event_date).toLocaleDateString()} at {event.event_time}
-                    </p>
-                  </Link>
-                ))}
+              <div className="flex items-center justify-between">
+                <span className="text-white/50">Member since</span>
+                <span className="text-white/70 text-sm">
+                  {new Date(user.created_at).toLocaleDateString()}
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-white/50">Plan</span>
+                <span className="text-white/70 text-sm capitalize">
+                  {subscription?.plan || "Free"}
+                </span>
               </div>
             </div>
-          )}
-
-          {/* Joined Events */}
-          {joinedEvents && joinedEvents.length > 0 && (
-            <div className="bg-white/[0.03] border border-white/[0.08] rounded-xl overflow-hidden">
-              <div className="px-5 py-4 border-b border-white/[0.06]">
-                <h2 className="text-white font-semibold">Events I Joined</h2>
-              </div>
-              <div className="p-5 space-y-3">
-                {joinedEvents.map((participation: { id: string; event: { id: string; title: string; event_date: string; event_time: string } }) => (
-                  <Link
-                    key={participation.id}
-                    href={`/events/${participation.event.id}`}
-                    className="block p-3 rounded-lg bg-white/[0.03] border border-white/[0.06] hover:bg-white/[0.05] transition-colors"
-                  >
-                    <p className="font-medium text-white">{participation.event.title}</p>
-                    <p className="text-sm text-white/40">
-                      {new Date(participation.event.event_date).toLocaleDateString()} at{" "}
-                      {participation.event.event_time}
-                    </p>
-                  </Link>
-                ))}
-              </div>
-            </div>
-          )}
+          </div>
         </div>
       </main>
     </div>
