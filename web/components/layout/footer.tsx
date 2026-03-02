@@ -40,7 +40,7 @@ export default function Footer() {
                   <circle cx="7" cy="7" r="1.5" fill="white" />
                 </svg>
               </div>
-              <span className="text-lg font-bold gradient-text">Outward</span>
+              <span className="text-lg font-bold gradient-text">Clapcheeks</span>
             </div>
             <p className="text-white/40 text-sm leading-relaxed max-w-xs mb-6">
               Your AI dating co-pilot. Automate smarter, not harder. All data stays on your Mac.
@@ -106,7 +106,7 @@ export default function Footer() {
         {/* Bottom bar */}
         <div className="border-t border-white/6 pt-8 flex flex-col sm:flex-row items-center justify-between gap-4">
           <p className="text-xs text-white/25">
-            &copy; {new Date().getFullYear()} Outward. All rights reserved.
+            &copy; {new Date().getFullYear()} Clapcheeks. All rights reserved.
           </p>
           <div className="flex items-center gap-2">
             <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" />

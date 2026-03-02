@@ -52,7 +52,7 @@ export default function CTA() {
         </h2>
 
         <p className="text-white/50 text-lg leading-relaxed max-w-xl mx-auto mb-10">
-          Join thousands of people using Outward to date smarter. Get matches, have better
+          Join thousands of people using Clapcheeks to date smarter. Get matches, have better
           conversations, and book more dates — on autopilot.
         </p>
 

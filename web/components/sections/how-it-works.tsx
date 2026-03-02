@@ -3,7 +3,7 @@ const steps = [
     number: '01',
     title: 'Install in 30 seconds',
     description:
-      'One terminal command installs Outward on your Mac. No Homebrew dependencies, no Docker, no configuration files. It unpacks, sets up the local agent, and opens your dashboard.',
+      'One terminal command installs Clapcheeks on your Mac. No Homebrew dependencies, no Docker, no configuration files. It unpacks, sets up the local agent, and opens your dashboard.',
     code: 'curl -fsSL https://clapcheeks.tech/install.sh | bash',
     detail: 'macOS 13 Ventura or later required. Apple Silicon and Intel both supported.',
   },
@@ -11,12 +11,12 @@ const steps = [
     number: '02',
     title: 'Connect your apps',
     description:
-      'Link Tinder, Bumble, and Hinge through secure OAuth. Grant iMessage access so Outward can read your tone. It takes 5 minutes to learn your style — then it builds your preference profile silently.',
+      'Link Tinder, Bumble, and Hinge through secure OAuth. Grant iMessage access so Clapcheeks can read your tone. It takes 5 minutes to learn your style — then it builds your preference profile silently.',
     detail: 'Your credentials are stored in your Mac\'s Keychain, not our servers.',
   },
   {
     number: '03',
-    title: 'Let Outward handle it',
+    title: 'Let Clapcheeks handle it',
     description:
       'The agent runs in the background. It swipes based on your patterns, keeps conversations moving, books dates on your calendar when you\'re ready, and delivers a weekly analytics report straight to your dashboard.',
     detail: 'You stay in control — review, override, or pause any action at any time.',
@@ -44,7 +44,7 @@ export default function HowItWorks() {
             Up and running in minutes
           </h2>
           <p className="text-white/45 text-lg max-w-lg mx-auto leading-relaxed">
-            No technical knowledge required. If you can open Terminal, you can run Outward.
+            No technical knowledge required. If you can open Terminal, you can run Clapcheeks.
           </p>
         </div>
 

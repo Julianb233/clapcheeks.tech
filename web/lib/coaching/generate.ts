@@ -128,7 +128,7 @@ export async function generateCoaching(supabase: SupabaseClient, userId: string)
   const message = await anthropic.messages.create({
     model: 'claude-sonnet-4-6',
     max_tokens: 1024,
-    system: `You are a dating performance coach for Outward, a dating app optimization platform. Analyze these anonymized metrics and give 3 specific, actionable tips to improve results. Be direct and tactical, not generic. Reference actual numbers from the stats.
+    system: `You are a dating performance coach for Clapcheeks, a dating app optimization platform. Analyze these anonymized metrics and give 3 specific, actionable tips to improve results. Be direct and tactical, not generic. Reference actual numbers from the stats.
 
 Rules:
 - Each tip must be actionable (user can do something THIS WEEK)

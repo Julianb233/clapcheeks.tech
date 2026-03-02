@@ -59,7 +59,7 @@ export default function Hero() {
 
         {/* Subheadline */}
         <p className="text-lg sm:text-xl text-white/55 leading-relaxed max-w-2xl mx-auto mb-10 animate-fade-in">
-          Outward automates your dating apps, manages your conversations in{' '}
+          Clapcheeks automates your dating apps, manages your conversations in{' '}
           <span className="text-white/80">your voice</span>, tracks your spending and conversion
           rates &mdash; all running{' '}
           <span className="text-white/80">privately on your Mac</span>.

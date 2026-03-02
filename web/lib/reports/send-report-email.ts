@@ -20,7 +20,7 @@ export async function sendReportEmail({
   const { data, error } = await resend.emails.send({
     from: 'Clap Cheeks <hello@clapcheeks.tech>',
     to: [to],
-    subject: `Your Week in Review - Outward (${weekStart} to ${weekEnd})`,
+    subject: `Your Week in Review - Clapcheeks (${weekStart} to ${weekEnd})`,
     html: buildEmailHtml(weekStart, weekEnd, rizzScore),
     attachments: [
       {

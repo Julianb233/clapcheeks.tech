@@ -48,7 +48,7 @@ Style details: ${JSON.stringify(voiceProfile.profile_data || {})}`
   const message = await anthropic.messages.create({
     model: 'claude-sonnet-4-6',
     max_tokens: 768,
-    system: `You are a dating conversation assistant for Outward.
+    system: `You are a dating conversation assistant for Clapcheeks.
 Generate reply suggestions that match the user's natural voice.
 
 ${voiceContext}
