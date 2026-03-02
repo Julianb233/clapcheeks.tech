@@ -7,9 +7,9 @@ const _geist = Geist({ subsets: ['latin'] })
 const _geistMono = Geist_Mono({ subsets: ['latin'] })
 
 export const metadata: Metadata = {
-  title: 'Clapcheeks — AI Dating Co-Pilot',
+  title: 'Outward — AI Dating Co-Pilot',
   description:
-    'Your unfair advantage. AI-powered dating automation across 10 platforms — personalized openers, NLP conversation analysis, automatic date booking.',
+    'Your unfair advantage. AI that automates your dating apps — swipes, messages, and dates booked on autopilot. Privacy-first, runs locally on your Mac.',
   keywords: [
     'AI dating assistant',
     'dating app automation',
@@ -18,21 +18,23 @@ export const metadata: Metadata = {
     'Hinge AI',
     'dating analytics',
     'dating co-pilot',
-    'Grindr automation',
     'auto swipe',
+    'dating AI',
   ],
   manifest: '/manifest.json',
   openGraph: {
-    title: 'Clapcheeks — AI Dating Co-Pilot',
-    description: 'Your unfair advantage. AI-powered dating automation across 10 platforms.',
+    title: 'Outward — AI Dating Co-Pilot',
+    description: 'AI that automates your dating apps. Swipes, messages, and dates — all on autopilot.',
     url: 'https://clapcheeks.tech',
-    siteName: 'Clapcheeks',
+    siteName: 'Outward',
     type: 'website',
+    images: [{ url: 'https://clapcheeks.tech/og-image.png', width: 1200, height: 630, alt: 'Outward — AI Dating Co-Pilot' }],
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'Clapcheeks — AI Dating Co-Pilot',
-    description: 'Your unfair advantage. AI-powered dating automation across 10 platforms.',
+    title: 'Outward — AI Dating Co-Pilot',
+    description: 'AI that automates your dating apps. Swipes, messages, and dates — all on autopilot.',
+    images: ['https://clapcheeks.tech/og-image.png'],
   },
   icons: {
     icon: [
