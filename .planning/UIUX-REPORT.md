@@ -7,7 +7,7 @@
 
 ## Executive Summary
 
-The Clapcheeks web app has a strong dark-mode design system on its landing page and dashboard, but several secondary pages (home, sign-up, complete-profile) were still using a light theme with pink/purple gradients from the previous "Outward" branding. These have been fixed. Accessibility improvements (aria-labels) were added to icon-only buttons. The landing page sections, onboarding wizard, and core dashboard are well-designed and consistent.
+The Clapcheeks web app has a strong dark-mode design system on its landing page and dashboard, but 13 secondary pages were still using a light theme with pink/purple gradients from the previous "Outward" branding. All have been converted to the dark theme. Accessibility improvements (aria-labels) were added to icon-only buttons across the app. The landing page sections, onboarding wizard, and core dashboard are well-designed and consistent. Zero light-theme pages remain.
 
 ---
 
@@ -143,6 +143,56 @@ The Clapcheeks web app has a strong dark-mode design system on its landing page 
 - Weekly reports toggle and day picker
 - Save confirmation message
 
+### Safety Page (`safety/page.tsx`)
+**Status:** FIXED
+- **Issue:** Light theme (pink-50 gradient, white Card components)
+- **Fix:** Converted to dark theme — bg-black, dark section cards, teal/green/red accent colors, removed Card/Button imports
+
+### Profile Page (`profile/page.tsx`)
+**Status:** FIXED
+- **Issue:** Light theme (pink-50 gradient, white Card components, Badge components)
+- **Fix:** Converted to dark theme — bg-black, dark cards, badge spans with dark colors, explicit types on map callbacks, removed Card/Badge/Button imports
+
+### Profile Edit Page (`profile/edit/page.tsx`)
+**Status:** FIXED
+- **Issue:** Light theme (pink-50 gradient, white header)
+- **Fix:** Converted to dark theme — bg-black, dark header, removed Button import, added aria-label to back link
+
+### Profile Verify Page (`profile/verify/page.tsx`)
+**Status:** FIXED
+- **Issue:** Light theme (pink-50 gradient, white Card components)
+- **Fix:** Converted to dark theme — bg-black, dark section cards, disabled buttons styled for dark mode, removed Card/CardDescription/Button imports
+
+### Events Page (`events/page.tsx`)
+**Status:** FIXED
+- **Issue:** Light theme (pink-50 gradient, white Card components)
+- **Fix:** Converted to dark theme — bg-black, dark cards, removed Card/Badge/Button imports, added aria-label to back link
+
+### Notifications Page (`notifications/page.tsx`)
+**Status:** FIXED
+- **Issue:** Light theme (pink-50 gradient, white Card/Badge components)
+- **Fix:** Converted to dark theme — bg-black, dark cards, icon colors changed from -600 to -400 for dark mode, removed Card/Badge/Button imports
+
+### Groups Page (`groups/page.tsx`)
+**Status:** FIXED
+- **Issue:** Light theme (pink-50 gradient, white Card/Badge components)
+- **Fix:** Converted to dark theme — bg-black, dark cards, removed Card/Badge/Button imports, added aria-label to back link
+
+### Diagnostics Page (`diagnostics/page.tsx`)
+**Status:** FIXED
+- **Issue:** Light theme (pink-50 gradient, white Card components)
+- **Fix:** Converted to dark theme — bg-black, dark section cards, amber warning banner, removed Card/CardContent/CardHeader/CardTitle/Button imports
+
+### Sign-Up Success Page (`auth/sign-up-success/page.tsx`)
+**Status:** FIXED
+- **Issue:** Light theme (pink-50 gradient, white Card components)
+- **Fix:** Converted to dark theme — bg-black, orb backgrounds, glow-border card, removed Card/CardContent/CardDescription/CardHeader/CardTitle/Button imports
+
+### Verify Email Page (`auth/verify-email/page.tsx`)
+**Status:** FIXED
+- **Issue:** Light theme (pink-50 gradient, white card, pink-50 warning banner)
+- **Fix:** Converted to dark theme — bg-black, orb backgrounds, glow-border card, amber warning banner, removed Button import
+
 ---
 
 ## Issues Found and Fixed
@@ -152,22 +202,23 @@ The Clapcheeks web app has a strong dark-mode design system on its landing page 
 | 1 | `home/page.tsx` | Light theme (pink-50 gradient, white cards) | High | FIXED |
 | 2 | `auth/sign-up/page.tsx` | Light theme, Card components | High | FIXED |
 | 3 | `complete-profile/page.tsx` | Light theme, unused imports | High | FIXED |
-| 4 | `conversation/page.tsx` | Missing aria-labels on send/copy buttons | Medium | FIXED |
-| 5 | `coaching/page.tsx` | Missing aria-labels on feedback buttons | Medium | FIXED |
-| 6 | `complete-profile/page.tsx` | Missing aria-label on file upload input | Low | FIXED |
+| 4 | `safety/page.tsx` | Light theme, Card/Button components | High | FIXED |
+| 5 | `profile/page.tsx` | Light theme, Card/Badge/Button components | High | FIXED |
+| 6 | `profile/edit/page.tsx` | Light theme, Button component | High | FIXED |
+| 7 | `profile/verify/page.tsx` | Light theme, Card/Button components | High | FIXED |
+| 8 | `events/page.tsx` | Light theme, Card/Badge/Button components | High | FIXED |
+| 9 | `notifications/page.tsx` | Light theme, Card/Badge/Button components | High | FIXED |
+| 10 | `groups/page.tsx` | Light theme, Card/Badge/Button components | High | FIXED |
+| 11 | `diagnostics/page.tsx` | Light theme, Card/Button components | High | FIXED |
+| 12 | `auth/sign-up-success/page.tsx` | Light theme, Card components | High | FIXED |
+| 13 | `auth/verify-email/page.tsx` | Light theme, Button component | High | FIXED |
+| 14 | `conversation/page.tsx` | Missing aria-labels on send/copy buttons | Medium | FIXED |
+| 15 | `coaching/page.tsx` | Missing aria-labels on feedback buttons | Medium | FIXED |
+| 16 | `complete-profile/page.tsx` | Missing aria-label on file upload input | Low | FIXED |
 
 ---
 
 ## Remaining Design Recommendations
-
-### High Priority
-1. **Sign-up success state** in `auth/sign-up-success/page.tsx` — should be checked for dark theme consistency
-2. **Profile pages** (`profile/page.tsx`, `profile/edit/page.tsx`, `profile/verify/page.tsx`) — not audited yet, may have light theme issues
-3. **Groups page** (`groups/page.tsx`) — legacy page, may need dark theme update
-4. **Events page** (`events/page.tsx`) — legacy page, may need dark theme update
-5. **Notifications page** (`notifications/page.tsx`) — legacy page, may need dark theme update
-6. **Safety page** (`safety/page.tsx`) — legacy page, may need dark theme update
-7. **Diagnostics page** (`diagnostics/page.tsx`) — legacy page, may need dark theme update
 
 ### Medium Priority
 1. **Loading states** — Most pages that fetch data have loading skeletons (coaching, settings). Analytics page shows `--` values while loading. Intelligence page shows text "Loading intelligence data..." which could use a skeleton instead.
