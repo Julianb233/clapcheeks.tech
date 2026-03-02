@@ -16,8 +16,8 @@ alter table if exists public.outward_analytics_daily rename to clapcheeks_analyt
 
 -- agent_tokens policies
 do $$ begin
-  if exists (select 1 from pg_policies where tablename = 'clapcheeks_agent_tokens' and policyname = 'Users can view own tokens') then
-    alter policy "Users can view own tokens" on public.clapcheeks_agent_tokens rename to "clapcheeks_agent_tokens_select";
+  if exists (select 1 from pg_policies where tablename = 'clapcheeks_agent_tokens' and policyname = 'Users can view own agent tokens') then
+    alter policy "Users can view own agent tokens" on public.clapcheeks_agent_tokens rename to "clapcheeks_agent_tokens_select";
   end if;
 end $$;
 
