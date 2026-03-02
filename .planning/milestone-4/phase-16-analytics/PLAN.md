@@ -1,180 +1,209 @@
-# Phase 16: Analytics Dashboard
+---
+phase: 16-analytics
+plan: 01
+type: execute
+wave: 1
+depends_on: []
+files_modified:
+  - web/app/api/analytics/summary/route.ts
+  - web/app/(main)/dashboard/page.tsx
+  - web/app/(main)/dashboard/components/date-range-picker.tsx
+  - web/app/(main)/analytics/page.tsx
+  - web/components/layout/navbar.tsx
+autonomous: true
 
-## Overview
+must_haves:
+  truths:
+    - "User can view analytics charts (Rizz Score, swipe/match trend, platform breakdown, funnel, spending) on the dashboard"
+    - "User can navigate to a dedicated /analytics page from the dashboard"
+    - "User can select date ranges (7d, 30d, 90d) and see data update accordingly"
+    - "Conversion rates display at each funnel stage (match rate, conversation rate, date rate)"
+    - "Cost per date and cost per match are visible in spending section"
+  artifacts:
+    - path: "web/app/(main)/dashboard/page.tsx"
+      provides: "Dashboard page wiring DashboardCharts component"
+      contains: "DashboardCharts"
+    - path: "web/app/(main)/dashboard/components/date-range-picker.tsx"
+      provides: "Date range toggle component (7d, 30d, 90d)"
+      exports: ["DateRangePicker"]
+    - path: "web/app/(main)/analytics/page.tsx"
+      provides: "Dedicated analytics page with full chart suite and date range picker"
+      min_lines: 40
+    - path: "web/app/api/analytics/summary/route.ts"
+      provides: "Analytics API with days query param support"
+      contains: "searchParams"
+  key_links:
+    - from: "web/app/(main)/dashboard/page.tsx"
+      to: "web/app/(main)/dashboard/components/dashboard-charts.tsx"
+      via: "import and render DashboardCharts"
+      pattern: "DashboardCharts"
+    - from: "web/app/(main)/analytics/page.tsx"
+      to: "/api/analytics/summary"
+      via: "fetch with days param"
+      pattern: "api/analytics/summary"
+    - from: "web/app/(main)/dashboard/components/date-range-picker.tsx"
+      to: "URL search params"
+      via: "useSearchParams or callback"
+      pattern: "days|range"
+---
 
-Build a full-featured analytics dashboard replacing the current basic stats grid in `/web/app/(main)/dashboard/page.tsx`. The dashboard will show time-series charts (swipes, matches, conversations, dates, spending), conversion funnels, per-platform breakdowns, Rizz Score calculation, and week-over-week trend arrows. Uses Recharts (already in the project ecosystem, needs to be installed) for all chart rendering.
+<objective>
+Wire up the analytics dashboard UI showing conversion funnel metrics, charts, and date range filtering.
 
-## Key Technical Decisions
+Purpose: Phase 16 of the Outward roadmap — the analytics dashboard. Most chart components and the API route already exist but are not wired into the dashboard page. This plan connects everything and adds the missing pieces (date range picker, dedicated analytics page, API date filtering).
 
-**Recharts for charts** -- Declarative React components, composable, great for dashboards with <1000 data points (our use case). Already the standard choice for Next.js dashboards. Install `recharts` as a dependency.
+Output: Working analytics dashboard with charts on the main dashboard, a dedicated /analytics page with date range filtering, and navigation links.
+</objective>
 
-**Client components for charts** -- Recharts requires browser APIs (SVG rendering). The dashboard page stays as a server component that fetches data, then passes it to client chart components via props. This keeps data fetching server-side (secure, fast) while rendering charts client-side.
+<execution_context>
+@web/app/(main)/dashboard/page.tsx
+@web/app/(main)/dashboard/components/dashboard-charts.tsx
+@web/app/(main)/dashboard/components/dashboard-live.tsx
+@web/app/api/analytics/summary/route.ts
+</execution_context>
 
-**Rizz Score formula** -- Weighted composite:
-- Reply rate: 40% (messages_sent that got replies / total messages_sent)
-- Date conversion: 40% (dates_booked / matches)
-- Match rate: 20% (matches / swipes_right)
-- Score = (reply_rate * 0.4 + date_conversion * 0.4 + match_rate * 0.2) * 100, clamped 0-100
+<context>
+## What Already Exists
 
-**Week-over-week trends** -- Compare current 7-day window to previous 7-day window. Show green up arrow / red down arrow / gray dash with percentage change.
+The heavy lifting is done. These components exist and work:
 
-**New DB tables needed** -- The existing `outward_analytics_daily` table covers swipes/matches/messages/dates. We need a `clapcheeks_conversations_analytics` table for reply-rate tracking (needed for Rizz Score) and a `clapcheeks_spending` table for date spending tracking.
+- `web/app/api/analytics/summary/route.ts` — Full analytics API (Rizz Score, trends, funnel, spending, platform breakdown, time series). Currently hardcoded to 30 days.
+- `web/app/(main)/dashboard/components/dashboard-charts.tsx` — Client component that fetches from `/api/analytics/summary` and renders all chart sub-components. **NOT currently imported in the dashboard page.**
+- `web/app/(main)/dashboard/components/analytics-charts.tsx` — Recharts AreaChart for swipes/matches over time
+- `web/app/(main)/dashboard/components/conversion-funnel.tsx` — Recharts horizontal BarChart funnel
+- `web/app/(main)/dashboard/components/platform-breakdown.tsx` — Recharts BarChart per-platform
+- `web/app/(main)/dashboard/components/spending-chart.tsx` — Spending by category with cost-per-match/date
+- `web/app/(main)/dashboard/components/rizz-score-card.tsx` — Circular gauge with trend arrow
+- `web/app/(main)/dashboard/components/trend-card.tsx` — Stat card with week-over-week trend
+- `web/app/(main)/dashboard/components/dashboard-live.tsx` — Platform stats table + text funnel (currently used in dashboard)
+- `web/lib/rizz.ts` — Rizz Score calculation utilities
+- `recharts@2.15.4` — Already installed
 
-## DB Schema Changes
+## Codebase Patterns
 
-### New table: `clapcheeks_conversation_stats`
-```sql
-create table if not exists public.clapcheeks_conversation_stats (
-  id uuid default gen_random_uuid() primary key,
-  user_id uuid references auth.users(id) on delete cascade not null,
-  date date not null,
-  platform text not null,
-  messages_sent int default 0,
-  messages_received int default 0,
-  conversations_started int default 0,
-  conversations_replied int default 0,  -- they replied to our opener
-  conversations_ghosted int default 0,  -- no reply after 48h
-  avg_response_time_mins int,           -- average time to get reply
-  created_at timestamptz default now() not null,
-  unique(user_id, date, platform)
-);
+- Route group: `(main)` with Navbar + Footer layout
+- Dashboard page is a server component at `web/app/(main)/dashboard/page.tsx`
+- Auth pattern: `const supabase = await createClient(); const { data: { user } } = await supabase.auth.getUser(); if (!user) redirect('/login')`
+- Dark theme: `bg-black`, `bg-white/5 border border-white/10 rounded-xl`, brand colors `brand-400` through `brand-700`, `text-white/40` for muted
+- Dashboard header has inline nav links (Conversation AI, Billing, Sign out) — NOT the global Navbar
+- Client components use `'use client'` directive
+- Supabase table: `clapcheeks_analytics_daily`, `clapcheeks_conversation_stats`, `clapcheeks_spending`
+</context>
 
-alter table clapcheeks_conversation_stats enable row level security;
--- RLS: users can view/insert/update own rows (same pattern as other tables)
-```
+<tasks>
 
-### New table: `clapcheeks_spending`
-```sql
-create table if not exists public.clapcheeks_spending (
-  id uuid default gen_random_uuid() primary key,
-  user_id uuid references auth.users(id) on delete cascade not null,
-  date date not null,
-  platform text,            -- nullable (spending can be general dating)
-  category text not null check (category in ('date', 'subscription', 'boost', 'gift', 'other')),
-  amount numeric(10,2) not null,
-  description text,
-  created_at timestamptz default now() not null
-);
+<task type="auto">
+  <name>Task 1: Add date range support to analytics API and wire charts into dashboard</name>
+  <files>
+    web/app/api/analytics/summary/route.ts
+    web/app/(main)/dashboard/page.tsx
+    web/app/(main)/dashboard/components/dashboard-charts.tsx
+  </files>
+  <action>
+1. **Update `/api/analytics/summary/route.ts`** to accept `?days=7|30|90` query param:
+   - Import `NextRequest` and change `GET()` to `GET(request: NextRequest)`
+   - Parse `request.nextUrl.searchParams.get('days')` — default to 30
+   - Validate: only allow 7, 30, 90 (fall back to 30 for invalid values)
+   - Replace hardcoded `thirtyDaysAgo` with dynamic date calculation based on days param
+   - Keep the week-over-week trend logic (always compares last 7 vs previous 7, regardless of range)
 
-create index idx_spending_user_date on clapcheeks_spending(user_id, date);
-alter table clapcheeks_spending enable row level security;
-```
+2. **Wire `DashboardCharts` into `dashboard/page.tsx`**:
+   - Import `DashboardCharts` from `./components/dashboard-charts`
+   - Add `<DashboardCharts initialData={null} />` AFTER the existing `<DashboardLive>` section and BEFORE the "Elite Features" section
+   - The DashboardCharts component already handles its own data fetching via `/api/analytics/summary`
+   - This gives the dashboard: platform table (DashboardLive) + Rizz Score + charts + funnel + spending (DashboardCharts)
 
-### View: `clapcheeks_rizz_score` (computed)
-```sql
--- Materialized or computed in application code:
--- rizz_score = (reply_rate * 0.4 + date_conversion * 0.4 + match_rate * 0.2) * 100
-```
+3. **Update `dashboard-charts.tsx`** to accept an optional `days` prop:
+   - Add `days?: number` to `DashboardChartsProps`
+   - When fetching, append `?days=${days || 30}` to the fetch URL
+   - Re-fetch when `days` prop changes (add to useEffect dependency array)
+  </action>
+  <verify>
+    - `curl -s 'http://localhost:3000/api/analytics/summary?days=7' | jq '.totals'` returns data
+    - `curl -s 'http://localhost:3000/api/analytics/summary?days=90' | jq '.totals'` returns data
+    - Dashboard page at `/dashboard` shows the DashboardCharts section with Rizz Score, charts, funnel, and spending below the platform table
+  </verify>
+  <done>
+    API accepts days query param (7, 30, 90). Dashboard page renders all analytics charts via DashboardCharts component. Both DashboardLive (table) and DashboardCharts (visual charts) are visible on the dashboard.
+  </done>
+</task>
 
-## API Endpoints
+<task type="auto">
+  <name>Task 2: Create dedicated analytics page with date range picker</name>
+  <files>
+    web/app/(main)/dashboard/components/date-range-picker.tsx
+    web/app/(main)/analytics/page.tsx
+    web/app/(main)/dashboard/page.tsx
+  </files>
+  <action>
+1. **Create `date-range-picker.tsx`** in `web/app/(main)/dashboard/components/`:
+   - `'use client'` component
+   - Props: `{ value: number; onChange: (days: number) => void }`
+   - Render 3 pill buttons: "7d", "30d", "90d"
+   - Active pill: `bg-brand-600 text-white`, inactive: `bg-white/5 text-white/50 hover:bg-white/10 border border-white/10`
+   - Use `rounded-lg px-3 py-1.5 text-xs font-medium` sizing
+   - Wrap in `flex items-center gap-2`
 
-All data fetching happens via Supabase client in server components. No custom API routes needed for read operations.
+2. **Create `/analytics` page** at `web/app/(main)/analytics/page.tsx`:
+   - `'use client'` page (needs useState for date range, fetch for data)
+   - Import `DateRangePicker`, `DashboardCharts` (from `../dashboard/components/`)
+   - Layout: dark bg matching dashboard (`min-h-screen bg-black px-6 py-8`)
+   - Header: "Analytics" title with gradient text, back link to `/dashboard`
+   - DateRangePicker at top right, default to 30
+   - DashboardCharts component with `days` prop from state
+   - Add TrendCard row at top showing: Total Swipes, Matches, Dates Booked, Match Rate (fetch these from the same API response)
+   - Import TrendCard from `../dashboard/components/trend-card`
+   - Page metadata via head tag or just keep it simple as client component
 
-### Server Actions (in `app/(main)/dashboard/actions.ts`)
-- `getAnalyticsSummary(userId, dateRange)` -- Aggregated stats for the selected period
-- `getTimeSeriesData(userId, dateRange, metric)` -- Daily data points for charting
-- `getPlatformBreakdown(userId, dateRange)` -- Per-platform stats
-- `getRizzScore(userId)` -- Computed Rizz Score with component breakdown
-- `getWeekOverWeekTrends(userId)` -- Current vs previous week comparison
-- `getSpendingSummary(userId, dateRange)` -- Spending by category
+3. **Add "Analytics" nav link** to `dashboard/page.tsx`:
+   - In the dashboard header's nav links row (where "Conversation AI" and "Billing" links are), add an "Analytics" link to `/analytics`
+   - Use same styling as existing nav links: `text-white/40 hover:text-white/70 text-xs bg-white/5 hover:bg-white/10 border border-white/10 px-3 py-1.5 rounded-lg transition-all`
+   - Place it before "Conversation AI"
+  </action>
+  <verify>
+    - Navigate to `/analytics` — page loads with date range picker and all charts
+    - Click "7d" button — charts re-render with 7-day data
+    - Click "90d" button — charts re-render with 90-day data
+    - Dashboard at `/dashboard` has "Analytics" link in header nav
+    - Clicking "Analytics" link navigates to `/analytics`
+    - Mobile responsive: charts stack vertically on narrow screens
+  </verify>
+  <done>
+    Dedicated /analytics page exists with date range picker (7d/30d/90d), all chart components (Rizz Score, swipe/match trend, platform breakdown, conversion funnel, spending), and trend stat cards. Dashboard has "Analytics" nav link. Date range selection updates chart data dynamically.
+  </done>
+</task>
 
-### Spending tracking API route
-- `POST /api/spending` -- Log a spending entry (called from local agent)
+</tasks>
 
-## Frontend Components
+<verification>
+1. Dashboard at `/dashboard`:
+   - Shows existing stats grid, agent status, DashboardLive table
+   - Shows DashboardCharts section (Rizz Score, area chart, platform bar chart, funnel, spending)
+   - Has "Analytics" link in header nav
+2. Analytics page at `/analytics`:
+   - Date range picker with 7d/30d/90d options
+   - TrendCard row with key metrics
+   - Full chart suite (Rizz Score, swipe/match area chart, platform breakdown, conversion funnel, spending chart)
+   - Changing date range updates all charts
+3. API at `/api/analytics/summary`:
+   - `?days=7` returns 7 days of data
+   - `?days=30` returns 30 days (default)
+   - `?days=90` returns 90 days
+   - Invalid/missing days param defaults to 30
+4. All pages mobile responsive
+5. Dark theme consistent with rest of app
+</verification>
 
-### New file structure
-```
-web/app/(main)/dashboard/
-  page.tsx                    -- Server component, data fetching, layout
-  actions.ts                  -- Server actions for data queries
-  components/
-    analytics-charts.tsx      -- Client component: time series line/area charts
-    rizz-score-card.tsx       -- Client component: circular gauge + breakdown
-    platform-breakdown.tsx    -- Client component: bar chart per platform
-    trend-card.tsx            -- Stat card with trend arrow (week-over-week)
-    spending-chart.tsx        -- Client component: spending by category pie/bar
-    conversion-funnel.tsx     -- Client component: swipes -> matches -> convos -> dates
-    date-range-picker.tsx     -- Client component: 7d / 30d / 90d / all time toggle
-```
+<success_criteria>
+- Analytics charts visible on main dashboard (DashboardCharts wired in)
+- Dedicated /analytics page accessible from dashboard nav
+- Date range picker functional (7d, 30d, 90d)
+- Conversion funnel shows rates at each stage
+- Cost per date and cost per match visible
+- Rizz Score gauge with trend arrow displayed
+- All styling matches existing dark aesthetic
+</success_criteria>
 
-### Component details
-
-**`analytics-charts.tsx`** (client)
-- Recharts `<AreaChart>` for swipes/matches over time
-- Recharts `<LineChart>` for conversations/dates over time
-- Responsive container, dark theme (bg transparent, white/brand axis colors)
-- Tooltip with dark background matching brand
-
-**`rizz-score-card.tsx`** (client)
-- Circular progress gauge showing 0-100 score
-- Color coded: 0-30 red, 31-60 yellow, 61-100 green/brand
-- Breakdown below: reply rate %, date conversion %, match rate %
-- Each sub-metric shows its own mini trend arrow
-
-**`trend-card.tsx`** (server-compatible)
-- Replaces current plain stat cards
-- Shows: value, label, trend arrow (up/down/flat), percentage change
-- Green for improvement, red for decline, gray for <2% change
-
-**`conversion-funnel.tsx`** (client)
-- Horizontal funnel: Swipes Right -> Matches -> Conversations -> Dates
-- Shows conversion rate between each step
-- Uses Recharts `<BarChart>` in horizontal mode or custom SVG
-
-**`date-range-picker.tsx`** (client)
-- Simple button group: 7d | 30d | 90d | All
-- Updates URL search params, triggers server re-fetch
-- Styled as pill buttons matching brand
-
-## Implementation Steps
-
-### Step 1: Install dependencies
-```bash
-cd web && npm install recharts
-```
-
-### Step 2: Create DB migration
-- Write migration SQL for `clapcheeks_conversation_stats` and `clapcheeks_spending`
-- Add RLS policies matching existing pattern
-- Add to `supabase/migrations/`
-
-### Step 3: Create server actions (`actions.ts`)
-- Query `outward_analytics_daily` for core metrics
-- Query `clapcheeks_conversation_stats` for reply rates
-- Query `clapcheeks_spending` for spending data
-- Compute Rizz Score from aggregated data
-- Compute week-over-week trends
-
-### Step 4: Build chart components
-- Start with `analytics-charts.tsx` (most visible)
-- Then `rizz-score-card.tsx`, `trend-card.tsx`
-- Then `platform-breakdown.tsx`, `conversion-funnel.tsx`
-- Then `spending-chart.tsx`
-- All use dark theme: `stroke="#e879f9"` (brand-400), dark tooltips, white/40 axis labels
-
-### Step 5: Build date range picker
-- URL search param `?range=7d|30d|90d|all`
-- Default to 30d (matching current behavior)
-
-### Step 6: Rebuild dashboard page
-- Replace current stats grid with new `<TrendCard>` components
-- Add chart sections below stats
-- Add Rizz Score card in prominent position (top right or hero area)
-- Add platform breakdown section
-- Add spending section
-- Responsive: stack charts on mobile, 2-col on desktop
-
-### Step 7: Add spending API route
-- `POST /api/spending` with auth validation
-- Used by local agent to log date expenses
-
-## Risks and Mitigations
-
-| Risk | Impact | Mitigation |
-|------|--------|------------|
-| Recharts SSR issues | Charts won't render server-side | Use `"use client"` directive on all chart components, dynamic import with `ssr: false` if needed |
-| Empty state (new users) | Ugly empty charts | Show placeholder state with "Install agent to start tracking" message when no data |
-| Performance with large date ranges | Slow queries | Add composite indexes on (user_id, date), limit to 90d max for charts, aggregate older data |
-| Rizz Score edge cases | Division by zero | Default to 0 when denominator is 0, show "Not enough data" when < 7 days of data |
-| Dark theme chart styling | Recharts defaults to light theme | Custom theme object passed to all chart components, brand color palette |
+<output>
+After completion, create `.planning/milestone-4/phase-16-analytics/16-01-SUMMARY.md`
+</output>
