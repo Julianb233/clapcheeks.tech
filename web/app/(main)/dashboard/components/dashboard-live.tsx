@@ -197,7 +197,7 @@ export default function DashboardLive({ initialData, hasAgent }: DashboardLivePr
                 <span className="text-white font-bold text-lg">{stage.value.toLocaleString()}</span>
                 <span className="text-white/50 text-xs mt-0.5">{stage.label}</span>
                 {i > 0 && funnelStages[i - 1].value > 0 && (
-                  <span className="text-brand-400 text-[10px] mt-1 font-medium">
+                  <span className="text-purple-400 text-[10px] mt-1 font-medium">
                     {pct(stage.value, funnelStages[i - 1].value)}
                   </span>
                 )}
@@ -232,7 +232,7 @@ export default function DashboardLive({ initialData, hasAgent }: DashboardLivePr
               <tr className="border-b border-white/10 bg-white/[0.03]">
                 <td className="py-2.5 pr-4 font-semibold text-white">Total</td>
                 <td className="py-2.5 px-3 text-right font-semibold text-white">{todayTotals.swipes.toLocaleString()}</td>
-                <td className="py-2.5 px-3 text-right font-semibold text-brand-400">{todayTotals.matches.toLocaleString()}</td>
+                <td className="py-2.5 px-3 text-right font-semibold text-purple-400">{todayTotals.matches.toLocaleString()}</td>
                 <td className="py-2.5 px-3 text-right font-semibold text-white">{todayTotals.conversations.toLocaleString()}</td>
                 <td className="py-2.5 px-3 text-right font-semibold text-white">{todayTotals.dates_booked.toLocaleString()}</td>
                 <td className="py-2.5 pl-3 text-right font-semibold text-white">
@@ -248,7 +248,7 @@ export default function DashboardLive({ initialData, hasAgent }: DashboardLivePr
                     </div>
                   </td>
                   <td className="py-2.5 px-3 text-right text-white/70">{row.swipes > 0 ? row.swipes.toLocaleString() : '—'}</td>
-                  <td className="py-2.5 px-3 text-right text-brand-400 font-medium">{row.matches > 0 ? row.matches.toLocaleString() : '—'}</td>
+                  <td className="py-2.5 px-3 text-right text-purple-400 font-medium">{row.matches > 0 ? row.matches.toLocaleString() : '—'}</td>
                   <td className="py-2.5 px-3 text-right text-white/70">{row.conversations > 0 ? row.conversations.toLocaleString() : '—'}</td>
                   <td className="py-2.5 px-3 text-right text-white/70">{row.dates_booked > 0 ? row.dates_booked.toLocaleString() : '—'}</td>
                   <td className="py-2.5 pl-3 text-right text-white/70">
