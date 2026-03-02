@@ -67,9 +67,11 @@ export async function POST(request: NextRequest) {
       const subscription = event.data.object as Stripe.Subscription
       const customerId = subscription.customer as string
 
-      // Determine plan from price lookup key
-      const priceId = subscription.items.data[0]?.price?.lookup_key
-      const plan = priceId === 'elite_monthly' ? 'elite' : 'base'
+      // Determine plan from price lookup key (format: plan_interval e.g. "pro_monthly")
+      const lookupKey = subscription.items.data[0]?.price?.lookup_key || ''
+      const planFromKey = lookupKey.split('_')[0] || 'base'
+      const validPlans = ['base', 'starter', 'pro', 'elite']
+      const plan = validPlans.includes(planFromKey) ? planFromKey : 'base'
 
       await supabaseAdmin.from('profiles').update({
         subscription_status: subscription.status,

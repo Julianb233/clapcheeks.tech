@@ -23,7 +23,7 @@ export async function getPlanInfo(userId?: string): Promise<PlanInfo | null> {
   return {
     plan,
     subscriptionStatus: profile.subscription_status || 'inactive',
-    isActive: profile.subscription_status === 'active',
+    isActive: profile.subscription_status === 'active' || profile.subscription_status === 'trialing',
     limits: getPlanLimits(plan),
   }
 }
