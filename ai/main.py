@@ -94,6 +94,7 @@ class ReplyRequest(BaseModel):
     style_description: str
     contact_name: str | None = None
     calendar_context: str | None = None
+    persuasion_context: str | None = None
 
 
 @app.post("/reply/suggest")
@@ -108,6 +109,8 @@ async def suggest_reply(req: ReplyRequest):
     ]
     if req.calendar_context:
         system_parts.append(f"Calendar availability: {req.calendar_context}. Naturally weave in a date suggestion if appropriate.")
+    if req.persuasion_context:
+        system_parts.append(f"\nPersuasion framework:\n{req.persuasion_context}")
     system_parts.append("Reply with ONLY the message text — no quotes, no preamble.")
     system = "\n".join(system_parts)
 

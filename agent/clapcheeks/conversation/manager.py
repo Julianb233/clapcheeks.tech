@@ -27,6 +27,32 @@ class ConversationManager:
             return style_file.read_text().strip()
         return "casual, direct, genuine, not trying too hard"
 
+    def _analyze_match_style(self, messages: list[dict]) -> str:
+        """Analyze match's writing style and return description for AI prompt."""
+        try:
+            from clapcheeks.nlp.style_analyzer import analyze_messages
+            profile = analyze_messages(messages, role="user")
+            return profile.to_prompt_description()
+        except Exception:
+            return "casual and conversational"
+
+    def _get_persuasion_context(self, messages: list[dict]) -> str:
+        """Get stage-appropriate persuasion instructions."""
+        try:
+            from clapcheeks.nlp.persuasion import detect_stage, PersuasionContext, get_persuasion_instructions
+            from clapcheeks.nlp.style_analyzer import analyze_messages
+            stage = detect_stage(messages)
+            profile = analyze_messages(messages, role="user")
+            ctx = PersuasionContext(
+                stage=stage,
+                match_energy=profile.energy_level,
+                match_formality=profile.formality_score,
+                days_since_match=0,
+            )
+            return get_persuasion_instructions(ctx)
+        except Exception:
+            return ""
+
     def _get_free_slots(self) -> list[dict]:
         try:
             from clapcheeks.calendar.client import get_free_slots
@@ -50,14 +76,25 @@ class ConversationManager:
 
     def suggest_reply(self, conversation: list[dict], contact_name: str | None = None, calendar_context: str | None = None) -> str | None:
         try:
+            # Analyze match's style
+            match_style = self._analyze_match_style(conversation)
+            persuasion = self._get_persuasion_context(conversation)
+
+            # Build rich style description
+            style_desc = self._style
+            if match_style:
+                style_desc = f"Your style: {self._style}. Their style: {match_style}. Mirror their energy."
+
             payload = {
                 "platform": self._platform,
                 "conversation": conversation,
-                "style_description": self._style,
+                "style_description": style_desc,
                 "contact_name": contact_name,
+                "persuasion_context": persuasion,
             }
             if calendar_context:
                 payload["calendar_context"] = calendar_context
+
             resp = requests.post(f"{self._ai_url}/reply/suggest", json=payload, timeout=15)
             resp.raise_for_status()
             return resp.json().get("suggestion", "").strip()
