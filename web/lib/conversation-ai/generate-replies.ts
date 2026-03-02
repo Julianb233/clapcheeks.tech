@@ -3,8 +3,16 @@ import { SupabaseClient } from '@supabase/supabase-js'
 
 interface ReplySuggestion {
   text: string
-  tone: 'playful' | 'direct' | 'flirty'
+  tone: 'witty' | 'warm' | 'direct'
+  reasoning: string
   confidence: number
+}
+
+const PLATFORM_TONE: Record<string, string> = {
+  Tinder: 'Keep it playful and fun — Tinder conversations are lighter, humor works best.',
+  Bumble: 'Be slightly more direct and confident — Bumble users appreciate straightforwardness.',
+  Hinge: 'Keep it casual and warm — Hinge conversations tend to be more relaxed and genuine.',
+  iMessage: 'Match their energy — iMessage is personal, mirror their texting style closely.',
 }
 
 export async function generateReplies(
@@ -12,7 +20,8 @@ export async function generateReplies(
   userId: string,
   conversationContext: string,
   matchName: string,
-  platform: string
+  platform: string,
+  profileContext?: string
 ): Promise<ReplySuggestion[]> {
   // Fetch voice profile
   const { data: voiceProfile } = await supabase
@@ -28,25 +37,41 @@ Sample phrases they use: ${JSON.stringify(voiceProfile.sample_phrases || [])}
 Style details: ${JSON.stringify(voiceProfile.profile_data || {})}`
     : 'No voice profile available. Use a casual, friendly tone.'
 
+  const platformTone = PLATFORM_TONE[platform] || ''
+
   const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+
+  const profileSection = profileContext
+    ? `\nProfile context about the user: ${profileContext}`
+    : ''
 
   const message = await anthropic.messages.create({
     model: 'claude-sonnet-4-6',
-    max_tokens: 512,
+    max_tokens: 768,
     system: `You are a dating conversation assistant for Outward.
 Generate reply suggestions that match the user's natural voice.
 
 ${voiceContext}
 
+Research-backed dating strategy:
+- Ask for a date after ~7 messages. Skip asking for phone number first (60% chance date never happens if you ask for number before date).
+- Reference something specific from their messages — shows you're paying attention.
+- Keep messages short — dating app messages under 160 chars get 2x more responses.
+- Never be creepy, desperate, or aggressive.
+
+Platform tone for ${platform}: ${platformTone}
+
 Rules:
 - Match the user's texting style exactly (length, emoji, capitalization, formality)
-- Generate 3 replies with different tones: playful, direct, flirty
-- Keep replies natural -- they should sound like the user, not an AI
+- Generate 3 replies with different styles:
+  1. witty — clever, humorous, shows personality
+  2. warm — genuine, caring, emotionally engaged
+  3. direct — confident, straightforward, no fluff
+- Each reply includes a "reasoning" field explaining why that reply works for this conversation
+- Keep replies natural — they should sound like the user, not an AI
 - Consider conversation context and momentum
 - If the other person asked a question, answer it
-- Never be creepy, desperate, or aggressive
-- Keep it concise -- each reply max 160 characters
-- Dating app messages should be short
+- Each reply max 160 characters
 
 Return ONLY a JSON array of 3 suggestions, no other text.`,
     messages: [
@@ -54,10 +79,10 @@ Return ONLY a JSON array of 3 suggestions, no other text.`,
         role: 'user',
         content: `Conversation on ${platform} with ${matchName}:
 
-${conversationContext}
+${conversationContext}${profileSection}
 
 Generate 3 reply options.
-Return JSON: [{ "text": "reply", "tone": "playful|direct|flirty", "confidence": 0.0-1.0 }]`,
+Return JSON: [{ "text": "reply", "tone": "witty|warm|direct", "reasoning": "why this works", "confidence": 0.0-1.0 }]`,
       },
     ],
   })

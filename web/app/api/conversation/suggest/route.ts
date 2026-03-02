@@ -33,7 +33,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json()
-    const { conversationContext, matchName, platform } = body
+    const { conversationContext, matchName, platform, profile_context } = body
 
     if (!conversationContext || !matchName || !platform) {
       return NextResponse.json(
@@ -47,7 +47,8 @@ export async function POST(request: NextRequest) {
       user.id,
       conversationContext,
       matchName,
-      platform
+      platform,
+      profile_context
     )
 
     // Increment usage after successful suggestion

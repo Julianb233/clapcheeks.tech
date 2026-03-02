@@ -6,7 +6,8 @@ import VoiceProfileSetup from './components/voice-profile-setup'
 
 interface Suggestion {
   text: string
-  tone: 'playful' | 'direct' | 'flirty'
+  tone: 'witty' | 'warm' | 'direct'
+  reasoning: string
   confidence: number
 }
 
@@ -18,9 +19,9 @@ interface VoiceProfile {
 }
 
 const toneColors: Record<string, string> = {
-  playful: 'bg-blue-500/20 text-blue-300 border-blue-500/30',
+  witty: 'bg-blue-500/20 text-blue-300 border-blue-500/30',
+  warm: 'bg-amber-500/20 text-amber-300 border-amber-500/30',
   direct: 'bg-green-500/20 text-green-300 border-green-500/30',
-  flirty: 'bg-pink-500/20 text-pink-300 border-pink-500/30',
 }
 
 const platforms = ['Tinder', 'Bumble', 'Hinge', 'iMessage']
@@ -246,7 +247,7 @@ export default function ConversationPage() {
                 <div className="flex items-center justify-between mb-2">
                   <span
                     className={`text-[10px] font-medium uppercase tracking-wider px-2 py-0.5 rounded-full border ${
-                      toneColors[s.tone] || toneColors.playful
+                      toneColors[s.tone] || toneColors.witty
                     }`}
                   >
                     {s.tone}
@@ -263,6 +264,9 @@ export default function ConversationPage() {
                   </button>
                 </div>
                 <p className="text-white text-sm">{s.text}</p>
+                {s.reasoning && (
+                  <p className="text-white/30 text-xs mt-1.5">{s.reasoning}</p>
+                )}
                 <div className="mt-2 h-1 bg-white/5 rounded-full overflow-hidden">
                   <div
                     className="h-full bg-brand-500/50 rounded-full"
