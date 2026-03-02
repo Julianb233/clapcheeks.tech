@@ -1,12 +1,24 @@
 import Link from 'next/link'
 import type { Metadata } from 'next'
+import { createClient } from '@/lib/supabase/server'
+import { logout } from '@/app/auth/actions'
 
 export const metadata: Metadata = {
   title: 'Dashboard — Outward',
   description: 'Your Outward AI dating co-pilot dashboard.',
 }
 
-export default function Dashboard() {
+export default async function Dashboard() {
+  const supabase = createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  const displayName =
+    user?.user_metadata?.full_name ??
+    user?.email?.split('@')[0] ??
+    'there'
+
   return (
     <div className="min-h-screen bg-black flex items-center justify-center px-6">
       {/* Background glow */}
@@ -17,11 +29,26 @@ export default function Dashboard() {
         />
       </div>
 
-      <div className="relative text-center max-w-lg">
-        {/* Logo */}
-        <div className="flex items-center justify-center gap-2 mb-8">
-          <span className="text-2xl font-bold gradient-text">Outward</span>
-          <span className="text-xs text-white/30 font-mono bg-white/5 px-2 py-0.5 rounded">beta</span>
+      <div className="relative text-center max-w-lg w-full">
+        {/* Header bar */}
+        <div className="flex items-center justify-between mb-8">
+          <div className="flex items-center gap-2">
+            <span className="text-2xl font-bold gradient-text">Outward</span>
+            <span className="text-xs text-white/30 font-mono bg-white/5 px-2 py-0.5 rounded">beta</span>
+          </div>
+          <div className="flex items-center gap-3">
+            {user?.email && (
+              <span className="text-white/30 text-xs hidden sm:block">{user.email}</span>
+            )}
+            <form action={logout}>
+              <button
+                type="submit"
+                className="text-white/40 hover:text-white/70 text-xs bg-white/5 hover:bg-white/10 border border-white/10 px-3 py-1.5 rounded-lg transition-all"
+              >
+                Sign out
+              </button>
+            </form>
+          </div>
         </div>
 
         {/* Status badge */}
@@ -30,7 +57,9 @@ export default function Dashboard() {
           <span className="text-brand-300 text-xs font-medium">Local agent not detected</span>
         </div>
 
-        <h1 className="text-3xl font-bold text-white mb-3">Your Dashboard</h1>
+        <h1 className="text-3xl font-bold text-white mb-3">
+          Hey {displayName}, welcome to Outward
+        </h1>
         <p className="text-white/50 text-base leading-relaxed mb-8">
           Install the Outward local agent to connect your dating apps and start tracking your analytics in real time.
         </p>
