@@ -1,0 +1,14 @@
+{
+  "expo": {
+    "name": "Clap Cheeks",
+    "slug": "clapcheeks",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "scheme": "clapcheeks",
+    "userInterfaceStyle": "dark",
+    "splash": { "resizeMode": "contain", "backgroundColor": "#0a0a0f" },
+    "ios": { "supportsTablet": false, "bundleIdentifier": "tech.clapcheeks.app" },
+    "android": { "package": "tech.clapcheeks.app", "adaptiveIcon": { "backgroundColor": "#0a0a0f" } }
+  }
+}
