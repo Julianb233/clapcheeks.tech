@@ -3,7 +3,7 @@ import Pricing from '@/components/sections/pricing'
 import CTA from '@/components/sections/cta'
 
 export const metadata: Metadata = {
-  title: 'Pricing — Outward',
+  title: 'Pricing — Clap Cheeks',
   description:
     'Simple, transparent pricing for your AI dating co-pilot. Start free for 7 days, no credit card required.',
 }

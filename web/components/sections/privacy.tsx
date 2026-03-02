@@ -13,7 +13,7 @@ const privacyPoints = [
     ),
     title: 'Messages never leave your device',
     description:
-      'Every iMessage, Tinder DM, Bumble conversation, and Hinge exchange is processed locally. Outward uses on-device LLMs — your words never touch our servers.',
+      'Every iMessage, Tinder DM, Bumble conversation, and Hinge exchange is processed locally. Clap Cheeks uses on-device LLMs — your words never touch our servers.',
   },
   {
     icon: (
@@ -48,7 +48,7 @@ const privacyPoints = [
     ),
     title: 'Open audit log',
     description:
-      'Every action Outward takes is logged locally. Review exactly what was sent, what was swiped, and what was scheduled — in plain text, any time you want.',
+      'Every action Clap Cheeks takes is logged locally. Review exactly what was sent, what was swiped, and what was scheduled — in plain text, any time you want.',
   },
 ]
 
@@ -78,7 +78,7 @@ export default function Privacy() {
             </h2>
 
             <p className="text-white/50 text-lg leading-relaxed mb-8">
-              Dating is intimate. We built Outward from day one assuming we should never see your
+              Dating is intimate. We built Clap Cheeks from day one assuming we should never see your
               data. Not because of regulation — because it&apos;s the right thing to do.
             </p>
 
@@ -98,12 +98,12 @@ export default function Privacy() {
                 </div>
                 <div>
                   <p className="text-white/80 text-sm leading-relaxed italic">
-                    &ldquo;Your messages, matches, and conversations never leave your device. Outward runs
+                    &ldquo;Your messages, matches, and conversations never leave your device. Clap Cheeks runs
                     entirely on your Mac. The only data synced to our servers is anonymized metrics
                     (swipe counts, conversion rates) to power your dashboard. We will never read
                     your messages.&rdquo;
                   </p>
-                  <p className="text-white/30 text-xs mt-2">— Outward Privacy Commitment</p>
+                  <p className="text-white/30 text-xs mt-2">— Clap Cheeks Privacy Commitment</p>
                 </div>
               </div>
             </div>

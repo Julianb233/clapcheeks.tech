@@ -5,7 +5,7 @@ import './globals.css'
 const inter = Inter({ subsets: ['latin'], variable: '--font-inter' })
 
 export const metadata: Metadata = {
-  title: 'Outward — Your AI Dating Co-Pilot',
+  title: 'Clap Cheeks — Your AI Dating Co-Pilot',
   description:
     'AI-powered dating assistant. Automate swipes, manage conversations, track analytics, and get coaching — all running privately on your Mac.',
   keywords: [
@@ -18,15 +18,15 @@ export const metadata: Metadata = {
     'dating co-pilot',
   ],
   openGraph: {
-    title: 'Outward — Your AI Dating Co-Pilot',
+    title: 'Clap Cheeks — Your AI Dating Co-Pilot',
     description: 'AI-powered dating assistant that runs locally on your Mac.',
     url: 'https://clapcheeks.tech',
-    siteName: 'Outward',
+    siteName: 'Clap Cheeks',
     type: 'website',
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'Outward — Your AI Dating Co-Pilot',
+    title: 'Clap Cheeks — Your AI Dating Co-Pilot',
     description: 'AI-powered dating assistant that runs locally on your Mac.',
   },
   robots: {
