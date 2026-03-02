@@ -1,7 +1,5 @@
 import { redirect } from "next/navigation"
 import { createClient } from "@/lib/supabase/server"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
 import { ArrowLeft, Lock, Shield, CheckCircle, Database, Eye, Trash2 } from "lucide-react"
 import Link from "next/link"
 
@@ -17,18 +15,19 @@ export default async function PrivacyPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-pink-50 via-purple-50 to-teal-50">
+    <div className="min-h-screen bg-black">
       {/* Header */}
-      <header className="bg-white/80 backdrop-blur border-b border-purple-100 sticky top-0 z-50">
+      <header className="bg-black/90 backdrop-blur border-b border-white/8 sticky top-0 z-50">
         <div className="container mx-auto px-4 py-4">
           <div className="flex items-center gap-3">
-            <Button variant="ghost" size="icon" asChild>
-              <Link href="/home">
-                <ArrowLeft className="w-5 h-5" />
-                <span className="sr-only">Back</span>
-              </Link>
-            </Button>
-            <h1 className="text-2xl font-bold text-gray-800">Privacy & Data</h1>
+            <Link
+              href="/home"
+              className="text-white/40 hover:text-white/70 p-1.5 rounded-lg hover:bg-white/5 transition-all"
+              aria-label="Back to home"
+            >
+              <ArrowLeft className="w-5 h-5" />
+            </Link>
+            <h1 className="text-2xl font-bold text-white">Privacy & Data</h1>
           </div>
         </div>
       </header>
@@ -36,32 +35,28 @@ export default async function PrivacyPage() {
       <main className="container mx-auto px-4 py-8 max-w-4xl">
         <div className="space-y-6">
           {/* Privacy Guarantee */}
-          <Card className="border-0 bg-gradient-to-r from-teal-50 to-purple-50 shadow-lg">
-            <CardContent className="pt-6">
-              <div className="flex items-start gap-4">
-                <div className="w-12 h-12 rounded-full bg-teal-100 flex items-center justify-center flex-shrink-0">
-                  <Lock className="w-6 h-6 text-teal-600" />
-                </div>
-                <div className="flex-1">
-                  <h3 className="font-semibold text-gray-800 mb-2">Your data stays on your Mac</h3>
-                  <p className="text-sm text-gray-700">
-                    All messages, match profiles, and conversation history are processed locally by the Clapcheeks agent.
-                    Only anonymized metrics (swipe counts, match rates, spending totals) are synced to the cloud.
-                  </p>
-                </div>
+          <div className="bg-teal-900/20 border border-teal-500/30 rounded-xl p-5">
+            <div className="flex items-start gap-4">
+              <div className="w-12 h-12 rounded-full bg-teal-500/20 flex items-center justify-center flex-shrink-0">
+                <Lock className="w-6 h-6 text-teal-400" />
               </div>
-            </CardContent>
-          </Card>
+              <div className="flex-1">
+                <h3 className="font-semibold text-white mb-2">Your data stays on your Mac</h3>
+                <p className="text-sm text-white/60">
+                  All messages, match profiles, and conversation history are processed locally by the Clapcheeks agent.
+                  Only anonymized metrics (swipe counts, match rates, spending totals) are synced to the cloud.
+                </p>
+              </div>
+            </div>
+          </div>
 
           {/* What stays local */}
-          <Card className="border-0 bg-white/80 backdrop-blur shadow-lg">
-            <CardHeader>
-              <div className="flex items-center gap-2">
-                <Shield className="w-6 h-6 text-purple-600" />
-                <CardTitle>What Stays on Your Mac</CardTitle>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-3">
+          <div className="bg-white/[0.03] border border-white/[0.08] rounded-xl overflow-hidden">
+            <div className="px-5 py-4 border-b border-white/[0.06] flex items-center gap-2">
+              <Shield className="w-5 h-5 text-purple-400" />
+              <h2 className="text-white font-semibold">What Stays on Your Mac</h2>
+            </div>
+            <div className="p-5 space-y-3">
               {[
                 { title: "iMessage conversations", desc: "All chat history read and written by the agent" },
                 { title: "Match profiles", desc: "Names, photos, and bio data from Tinder, Bumble, Hinge" },
@@ -69,26 +64,24 @@ export default async function PrivacyPage() {
                 { title: "Date preferences", desc: "Your type, dealbreakers, and attraction signals" },
               ].map((item) => (
                 <div key={item.title} className="flex items-start gap-3">
-                  <CheckCircle className="w-5 h-5 text-green-600 flex-shrink-0 mt-0.5" />
+                  <CheckCircle className="w-5 h-5 text-green-400 flex-shrink-0 mt-0.5" />
                   <div>
-                    <h4 className="font-medium text-gray-800">{item.title}</h4>
-                    <p className="text-sm text-gray-600">{item.desc}</p>
+                    <h4 className="font-medium text-white">{item.title}</h4>
+                    <p className="text-sm text-white/50">{item.desc}</p>
                   </div>
                 </div>
               ))}
-            </CardContent>
-          </Card>
+            </div>
+          </div>
 
           {/* What syncs to cloud */}
-          <Card className="border-0 bg-white/80 backdrop-blur shadow-lg">
-            <CardHeader>
-              <div className="flex items-center gap-2">
-                <Database className="w-6 h-6 text-teal-600" />
-                <CardTitle>What Syncs to the Cloud</CardTitle>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <p className="text-sm text-gray-600 mb-4">Only anonymized aggregate metrics — never personal data.</p>
+          <div className="bg-white/[0.03] border border-white/[0.08] rounded-xl overflow-hidden">
+            <div className="px-5 py-4 border-b border-white/[0.06] flex items-center gap-2">
+              <Database className="w-5 h-5 text-teal-400" />
+              <h2 className="text-white font-semibold">What Syncs to the Cloud</h2>
+            </div>
+            <div className="p-5 space-y-3">
+              <p className="text-sm text-white/50 mb-4">Only anonymized aggregate metrics — never personal data.</p>
               {[
                 { title: "Swipe counts", desc: "Total swipes per platform, not who you swiped on" },
                 { title: "Match rates", desc: "Percentage only, not individual match names" },
@@ -96,36 +89,34 @@ export default async function PrivacyPage() {
                 { title: "Spending totals", desc: "Subscription costs tracked for ROI reporting" },
               ].map((item) => (
                 <div key={item.title} className="flex items-start gap-3">
-                  <Eye className="w-5 h-5 text-teal-600 flex-shrink-0 mt-0.5" />
+                  <Eye className="w-5 h-5 text-teal-400 flex-shrink-0 mt-0.5" />
                   <div>
-                    <h4 className="font-medium text-gray-800">{item.title}</h4>
-                    <p className="text-sm text-gray-600">{item.desc}</p>
+                    <h4 className="font-medium text-white">{item.title}</h4>
+                    <p className="text-sm text-white/50">{item.desc}</p>
                   </div>
                 </div>
               ))}
-            </CardContent>
-          </Card>
+            </div>
+          </div>
 
           {/* Delete account */}
-          <Card className="border-0 bg-white/80 backdrop-blur shadow-lg">
-            <CardHeader>
-              <div className="flex items-center gap-2">
-                <Trash2 className="w-6 h-6 text-red-600" />
-                <CardTitle>Delete Your Data</CardTitle>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <p className="text-gray-700">
+          <div className="bg-white/[0.03] border border-white/[0.08] rounded-xl overflow-hidden">
+            <div className="px-5 py-4 border-b border-white/[0.06] flex items-center gap-2">
+              <Trash2 className="w-5 h-5 text-red-400" />
+              <h2 className="text-white font-semibold">Delete Your Data</h2>
+            </div>
+            <div className="p-5 space-y-3">
+              <p className="text-white/60">
                 You can delete all cloud-stored data at any time. Local data on your Mac is always under your control.
               </p>
-              <Button variant="outline" className="border-red-300 text-red-600 hover:bg-red-50">
+              <button className="px-4 py-2 rounded-lg border border-red-500/30 text-red-400 hover:bg-red-900/20 transition-colors text-sm font-medium">
                 Delete Cloud Data
-              </Button>
-              <p className="text-xs text-gray-500">
+              </button>
+              <p className="text-xs text-white/30">
                 This only removes anonymized metrics from our servers. Your local agent data is unaffected.
               </p>
-            </CardContent>
-          </Card>
+            </div>
+          </div>
         </div>
       </main>
     </div>
