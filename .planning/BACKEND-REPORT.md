@@ -2,6 +2,20 @@
 
 ## Issues Found & Fixes Applied (Round 2 — DB Audit Follow-up)
 
+### 10. Referral Convert Route Uses Wrong Column Name (`referee_id` vs `referred_id`)
+- **File:** `web/app/api/referral/convert/route.ts:38`
+- **Issue:** Queries `.eq('referee_id', profile.id)` but the canonical column from migration 006 is `referred_id`. All other code (referrals page, API project) uses `referred_id`.
+- **Fix:** Changed to `.eq('referred_id', profile.id)`.
+
+### 11. Referral Convert RPC Parameter Name Mismatch
+- **File:** `web/app/api/referral/convert/route.ts:82`
+- **Issue:** Passes `{ user_id: ... }` to `increment_referral_credits` RPC, but the DB function parameter is `p_user_id`. Supabase RPC matches by parameter name, so this would fail at runtime with a "function not found" error.
+- **Fix:** Changed to `{ p_user_id: ... }`.
+
+---
+
+## Issues Found & Fixes Applied (Round 2 -- DB Audit Follow-up)
+
 ### 8. Webhook Not Syncing `subscription_tier` Column
 - **File:** `web/app/api/stripe/webhook/route.ts:56-61,76-79,86-89`
 - **Issue:** Webhook only updates `plan` column but admin pages read `subscription_tier`. The two columns drift out of sync, causing admin dashboard to show wrong plan info.
@@ -160,7 +174,7 @@ These tables are queried across the API routes (for db-engineer reference):
 
 RPC functions referenced:
 - `increment_usage(p_user_id, p_field, p_amount)`
-- `increment_referral_credits(user_id)`
+- `increment_referral_credits(p_user_id)`
 
 Storage buckets:
 - `weekly-reports`

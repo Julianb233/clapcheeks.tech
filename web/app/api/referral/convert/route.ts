@@ -35,7 +35,7 @@ export async function POST(request: NextRequest) {
   const { data: referral } = await supabaseAdmin
     .from('clapcheeks_referrals')
     .select('id, referrer_id, status')
-    .eq('referee_id', profile.id)
+    .eq('referred_id', profile.id)
     .eq('status', 'pending')
     .single()
 
@@ -79,7 +79,7 @@ export async function POST(request: NextRequest) {
 
   // Increment referrer's credit count
   await supabaseAdmin.rpc('increment_referral_credits', {
-    user_id: referral.referrer_id,
+    p_user_id: referral.referrer_id,
   })
 
   return NextResponse.json({ success: true })
