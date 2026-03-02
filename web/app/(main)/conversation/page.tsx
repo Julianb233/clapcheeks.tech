@@ -291,6 +291,7 @@ export default function ConversationPage() {
                         disabled={sending === index}
                         className="text-white/30 hover:text-brand-400 transition-colors p-1"
                         title="Send reply"
+                        aria-label="Send reply"
                       >
                         {sending === index ? (
                           <Loader2 className="w-4 h-4 animate-spin" />
@@ -302,6 +303,7 @@ export default function ConversationPage() {
                     <button
                       onClick={() => handleCopy(s.text, index)}
                       className="text-white/30 hover:text-white/70 transition-colors p-1"
+                      aria-label="Copy reply"
                     >
                       {copied === index ? (
                         <Check className="w-4 h-4 text-green-400" />

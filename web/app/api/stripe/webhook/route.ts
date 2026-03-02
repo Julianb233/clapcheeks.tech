@@ -53,10 +53,12 @@ export async function POST(request: NextRequest) {
       const session = event.data.object as Stripe.Checkout.Session
       const userId = session.client_reference_id || session.metadata?.user_id
       if (userId) {
+        const planValue = session.metadata?.plan || 'base'
         await supabaseAdmin.from('profiles').update({
           stripe_customer_id: session.customer as string,
           stripe_subscription_id: session.subscription as string,
-          plan: session.metadata?.plan || 'base',
+          plan: planValue,
+          subscription_tier: planValue,
           subscription_status: 'active',
         }).eq('id', userId)
       }
@@ -76,6 +78,7 @@ export async function POST(request: NextRequest) {
       await supabaseAdmin.from('profiles').update({
         subscription_status: subscription.status,
         plan,
+        subscription_tier: plan,
       }).eq('stripe_customer_id', customerId)
       break
     }
@@ -86,6 +89,7 @@ export async function POST(request: NextRequest) {
       await supabaseAdmin.from('profiles').update({
         subscription_status: 'inactive',
         plan: 'base',
+        subscription_tier: 'free',
       }).eq('stripe_customer_id', customerId)
       break
     }

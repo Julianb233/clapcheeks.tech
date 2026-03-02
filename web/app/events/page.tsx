@@ -19,7 +19,7 @@ export default async function DatesPage() {
 
   // Fetch upcoming dates synced from the local agent
   const { data: dates } = await supabase
-    .from("dates")
+    .from("clapcheeks_dates")
     .select("*")
     .eq("user_id", user.id)
     .gte("scheduled_at", new Date().toISOString())

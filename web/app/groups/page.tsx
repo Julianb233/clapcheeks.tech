@@ -19,7 +19,7 @@ export default async function ConversationsPage() {
 
   // Fetch active conversations synced from the local agent
   const { data: conversations } = await supabase
-    .from("conversations")
+    .from("clapcheeks_conversations")
     .select("*")
     .eq("user_id", user.id)
     .order("last_message_at", { ascending: false })

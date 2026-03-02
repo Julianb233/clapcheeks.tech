@@ -1,6 +1,20 @@
 # Backend Audit Report
 
-## Issues Found & Fixes Applied
+## Issues Found & Fixes Applied (Round 2 — DB Audit Follow-up)
+
+### 8. Webhook Not Syncing `subscription_tier` Column
+- **File:** `web/app/api/stripe/webhook/route.ts:56-61,76-79,86-89`
+- **Issue:** Webhook only updates `plan` column but admin pages read `subscription_tier`. The two columns drift out of sync, causing admin dashboard to show wrong plan info.
+- **Fix:** Webhook now updates BOTH `plan` and `subscription_tier` on all subscription events (checkout.session.completed, subscription.updated, subscription.deleted).
+
+### 9. Broken Table References in Page Components
+- **File:** `web/app/events/page.tsx:22` — queries `.from("dates")` which doesn't exist
+- **File:** `web/app/groups/page.tsx:22` — queries `.from("conversations")` which doesn't exist
+- **Fix:** Changed to `clapcheeks_dates` and `clapcheeks_conversations` respectively, matching the project's table naming convention.
+
+---
+
+## Issues Found & Fixes Applied (Round 1 — Initial Audit)
 
 ### 1. Debug Console Logs Leaking Supabase Credentials
 - **File:** `web/lib/supabase/client.ts:4-5`

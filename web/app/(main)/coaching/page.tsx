@@ -226,6 +226,7 @@ export default function CoachingPage() {
                   <div className="flex items-center gap-2">
                     <button
                       onClick={() => handleFeedback(index, true)}
+                      aria-label="Mark tip as helpful"
                       className={`p-1.5 rounded-md transition-colors ${
                         feedbackState[index] === true
                           ? 'bg-green-500/20 text-green-400'
@@ -236,6 +237,7 @@ export default function CoachingPage() {
                     </button>
                     <button
                       onClick={() => handleFeedback(index, false)}
+                      aria-label="Mark tip as not helpful"
                       className={`p-1.5 rounded-md transition-colors ${
                         feedbackState[index] === false
                           ? 'bg-red-500/20 text-red-400'

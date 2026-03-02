@@ -5,13 +5,7 @@ import type React from "react"
 import { useState, useRef } from "react"
 import { useRouter } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
-import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Textarea } from "@/components/ui/textarea"
 import { Camera, Upload, Shield, AlertCircle } from "lucide-react"
-import { Alert, AlertDescription } from "@/components/ui/alert"
 
 export default function CompleteProfilePage() {
   const router = useRouter()
@@ -133,99 +127,116 @@ export default function CompleteProfilePage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-pink-50 via-purple-50 to-teal-50 p-6">
-      <div className="mx-auto max-w-2xl">
-        <Card className="shadow-xl border-0">
-          <CardHeader className="space-y-2 text-center">
-            <div className="mx-auto w-16 h-16 bg-gradient-to-r from-pink-500 to-purple-600 rounded-full flex items-center justify-center mb-4">
+    <div className="min-h-screen bg-black px-6 py-10">
+      {/* Background orbs */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none">
+        <div
+          className="orb floating w-[500px] h-[500px] bg-brand-700"
+          style={{ top: '-10%', right: '-10%' }}
+        />
+        <div
+          className="orb floating-slow w-72 h-72 bg-pink-700"
+          style={{ bottom: '10%', left: '-5%' }}
+        />
+      </div>
+
+      <div className="relative mx-auto max-w-2xl">
+        <div className="bg-white/[0.03] border border-white/[0.12] rounded-2xl glow-border shadow-2xl shadow-brand-900/20 overflow-hidden">
+          <div className="p-8 pb-0 text-center">
+            <div className="mx-auto w-16 h-16 bg-gradient-to-r from-brand-500 to-brand-700 rounded-full flex items-center justify-center mb-6">
               <Shield className="w-8 h-8 text-white" />
             </div>
-            <CardTitle className="text-3xl font-bold bg-gradient-to-r from-pink-500 to-purple-600 bg-clip-text text-transparent">
+            <h1 className="text-2xl font-bold text-white mb-2">
               Complete Your Profile
-            </CardTitle>
-            <CardDescription className="text-base">
+            </h1>
+            <p className="text-white/40 text-sm">
               For security, we need to verify your identity before continuing
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Alert className="mb-6 border-purple-200 bg-purple-50">
-              <AlertCircle className="h-4 w-4 text-purple-600" />
-              <AlertDescription className="text-purple-900">
+            </p>
+          </div>
+          <div className="p-8">
+            <div className="bg-brand-900/20 border border-brand-700/30 rounded-xl px-4 py-3 mb-6 flex items-start gap-3">
+              <AlertCircle className="h-4 w-4 text-brand-400 mt-0.5 shrink-0" />
+              <p className="text-brand-300/80 text-sm">
                 All fields are required. Your information is protected and only visible to you and in case of emergency.
-              </AlertDescription>
-            </Alert>
+              </p>
+            </div>
 
             <form onSubmit={handleSubmit} className="space-y-6">
               {/* Photo Section */}
               <div className="space-y-4">
-                <Label className="text-base font-semibold">Profile Photo *</Label>
+                <label className="text-sm font-semibold text-white">Profile Photo *</label>
                 <div className="flex flex-col items-center gap-4">
                   {photoPreview ? (
-                    <div className="relative">
+                    <div className="relative text-center">
                       <img
                         src={photoPreview || "/placeholder.svg"}
-                        alt="Preview"
-                        className="w-32 h-32 rounded-full object-cover border-4 border-purple-200"
+                        alt="Profile preview"
+                        className="w-32 h-32 rounded-full object-cover border-2 border-brand-500/40"
                       />
-                      <Button
+                      <button
                         type="button"
-                        variant="outline"
-                        size="sm"
-                        className="mt-2 bg-transparent"
+                        className="mt-3 text-white/40 hover:text-white/70 text-xs bg-white/5 hover:bg-white/10 border border-white/10 px-3 py-1.5 rounded-lg transition-all"
                         onClick={() => {
                           setPhotoPreview(null)
                           setPhotoFile(null)
                         }}
                       >
                         Change photo
-                      </Button>
+                      </button>
                     </div>
                   ) : (
                     <div className="flex gap-3">
-                      <Button
+                      <button
                         type="button"
-                        variant="outline"
-                        className="gap-2 bg-transparent"
+                        className="flex items-center gap-2 text-white/60 hover:text-white text-sm bg-white/5 hover:bg-white/10 border border-white/10 px-4 py-2.5 rounded-xl transition-all"
                         onClick={startCamera}
                         disabled={showCamera}
                       >
                         <Camera className="w-4 h-4" />
                         Take Photo
-                      </Button>
-                      <Button
+                      </button>
+                      <button
                         type="button"
-                        variant="outline"
-                        className="gap-2 bg-transparent"
+                        className="flex items-center gap-2 text-white/60 hover:text-white text-sm bg-white/5 hover:bg-white/10 border border-white/10 px-4 py-2.5 rounded-xl transition-all"
                         onClick={() => fileInputRef.current?.click()}
                       >
                         <Upload className="w-4 h-4" />
                         Upload File
-                      </Button>
+                      </button>
                       <input
                         ref={fileInputRef}
                         type="file"
                         accept="image/*"
                         className="hidden"
                         onChange={handleFileUpload}
+                        aria-label="Upload profile photo"
                       />
                     </div>
                   )}
 
                   {showCamera && (
-                    <div className="space-y-3">
+                    <div className="space-y-3 w-full max-w-md">
                       <video
                         ref={videoRef}
                         autoPlay
-                        className="w-full max-w-md rounded-lg border-2 border-purple-200"
+                        className="w-full rounded-lg border border-white/10"
                       />
                       <canvas ref={canvasRef} className="hidden" />
                       <div className="flex gap-2">
-                        <Button type="button" onClick={capturePhoto} className="flex-1">
+                        <button
+                          type="button"
+                          onClick={capturePhoto}
+                          className="flex-1 bg-brand-600 hover:bg-brand-500 text-white text-sm font-medium py-2.5 rounded-xl transition-colors"
+                        >
                           Capture
-                        </Button>
-                        <Button type="button" variant="outline" onClick={stopCamera} className="flex-1 bg-transparent">
+                        </button>
+                        <button
+                          type="button"
+                          onClick={stopCamera}
+                          className="flex-1 text-white/60 hover:text-white bg-white/5 hover:bg-white/10 border border-white/10 text-sm py-2.5 rounded-xl transition-all"
+                        >
                           Cancel
-                        </Button>
+                        </button>
                       </div>
                     </div>
                   )}
@@ -235,111 +246,95 @@ export default function CompleteProfilePage() {
               {/* Personal Information */}
               <div className="grid gap-4">
                 <div className="grid gap-2">
-                  <Label htmlFor="phone">Phone *</Label>
-                  <Input
+                  <label htmlFor="phone" className="text-sm text-white/60">Phone *</label>
+                  <input
                     id="phone"
                     type="tel"
                     placeholder="+1 555 123 4567"
                     required
                     value={formData.phone}
                     onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                    className="w-full bg-white/5 border border-white/10 hover:border-white/20 focus:border-brand-500 rounded-xl px-4 py-3 text-white placeholder-white/20 text-sm transition-colors outline-none focus:ring-1 focus:ring-brand-500/50"
                   />
                 </div>
 
                 <div className="grid gap-2">
-                  <Label htmlFor="address">Address *</Label>
-                  <Textarea
+                  <label htmlFor="address" className="text-sm text-white/60">Address *</label>
+                  <textarea
                     id="address"
-                    placeholder="Street, number, city, state"
+                    placeholder="Street, city, state, zip"
                     required
                     value={formData.address}
                     onChange={(e) => setFormData({ ...formData, address: e.target.value })}
                     rows={3}
+                    className="w-full bg-white/5 border border-white/10 hover:border-white/20 focus:border-brand-500 rounded-xl px-4 py-3 text-white placeholder-white/20 text-sm transition-colors outline-none focus:ring-1 focus:ring-brand-500/50 resize-none"
                   />
                 </div>
 
                 <div className="grid gap-2">
-                  <Label htmlFor="dateOfBirth">Date of Birth *</Label>
-                  <Input
+                  <label htmlFor="dateOfBirth" className="text-sm text-white/60">Date of Birth *</label>
+                  <input
                     id="dateOfBirth"
                     type="date"
                     required
                     value={formData.dateOfBirth}
                     onChange={(e) => setFormData({ ...formData, dateOfBirth: e.target.value })}
+                    className="w-full bg-white/5 border border-white/10 hover:border-white/20 focus:border-brand-500 rounded-xl px-4 py-3 text-white text-sm transition-colors outline-none focus:ring-1 focus:ring-brand-500/50"
                   />
                 </div>
               </div>
 
               {/* Emergency Contact */}
-              <div className="space-y-4 pt-4 border-t">
-                <h3 className="font-semibold text-lg">Emergency Contact</h3>
+              <div className="space-y-4 pt-4 border-t border-white/8">
+                <h3 className="font-semibold text-white">Emergency Contact</h3>
                 <div className="grid gap-4">
                   <div className="grid gap-2">
-                    <Label htmlFor="emergencyName">Full Name *</Label>
-                    <Input
+                    <label htmlFor="emergencyName" className="text-sm text-white/60">Full Name *</label>
+                    <input
                       id="emergencyName"
                       type="text"
                       placeholder="Emergency contact name"
                       required
                       value={formData.emergencyContactName}
                       onChange={(e) => setFormData({ ...formData, emergencyContactName: e.target.value })}
+                      className="w-full bg-white/5 border border-white/10 hover:border-white/20 focus:border-brand-500 rounded-xl px-4 py-3 text-white placeholder-white/20 text-sm transition-colors outline-none focus:ring-1 focus:ring-brand-500/50"
                     />
                   </div>
 
                   <div className="grid gap-2">
-                    <Label htmlFor="emergencyPhone">Phone *</Label>
-                    <Input
+                    <label htmlFor="emergencyPhone" className="text-sm text-white/60">Phone *</label>
+                    <input
                       id="emergencyPhone"
                       type="tel"
                       placeholder="+1 555 123 4567"
                       required
                       value={formData.emergencyContactPhone}
                       onChange={(e) => setFormData({ ...formData, emergencyContactPhone: e.target.value })}
+                      className="w-full bg-white/5 border border-white/10 hover:border-white/20 focus:border-brand-500 rounded-xl px-4 py-3 text-white placeholder-white/20 text-sm transition-colors outline-none focus:ring-1 focus:ring-brand-500/50"
                     />
                   </div>
                 </div>
               </div>
 
               {error && (
-                <Alert variant="destructive">
-                  <AlertCircle className="h-4 w-4" />
-                  <AlertDescription>{error}</AlertDescription>
-                </Alert>
+                <div className="bg-red-900/20 border border-red-500/30 rounded-xl px-4 py-3">
+                  <div className="flex items-center gap-2">
+                    <AlertCircle className="h-4 w-4 text-red-400 shrink-0" />
+                    <p className="text-red-400 text-sm">{error}</p>
+                  </div>
+                </div>
               )}
 
-              <Button
+              <button
                 type="submit"
-                className="w-full h-12 bg-gradient-to-r from-pink-500 to-purple-600 hover:from-pink-600 hover:to-purple-700 text-lg"
+                className="w-full bg-brand-600 hover:bg-brand-500 text-white font-semibold py-3 rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-brand-900/40"
                 disabled={isLoading}
               >
                 {isLoading ? "Saving..." : "Complete Profile"}
-              </Button>
-
-              <div className="text-center text-sm text-gray-600 pt-4">
-                <p>
-                  For additional identity verification, we recommend using{" "}
-                  <a
-                    href="https://www.veriff.com"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-purple-600 underline"
-                  >
-                    Veriff
-                  </a>{" "}
-                  or{" "}
-                  <a
-                    href="https://onfido.com"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-purple-600 underline"
-                  >
-                    Onfido
-                  </a>
-                </p>
-              </div>
+              </button>
             </form>
-          </CardContent>
-        </Card>
+          </div>
+        </div>
       </div>
     </div>
   )
