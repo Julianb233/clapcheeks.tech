@@ -18,21 +18,6 @@ export async function login(formData: FormData) {
     return { error: error.message }
   }
 
-  // Check onboarding status
-  const { data: { user } } = await supabase.auth.getUser()
-  if (user) {
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('onboarding_completed')
-      .eq('id', user.id)
-      .single()
-
-    if (!profile?.onboarding_completed) {
-      revalidatePath('/', 'layout')
-      redirect('/onboarding')
-    }
-  }
-
   revalidatePath('/', 'layout')
   redirect('/dashboard')
 }
