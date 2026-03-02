@@ -8,6 +8,7 @@ import PlanBadge from '@/components/plan-badge'
 import EliteOnly from '@/components/elite-only'
 import CoachingSection from './components/coaching-section'
 import DashboardLive from './components/dashboard-live'
+import AgentStatusBadge from './components/agent-status-badge'
 import { getLatestCoaching } from '@/lib/coaching/generate'
 import { TrendCard } from './components/trend-card'
 import { DashboardCharts } from './components/dashboard-charts'
@@ -40,12 +41,6 @@ interface ConvoRow {
 interface DeviceRow {
   last_seen_at: string
   is_active: boolean
-}
-
-function isAgentOnline(lastSeen: string | null): boolean {
-  if (!lastSeen) return false
-  const diff = Date.now() - new Date(lastSeen).getTime()
-  return diff < 5 * 60 * 1000 // 5 minutes
 }
 
 export default async function Dashboard() {
@@ -119,7 +114,6 @@ export default async function Dashboard() {
   const convos: ConvoRow[] = convoRes.data || []
   const spending = spendRes.data || []
   const device: DeviceRow | null = deviceRes.data?.[0] || null
-  const agentOnline = isAgentOnline(device?.last_seen_at || null)
   const hasAgent = !!device
 
   // Aggregate totals
@@ -336,32 +330,8 @@ export default async function Dashboard() {
         </div>
 
         {/* Agent status badge */}
-        <div className="flex items-center gap-3 mb-6">
-          <div
-            className={`inline-flex items-center gap-2 border rounded-full px-4 py-1.5 ${
-              agentOnline
-                ? 'bg-green-900/30 border-green-700/40'
-                : hasAgent
-                ? 'bg-yellow-900/20 border-yellow-700/30'
-                : 'bg-purple-900/40 border-purple-700/40'
-            }`}
-          >
-            <div
-              className={`w-1.5 h-1.5 rounded-full ${
-                agentOnline ? 'bg-green-400 animate-pulse' : hasAgent ? 'bg-yellow-400' : 'bg-purple-400 animate-pulse'
-              }`}
-            />
-            <span
-              className={`text-xs font-medium ${
-                agentOnline ? 'text-green-300' : hasAgent ? 'text-yellow-300' : 'text-purple-300'
-              }`}
-            >
-              {agentOnline ? 'Agent connected' : hasAgent ? 'Agent offline' : 'Local agent not detected'}
-            </span>
-          </div>
-          {hasAgent && !agentOnline && (
-            <span className="text-white/30 text-xs">Last seen: {device?.last_seen_at ? new Date(agentToken.last_seen_at).toLocaleString() : 'never'}</span>
-          )}
+        <div className="mb-6">
+          <AgentStatusBadge initialDevice={device} />
         </div>
 
         <h1 className="text-3xl font-bold text-white mb-2">
