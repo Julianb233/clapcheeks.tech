@@ -309,6 +309,8 @@ def converse(platform: str, dry_run: bool) -> None:
         console.print(Panel(
             f"[bold green]Openers sent:[/bold green] {results['openers_sent']}\n"
             f"[bold cyan]Replies sent:[/bold cyan] {results['replies_sent']}\n"
+            f"[bold yellow]Dates proposed:[/bold yellow] {results.get('dates_proposed', 0)}\n"
+            f"[bold blue]Re-engaged:[/bold blue] {results.get('reengaged', 0)}\n"
             f"[bold red]Errors:[/bold red] {results['errors']}",
             title=f"[magenta]Conversation Run — {platform}[/magenta]",
             border_style="magenta",

@@ -2,9 +2,12 @@
 from __future__ import annotations
 
 import logging
+import time
 
 import requests
 
+from clapcheeks.ai.date_ask import should_ask_for_date, generate_date_ask, generate_reengagement
+from clapcheeks.conversation.state import get_conversation, update_conversation, get_stale_conversations
 from clapcheeks.session.rate_limiter import sleep_jitter
 
 logger = logging.getLogger(__name__)
@@ -135,7 +138,7 @@ class ConversationManager:
             return False
 
     def process_replies(self) -> dict:
-        results = {"checked": 0, "replied": 0, "errors": 0}
+        results = {"checked": 0, "replied": 0, "dates_proposed": 0, "reengaged": 0, "errors": 0}
         try:
             matches = self._client.get_matches(count=30) if hasattr(self._client, "get_matches") else []
         except Exception:
@@ -147,6 +150,11 @@ class ConversationManager:
             messages = match.get("messages", [])
             if not messages:
                 continue
+
+            # Update conversation state tracking
+            last_ts = time.time()
+            update_conversation(match_id, message_count=len(messages), last_ts=last_ts, platform=self._platform)
+
             last = messages[-1]
             if last.get("from_id") == "me" or last.get("role") == "assistant":
                 continue
@@ -155,11 +163,21 @@ class ConversationManager:
                 {"role": "assistant" if m.get("from_id") == "me" else "user", "content": m.get("message", m.get("content", ""))}
                 for m in messages[-10:]
             ]
-            stage = self._conversation_stage(conversation)
-            if stage == "date_ready":
-                reply = self.suggest_date_message(match_name=name, conversation=conversation)
+
+            # Check if we should propose a date
+            state = get_conversation(match_id)
+            if not state.get("date_asked") and should_ask_for_date(len(messages), last_ts):
+                profile = match.get("person", {})
+                reply = generate_date_ask(match_name=name, platform=self._platform, profile_data=profile)
+                update_conversation(match_id, date_asked=True)
+                results["dates_proposed"] += 1
             else:
-                reply = self.suggest_reply(conversation=conversation, contact_name=name)
+                stage = self._conversation_stage(conversation)
+                if stage == "date_ready":
+                    reply = self.suggest_date_message(match_name=name, conversation=conversation)
+                else:
+                    reply = self.suggest_reply(conversation=conversation, contact_name=name)
+
             if not reply:
                 results["errors"] += 1
                 continue
@@ -177,8 +195,32 @@ class ConversationManager:
                 results["errors"] += 1
         return results
 
+    def _process_reengagements(self) -> dict:
+        """Send re-engagement messages to conversations silent 48h+."""
+        results = {"reengaged": 0, "errors": 0}
+        stale = get_stale_conversations(hours=48)
+        for entry in stale[:5]:
+            match_id = entry["match_id"]
+            name = entry.get("name", "them")
+            days_silent = max(1, int((time.time() - entry.get("last_ts", 0)) / 86400))
+            msg = generate_reengagement(match_name=name, days_silent=days_silent)
+            if self._dry_run:
+                logger.info("[DRY RUN] Would re-engage %s: %s", name, msg)
+                results["reengaged"] += 1
+                continue
+            try:
+                if self._client.send_message(match_id, msg):
+                    update_conversation(match_id, last_ts=time.time())
+                    results["reengaged"] += 1
+                    sleep_jitter("message")
+                else:
+                    results["errors"] += 1
+            except Exception:
+                results["errors"] += 1
+        return results
+
     def run_loop(self) -> dict:
-        summary = {"openers_sent": 0, "replies_sent": 0, "errors": 0}
+        summary = {"openers_sent": 0, "replies_sent": 0, "dates_proposed": 0, "reengaged": 0, "errors": 0}
         new_matches = self.get_new_matches()
         logger.info("Found %d new matches needing openers", len(new_matches))
         for match in new_matches[:10]:
@@ -189,5 +231,12 @@ class ConversationManager:
             sleep_jitter("message")
         reply_results = self.process_replies()
         summary["replies_sent"] = reply_results["replied"]
+        summary["dates_proposed"] = reply_results["dates_proposed"]
         summary["errors"] += reply_results["errors"]
+
+        # Re-engage stale conversations (48h+ silence)
+        reengage_results = self._process_reengagements()
+        summary["reengaged"] = reengage_results["reengaged"]
+        summary["errors"] += reengage_results["errors"]
+
         return summary
