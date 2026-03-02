@@ -2,12 +2,12 @@
 
 ## Current Position
 
-- Phase: 16 of 16 (Analytics Dashboard)
+- Phase: 18 of 23 (Conversation AI)
 - Plan: 01 of 01
 - Status: Phase complete — Milestone 4 in progress
-- Last activity: 2026-03-02 - Completed 16-01-PLAN.md
+- Last activity: 2026-03-02 - Completed 18-01-PLAN.md
 
-Progress: █████████████████ (M4: 1/1 phases)
+Progress: ██████████████████ (M4: 3/8 phases)
 
 ## Decisions
 
@@ -28,6 +28,8 @@ Progress: █████████████████ (M4: 1/1 phases)
 | aggregate-caps | Added aggregate daily caps (100/75/50) alongside per-direction limits | Plan specifies total caps; per-direction limits remain for finer control | 15 |
 | api-date-range | Added ?days=7|30|90 to analytics API with whitelist validation | User needs flexible date range filtering; defaults to 30 | 16 |
 | separate-analytics-page | Dedicated /analytics page with client-side date range state | Full-screen analytics view separate from dashboard overview | 16 |
+| reply-style-rename | Renamed tones from playful/direct/flirty to witty/warm/direct with reasoning | Better differentiation, reasoning helps users understand suggestions | 18 |
+| claude-preferred-fallback | Python reply module uses Claude API as preferred fallback over Kimi | Higher quality replies for conversation context vs openers | 18 |
 
 ## Blockers / Concerns
 
@@ -36,5 +38,5 @@ Progress: █████████████████ (M4: 1/1 phases)
 ## Session Continuity
 
 - Last session: 2026-03-02T07:06:00Z
-- Stopped at: Completed 16-01-PLAN.md
+- Stopped at: Completed 18-01-PLAN.md
 - Resume file: None
