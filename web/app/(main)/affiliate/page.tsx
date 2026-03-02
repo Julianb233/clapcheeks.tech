@@ -3,8 +3,8 @@ import Link from 'next/link'
 import { ExternalLink, Settings } from 'lucide-react'
 
 export const metadata: Metadata = {
-  title: 'Affiliate Dashboard — Clapcheeks',
-  description: 'Manage your Clapcheeks affiliate account.',
+  title: 'Affiliate Dashboard — Outward',
+  description: 'Manage your Outward affiliate account.',
 }
 
 export default function AffiliateDashboardPage() {

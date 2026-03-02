@@ -56,7 +56,7 @@ const TERMINAL_LINES = [
   { text: 'Successfully installed clapcheeks-1.2.0', delay: 2600 },
   { text: '', delay: 3000 },
   { text: '$ clapcheeks setup', delay: 3400 },
-  { text: '🔧 Configuring Clapcheeks AI Agent...', delay: 4000 },
+  { text: '🔧 Configuring Outward AI Agent...', delay: 4000 },
   { text: '✓ API key validated', delay: 4600 },
   { text: '✓ Device connected', delay: 5200 },
   { text: '✓ Platforms detected: tinder, bumble, hinge', delay: 5800 },
@@ -151,7 +151,7 @@ export function OnboardingWizard({ userId, plan }: OnboardingWizardProps) {
           {step === 1 && (
             <div className="text-center">
               <h1 className="mb-4 text-4xl font-bold text-white sm:text-5xl">
-                Welcome to <span className="text-violet-400">Clapcheeks</span>
+                Welcome to <span className="text-violet-400">Outward</span>
               </h1>
               <p className="mx-auto mb-8 max-w-md text-lg text-gray-400">
                 Let&apos;s get you set up in 5 steps. Takes about 3 minutes.

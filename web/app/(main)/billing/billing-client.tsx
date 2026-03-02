@@ -101,7 +101,7 @@ export default function BillingClient({ plan, subscriptionStatus, hasStripeCusto
           <div className="inline-flex items-center gap-1.5 bg-white/5 border border-white/10 rounded-full px-3 py-1 mb-4">
             <span className="text-white/50 text-xs font-medium">No active subscription</span>
           </div>
-          <h2 className="text-xl font-bold text-white mb-2">Get started with Clapcheeks</h2>
+          <h2 className="text-xl font-bold text-white mb-2">Get started with Outward</h2>
           <p className="text-white/40 text-sm mb-6">Choose a plan to unlock your AI dating co-pilot.</p>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-3 sm:gap-4">
             <button

@@ -68,7 +68,7 @@ export default function AffiliateApplyPage() {
         <div className="max-w-5xl mx-auto flex items-center justify-between">
           <Link href="/" className="flex items-center gap-2 text-white/40 hover:text-white/70 text-sm transition-colors">
             <ArrowLeft className="w-4 h-4" />
-            Back to Clapcheeks
+            Back to Outward
           </Link>
         </div>
       </div>
@@ -81,7 +81,7 @@ export default function AffiliateApplyPage() {
             <span className="text-brand-300 text-xs font-medium">Affiliate Program</span>
           </div>
           <h1 className="text-4xl sm:text-5xl font-bold text-white mb-4">
-            Become an Clapcheeks Affiliate
+            Become an Outward Affiliate
           </h1>
           <p className="text-white/45 text-xl max-w-xl mx-auto">
             Earn 25% recurring commission on every subscriber you refer
@@ -204,7 +204,7 @@ export default function AffiliateApplyPage() {
                     onChange={(e) => setForm({ ...form, message: e.target.value })}
                     rows={3}
                     className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2.5 text-white text-sm placeholder:text-white/25 focus:outline-none focus:border-brand-500/50 transition-colors resize-none"
-                    placeholder="Tell us about your audience and how you'd promote Clapcheeks"
+                    placeholder="Tell us about your audience and how you'd promote Outward"
                   />
                 </div>
 
