@@ -26,13 +26,6 @@ const steps = [
 export default function HowItWorks() {
   return (
     <section id="how-it-works" className="py-28 px-6 relative overflow-hidden">
-      {/* Background */}
-      <div className="absolute inset-0 pointer-events-none">
-        <div
-          className="orb w-[600px] h-[600px] bg-brand-900"
-          style={{ top: '-5%', left: '-10%' }}
-        />
-      </div>
 
       <div className="max-w-7xl mx-auto relative">
         {/* Header */}

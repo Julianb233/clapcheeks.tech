@@ -55,13 +55,6 @@ const privacyPoints = [
 export default function Privacy() {
   return (
     <section id="privacy" className="py-28 px-6 relative overflow-hidden">
-      {/* Background */}
-      <div className="absolute inset-0 pointer-events-none">
-        <div
-          className="orb w-[400px] h-[400px] bg-brand-900"
-          style={{ top: '50%', right: '-5%', transform: 'translateY(-50%)' }}
-        />
-      </div>
 
       <div className="max-w-7xl mx-auto relative">
         <div className="grid lg:grid-cols-2 gap-16 items-center">

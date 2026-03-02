@@ -46,13 +46,6 @@ const features = [
 export default function Features() {
   return (
     <section id="features" className="py-28 px-6 relative overflow-hidden">
-      {/* Background */}
-      <div className="absolute inset-0 pointer-events-none">
-        <div
-          className="orb w-[500px] h-[500px] bg-brand-900"
-          style={{ bottom: '-10%', right: '-5%' }}
-        />
-      </div>
 
       <div className="max-w-7xl mx-auto relative">
         {/* Header */}

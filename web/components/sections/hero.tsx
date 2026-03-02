@@ -17,21 +17,8 @@ export default function Hero() {
 
   return (
     <section className="relative min-h-screen flex flex-col items-center justify-center pt-24 pb-20 px-6 overflow-hidden">
-      {/* Background orbs */}
+      {/* Grid overlay */}
       <div className="absolute inset-0 pointer-events-none">
-        <div
-          className="orb w-[700px] h-[700px] bg-brand-700"
-          style={{ top: '-20%', left: '50%', transform: 'translateX(-50%)' }}
-        />
-        <div
-          className="orb w-[400px] h-[400px] bg-pink-700"
-          style={{ top: '30%', left: '10%' }}
-        />
-        <div
-          className="orb w-[300px] h-[300px] bg-orange-700"
-          style={{ top: '40%', right: '5%' }}
-        />
-        {/* Grid overlay */}
         <div
           className="absolute inset-0 opacity-[0.03]"
           style={{
