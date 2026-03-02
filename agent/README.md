@@ -1,6 +1,6 @@
-# Outward Local Agent
+# Clap Cheeks Local Agent
 
-The Outward local agent runs on your Mac and handles the private, on-device parts of your AI dating co-pilot experience.
+The Clap Cheeks local agent runs on your Mac and handles the private, on-device parts of your AI dating co-pilot experience.
 
 ## What it does
 
@@ -25,19 +25,17 @@ curl -fsSL https://clapcheeks.tech/install.sh | bash
 Then follow the prompts:
 
 ```bash
-outward setup   # Connect to your clapcheeks.tech account
-outward menu    # Open interactive menu
-outward status  # Check agent status
-outward sync    # Manually sync today's metrics
+clapcheeks setup   # Connect to your clapcheeks.tech account
+clapcheeks status  # Check agent status
 ```
 
 ## Manual installation
 
 ```bash
 # Requires Python 3.11+
-pip install outward-agent
+pip install clapcheeks
 python -m playwright install chromium
-outward setup
+clapcheeks setup
 ```
 
 ## Dashboard

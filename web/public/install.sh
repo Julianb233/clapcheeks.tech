@@ -75,7 +75,7 @@ NEED_PYTHON=0
 if ! command -v python3 &>/dev/null; then
     NEED_PYTHON=1
 else
-    if ! python3 -c 'import sys; exit(0 if sys.version_info >= (3,9) else 1)' 2>/dev/null; then
+    if ! python3 -c 'import sys; exit(0 if sys.version_info >= (3,11) else 1)' 2>/dev/null; then
         NEED_PYTHON=1
     fi
 fi
