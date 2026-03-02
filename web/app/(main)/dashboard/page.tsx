@@ -2,6 +2,7 @@ import type { Metadata } from 'next'
 import { createClient } from '@/lib/supabase/server'
 import { logout } from '@/app/auth/actions'
 import { redirect } from 'next/navigation'
+import ManageBillingButton from '@/components/manage-billing-button'
 
 export const metadata: Metadata = {
   title: 'Dashboard — Clap Cheeks',
@@ -45,7 +46,7 @@ export default async function Dashboard() {
   const sinceStr = since.toISOString().split('T')[0]
   const today = new Date().toISOString().split('T')[0]
 
-  const [analyticsRes, tokenRes] = await Promise.all([
+  const [analyticsRes, tokenRes, subRes] = await Promise.all([
     supabase
       .from('clapcheeks_analytics_daily')
       .select('platform, swipes_right, swipes_left, matches, messages_sent, dates_booked, date')
@@ -58,7 +59,15 @@ export default async function Dashboard() {
       .eq('user_id', user.id)
       .order('last_seen_at', { ascending: false })
       .limit(1),
+    supabase
+      .from('clapcheeks_subscriptions')
+      .select('subscription_status')
+      .eq('user_id', user.id)
+      .limit(1)
+      .single(),
   ])
+
+  const isSubscribed = subRes.data?.subscription_status === 'active'
 
   const rows: DailyRow[] = analyticsRes.data || []
   const agentToken: AgentToken | null = tokenRes.data?.[0] || null
@@ -121,6 +130,7 @@ export default async function Dashboard() {
             {user?.email && (
               <span className="text-white/30 text-xs hidden sm:block">{user.email}</span>
             )}
+            {isSubscribed && <ManageBillingButton />}
             <form action={logout}>
               <button
                 type="submit"

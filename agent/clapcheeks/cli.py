@@ -1,13 +1,17 @@
-"""Clap Cheeks CLI — setup, status, and agent management."""
+"""Clap Cheeks local agent CLI — AI-powered dating co-pilot."""
 from __future__ import annotations
 
 import click
 from rich.console import Console
 from rich.panel import Panel
+from rich.table import Table
 
 from clapcheeks import __version__
-from clapcheeks.config import load as load_config, save_agent_token, get_agent_token
-from clapcheeks.auth import generate_cli_session_id, open_browser_auth, poll_for_token
+from clapcheeks.config import load as load_config
+from clapcheeks.modes import MODE_LABELS
+from clapcheeks.modes.detect import detect_mode
+from clapcheeks.session.rate_limiter import get_daily_summary
+from clapcheeks.commands.spend import spend
 
 console = Console()
 
@@ -15,63 +19,32 @@ console = Console()
 @click.group()
 @click.version_option(__version__, prog_name="clapcheeks")
 def main() -> None:
-    """Clap Cheeks — AI Dating Co-Pilot
+    """Clap Cheeks — AI Dating Co-Pilot (local agent)
 
-    Local agent for automated swiping, conversation management,
-    and iMessage integration. All data stays on your device.
+    Automates Tinder, Bumble, and Hinge using your iPhone or cloud browser.
+    All personal data stays on your device.
 
     Get started: clapcheeks setup
     """
+    pass
+
+
+main.add_command(spend)
 
 
 @main.command()
 def setup() -> None:
-    """Authenticate via browser and configure the local agent."""
-    console.print()
-    console.print(Panel(
-        "[bold magenta]Clap Cheeks[/bold magenta] Setup",
-        subtitle="v" + __version__,
-        border_style="magenta",
-        padding=(0, 2),
-    ))
-    console.print()
-
-    session_id = generate_cli_session_id()
-    config = load_config()
-    api_url = config.get("api_url", "https://api.clapcheeks.tech")
-
-    console.print("[bold]Opening browser for authentication...[/bold]")
-    open_browser_auth(session_id)
-
-    token = poll_for_token(session_id, api_url)
-
-    if token:
-        save_agent_token(token)
-        console.print("[green bold]Authenticated successfully![/green bold]")
-        console.print()
-
-        if click.confirm("Enable auto-start daemon (runs on login)?", default=True):
-            from clapcheeks.launchd import install_launchd
-            try:
-                install_launchd()
-                console.print("[green]Daemon installed and started.[/green]")
-            except Exception as exc:
-                console.print(f"[yellow]Could not start daemon: {exc}[/yellow]")
-                console.print("You can start it manually: [cyan]clapcheeks agent start[/cyan]")
-    else:
-        console.print("[red bold]Authentication timed out.[/red bold]")
-        console.print()
-        console.print("You can authenticate manually:")
-        console.print("  1. Log in at [cyan]https://clapcheeks.tech[/cyan]")
-        console.print("  2. Copy your agent token from Settings")
-        console.print("  3. Run: [cyan]clapcheeks setup[/cyan] again")
-
-    console.print()
+    """Interactive first-time setup wizard."""
+    from clapcheeks.setup.wizard import run_setup
+    run_setup()
 
 
 @main.command()
 def status() -> None:
-    """Show version, auth status, and daemon state."""
+    """Show current mode, connections, and daily stats."""
+    config = load_config()
+    mode = detect_mode(config)
+
     console.print()
     console.print(Panel(
         f"[bold magenta]Clap Cheeks[/bold magenta] [dim]v{__version__}[/dim]",
@@ -79,41 +52,301 @@ def status() -> None:
         padding=(0, 2),
     ))
 
-    token = get_agent_token()
-    auth_status = "[green]authenticated[/green]" if token else "[red]not authenticated[/red] (run clapcheeks setup)"
-    console.print(f"  Auth:   {auth_status}")
+    # Mode status
+    mode_label = MODE_LABELS.get(mode, mode)
+    mode_color = {"iphone-usb": "green", "iphone-wifi": "cyan", "mac-cloud": "yellow"}.get(mode, "white")
+    console.print(f"\n  Mode:    [{mode_color}]{mode_label}[/{mode_color}]")
+    console.print(f"  Account: [dim]{'connected' if config.get('agent_token') else 'not connected (run clapcheeks setup)'}[/dim]")
 
-    try:
-        from clapcheeks.launchd import is_running
-        daemon_status = "[green]running[/green]" if is_running() else "[dim]stopped[/dim]"
-    except Exception:
-        daemon_status = "[dim]unknown[/dim]"
-    console.print(f"  Daemon: {daemon_status}")
+    # Daily stats
+    counts = get_daily_summary()
+    if counts:
+        console.print("\n  [bold]Today's activity:[/bold]")
+        table = Table(show_header=True, header_style="bold dim", box=None, padding=(0, 2))
+        table.add_column("Platform")
+        table.add_column("Right", style="green")
+        table.add_column("Left", style="red")
+        for platform in ["tinder", "bumble", "hinge"]:
+            r = counts.get(f"{platform}_right", 0)
+            l = counts.get(f"{platform}_left", 0)
+            if r or l:
+                table.add_row(platform.capitalize(), str(r), str(l))
+        console.print(table)
+    else:
+        console.print("\n  [dim]No swipes yet today.[/dim]")
+
+    # Sync status
+    from clapcheeks.sync import get_last_sync_time
+    from clapcheeks.queue import get_queue_size
+    last_sync = get_last_sync_time()
+    pending = get_queue_size()
+    sync_line = f"[dim]{last_sync or 'never'}[/dim]"
+    if pending > 0:
+        sync_line += f" [yellow]({pending} queued)[/yellow]"
+    console.print(f"  Sync:    {sync_line}")
+
     console.print()
 
 
-@main.group()
-def agent() -> None:
-    """Manage the background agent daemon."""
+@main.command()
+@click.option("--mode", type=click.Choice(["iphone-usb", "iphone-wifi", "mac-cloud"]),
+              default=None, help="Force a specific automation mode.")
+@click.option("--platform", type=click.Choice(["tinder", "bumble", "hinge", "all"]),
+              default="all", show_default=True)
+@click.option("--swipes", default=30, show_default=True, help="Max swipes per platform per session.")
+@click.option("--like-ratio", default=0.5, show_default=True, help="Fraction of profiles to like.")
+def swipe(mode: str | None, platform: str, swipes: int, like_ratio: float) -> None:
+    """Run an automated swipe session."""
+    config = load_config()
+
+    from clapcheeks.session.manager import SessionManager
+
+    platforms = ["tinder", "bumble", "hinge"] if platform == "all" else [platform]
+
+    with console.status(f"[bold green]Starting {MODE_LABELS.get(mode or detect_mode(config))} session...[/bold green]"):
+        if mode:
+            config["force_mode"] = mode
+
+        mgr = SessionManager(config)
+
+    console.print(f"[bold]Mode:[/bold] {MODE_LABELS.get(mgr.mode, mgr.mode)}")
+    console.print()
+
+    with mgr:
+        for plat in platforms:
+            console.print(f"[bold cyan]{plat.capitalize()}[/bold cyan] — starting swipe session...")
+
+            try:
+                driver = mgr.get_driver(plat)
+
+                if plat == "tinder":
+                    from clapcheeks.platforms.tinder import TinderClient
+                    client = TinderClient(driver=driver)
+                elif plat == "bumble":
+                    from clapcheeks.platforms.bumble import BumbleClient
+                    client = BumbleClient(driver=driver)
+                elif plat == "hinge":
+                    from clapcheeks.platforms.hinge import HingeClient
+                    client = HingeClient(driver=driver, ai_service_url=config.get('ai_service_url'))
+
+                with (driver if hasattr(driver, '__enter__') else _nullctx(driver)):
+                    results = client.run_swipe_session(
+                        like_ratio=like_ratio,
+                        max_swipes=swipes,
+                    )
+
+                console.print(
+                    f"  [green]✓[/green] {results.get('liked', 0)} liked · "
+                    f"[red]{results.get('passed', 0)}[/red] passed · "
+                    f"[yellow]{results.get('errors', 0)}[/yellow] errors"
+                )
+
+                # Sync to dashboard (non-blocking)
+                agent_token = config.get('agent_token')
+                api_url = config.get('api_url', 'https://api.clapcheeks.tech')
+                if agent_token and results:
+                    try:
+                        import requests as _req
+                        _req.post(
+                            f'{api_url}/analytics/sync',
+                            json={
+                                'platform': plat,
+                                'swipes_right': results.get('liked', 0),
+                                'swipes_left': results.get('passed', 0),
+                                'matches': len(results.get('new_matches', [])),
+                            },
+                            headers={'Authorization': f'Bearer {agent_token}'},
+                            timeout=5,
+                        )
+                        console.print('[dim]✓ Synced to dashboard[/dim]')
+                    except Exception:
+                        pass  # Silent failure — don't block the user
+
+            except Exception as exc:
+                console.print(f"  [red]✗[/red] {plat} failed: {exc}")
+
+    console.print("\n[dim]Session complete. Run [cyan]clapcheeks status[/cyan] to see today's totals.[/dim]\n")
 
 
-@agent.command()
-def start() -> None:
-    """Install and start the background daemon."""
-    from clapcheeks.launchd import install_launchd
+@main.command()
+def menu() -> None:
+    """Open the interactive arrow-key menu."""
+    # Import menu module when it exists
     try:
-        install_launchd()
-        console.print("[green]Agent daemon started.[/green]")
-    except Exception as exc:
-        console.print(f"[red]Failed to start daemon: {exc}[/red]")
+        from clapcheeks.menu import run_menu
+        config = load_config()
+        run_menu(config)
+    except ImportError:
+        console.print("[yellow]Interactive menu coming soon.[/yellow]")
+        console.print("For now, use: [cyan]clapcheeks swipe[/cyan]")
 
 
-@agent.command()
-def stop() -> None:
-    """Stop and uninstall the background daemon."""
-    from clapcheeks.launchd import uninstall_launchd
+@main.command()
+def sync() -> None:
+    """Sync today's anonymized metrics to your dashboard."""
+    from clapcheeks.sync import push_metrics, record_sync_time
+    from clapcheeks.queue import get_queue_size
+
+    config = load_config()
+    if not config.get("agent_token"):
+        console.print("[yellow]Not connected. Run [cyan]clapcheeks setup[/cyan] first.[/yellow]")
+        return
+
+    with console.status("[bold green]Syncing metrics...[/bold green]"):
+        synced, queued = push_metrics(config)
+
+    if synced > 0:
+        record_sync_time()
+        console.print(f"[green]Synced {synced} platform(s) to dashboard.[/green]")
+    if queued > 0:
+        console.print(f"[yellow]{queued} platform(s) queued (offline). Will retry next sync.[/yellow]")
+    if synced == 0 and queued == 0:
+        console.print("[dim]No activity to sync today.[/dim]")
+
+    pending = get_queue_size()
+    if pending > 0:
+        console.print(f"[dim]{pending} item(s) pending in offline queue.[/dim]")
+
+
+@main.command()
+@click.option("--interval", default=3600, help="Sync interval in seconds.")
+def daemon(interval: int) -> None:
+    """Run background sync daemon (every hour by default)."""
+    import time as _time
+    from clapcheeks.sync import push_metrics, record_sync_time
+
+    config = load_config()
+    if not config.get("agent_token"):
+        console.print("[yellow]Not connected. Run [cyan]clapcheeks setup[/cyan] first.[/yellow]")
+        return
+
+    console.print(f"[bold green]Sync daemon started[/bold green] (every {interval}s)")
+    console.print("[dim]Press Ctrl+C to stop.[/dim]")
+
+    while True:
+        try:
+            synced, queued = push_metrics(config)
+            if synced > 0:
+                record_sync_time()
+            ts = __import__("datetime").datetime.now().strftime("%H:%M")
+            console.print(f"  [{ts}] synced={synced} queued={queued}")
+        except Exception as e:
+            console.print(f"  [red]Sync error:[/red] {e}")
+        _time.sleep(interval)
+
+
+@main.command()
+@click.option('--platform', default='tinder', type=click.Choice(['tinder', 'bumble', 'hinge']), help='Platform to manage conversations on.')
+@click.option('--dry-run', is_flag=True, default=False, help='Show what would be sent without sending.')
+def converse(platform: str, dry_run: bool) -> None:
+    """AI-powered conversation manager — send openers and reply to matches."""
+    from clapcheeks.config import load as load_config
+    from clapcheeks.session.manager import SessionManager
+    from clapcheeks.conversation.manager import ConversationManager
+
+    config = load_config()
+    if dry_run:
+        config['dry_run'] = True
+        console.print('[yellow]DRY RUN mode — messages will not be sent[/yellow]')
+
+    console.print(f'\n[bold magenta]Clap Cheeks[/bold magenta] conversation manager — [bold]{platform}[/bold]')
+
+    with console.status(f'[bold green]Setting up {platform} connection...[/bold green]'):
+        session = SessionManager(config)
+        try:
+            driver = session.get_driver()
+        except Exception as e:
+            console.print(f'[bold red]Error:[/bold red] {e}')
+            raise SystemExit(1)
+
+    # Get platform client
+    if platform == 'tinder':
+        from clapcheeks.platforms.tinder import TinderClient
+        client = TinderClient(driver=driver)
+    elif platform == 'hinge':
+        from clapcheeks.platforms.hinge import HingeClient
+        client = HingeClient(driver=driver, ai_service_url=config.get('ai_service_url'))
+    else:
+        console.print(f'[yellow]Bumble conversation management uses the driver directly.[/yellow]')
+        raise SystemExit(0)
+
+    mgr = ConversationManager(client, platform, config)
+
+    with console.status('[bold green]Running conversation loop...[/bold green]'):
+        results = mgr.run_loop()
+
+    console.print(Panel(
+        f"[bold green]Openers sent:[/bold green] {results['openers_sent']}\n"
+        f"[bold cyan]Replies sent:[/bold cyan] {results['replies_sent']}\n"
+        f"[bold red]Errors:[/bold red] {results['errors']}",
+        title=f"[magenta]Conversation Run — {platform}[/magenta]",
+        border_style="magenta",
+    ))
+
+
+from clapcheeks.commands.profile import profile
+main.add_command(profile)
+
+
+@main.command()
+@click.option("--contacts", default=None, help="Comma-separated phone numbers or emails to watch.")
+@click.option("--interval", default=5.0, show_default=True, help="Polling interval in seconds.")
+@click.option("--style-refresh", is_flag=True, default=False, help="Force re-analyze texting style (ignore cache).")
+def watch(contacts: str | None, interval: float, style_refresh: bool) -> None:
+    """Watch iMessage for new messages and suggest AI replies.
+
+    Monitors your iMessage conversations and generates reply suggestions
+    using local Ollama. All data stays on your device.
+    """
+    from clapcheeks.imessage.permissions import check_full_disk_access, prompt_fda_instructions
+    from clapcheeks.imessage.reader import IMMessageReader
+    from clapcheeks.imessage.voice import VoiceAnalyzer
+    from clapcheeks.imessage.ai_reply import ReplyGenerator
+    from clapcheeks.imessage.watcher import IMMessageWatcher
+
+    # Check Full Disk Access
+    if not check_full_disk_access():
+        prompt_fda_instructions()
+        raise SystemExit(1)
+
+    reader = IMMessageReader()
+
+    # Analyze texting style
+    analyzer = VoiceAnalyzer(reader)
+    if style_refresh:
+        from clapcheeks.imessage.voice import STYLE_CACHE
+        if STYLE_CACHE.exists():
+            STYLE_CACHE.unlink()
+
+    with console.status("[bold green]Analyzing your texting style...[/bold green]"):
+        style = analyzer.analyze_style()
+
+    console.print(Panel(
+        f"[bold]Your style:[/bold] {style['tone_description']}",
+        title="[magenta]Clap Cheeks[/magenta]",
+        border_style="magenta",
+    ))
+
+    style_prompt = analyzer.get_style_prompt(style)
+    reply_gen = ReplyGenerator(style_prompt=style_prompt)
+
+    # Parse contacts filter
+    contact_list: list[str] | None = None
+    if contacts:
+        contact_list = [c.strip() for c in contacts.split(",") if c.strip()]
+
+    watcher = IMMessageWatcher(reader, reply_gen, contacts=contact_list)
+
     try:
-        uninstall_launchd()
-        console.print("[yellow]Agent daemon stopped.[/yellow]")
-    except Exception as exc:
-        console.print(f"[red]Failed to stop daemon: {exc}[/red]")
+        watcher.start(poll_interval=interval)
+    except KeyboardInterrupt:
+        console.print("\n[dim]Stopped watching.[/dim]")
+    finally:
+        reader.close()
+
+
+class _nullctx:
+    """No-op context manager for drivers that don't support 'with'."""
+    def __init__(self, val): self.val = val
+    def __enter__(self): return self.val
+    def __exit__(self, *a): pass
