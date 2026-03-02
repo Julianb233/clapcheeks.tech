@@ -113,7 +113,7 @@ def swipe(mode: str | None, platform: str, swipes: int, like_ratio: float) -> No
                     client = BumbleClient(driver=driver)
                 elif plat == "hinge":
                     from outward.platforms.hinge import HingeClient
-                    client = HingeClient(driver=driver)
+                    client = HingeClient(driver=driver, ai_service_url=config.get('ai_service_url'))
 
                 with (driver if hasattr(driver, '__enter__') else _nullctx(driver)):
                     results = client.run_swipe_session(
@@ -175,6 +175,55 @@ def sync() -> None:
             console.print(f"[yellow]Sync failed (HTTP {resp.status_code})[/yellow]")
     except Exception as exc:
         console.print(f"[red]Sync error:[/red] {exc}")
+
+
+@main.command()
+@click.option('--platform', default='tinder', type=click.Choice(['tinder', 'bumble', 'hinge']), help='Platform to manage conversations on.')
+@click.option('--dry-run', is_flag=True, default=False, help='Show what would be sent without sending.')
+def converse(platform: str, dry_run: bool) -> None:
+    """AI-powered conversation manager — send openers and reply to matches."""
+    from outward.config import load as load_config
+    from outward.session.manager import SessionManager
+    from outward.conversation.manager import ConversationManager
+
+    config = load_config()
+    if dry_run:
+        config['dry_run'] = True
+        console.print('[yellow]DRY RUN mode — messages will not be sent[/yellow]')
+
+    console.print(f'\n[bold magenta]Outward[/bold magenta] conversation manager — [bold]{platform}[/bold]')
+
+    with console.status(f'[bold green]Setting up {platform} connection...[/bold green]'):
+        session = SessionManager(config)
+        try:
+            driver = session.get_driver()
+        except Exception as e:
+            console.print(f'[bold red]Error:[/bold red] {e}')
+            raise SystemExit(1)
+
+    # Get platform client
+    if platform == 'tinder':
+        from outward.platforms.tinder import TinderClient
+        client = TinderClient(driver=driver)
+    elif platform == 'hinge':
+        from outward.platforms.hinge import HingeClient
+        client = HingeClient(driver=driver, ai_service_url=config.get('ai_service_url'))
+    else:
+        console.print(f'[yellow]Bumble conversation management uses the driver directly.[/yellow]')
+        raise SystemExit(0)
+
+    mgr = ConversationManager(client, platform, config)
+
+    with console.status('[bold green]Running conversation loop...[/bold green]'):
+        results = mgr.run_loop()
+
+    console.print(Panel(
+        f"[bold green]Openers sent:[/bold green] {results['openers_sent']}\n"
+        f"[bold cyan]Replies sent:[/bold cyan] {results['replies_sent']}\n"
+        f"[bold red]Errors:[/bold red] {results['errors']}",
+        title=f"[magenta]Conversation Run — {platform}[/magenta]",
+        border_style="magenta",
+    ))
 
 
 class _nullctx:

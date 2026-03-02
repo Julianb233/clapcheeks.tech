@@ -22,8 +22,9 @@ TOKEN_FILE = Path.home() / ".outward" / "hinge_token.txt"
 class HingeClient:
     """Hinge automation — REST API with driver fallback."""
 
-    def __init__(self, driver=None) -> None:
+    def __init__(self, driver=None, ai_service_url: str | None = None) -> None:
         self._driver = driver
+        self._ai_service_url = ai_service_url
         self._token: str | None = self._load_token()
         self._session = requests.Session()
         if self._token:
@@ -99,6 +100,39 @@ class HingeClient:
             logger.error("Hinge skip failed: %s", exc)
         return False
 
+    def _generate_comment(self, profile: dict) -> str:
+        """Generate an AI comment for a Hinge like based on profile content."""
+        # Extract the most interesting prompt answer
+        prompt_text = ""
+        for key in ("prompts", "answers", "questions"):
+            items = profile.get(key, [])
+            if items:
+                item = items[0]
+                prompt_text = item.get("answer", "") or item.get("body", "") or ""
+                if prompt_text:
+                    break
+
+        if not prompt_text:
+            return ""
+
+        try:
+            resp = requests.post(
+                f"{self._ai_service_url}/reply/suggest",
+                json={
+                    "platform": "hinge",
+                    "conversation": [{"role": "user", "content": f"Profile prompt: {prompt_text}"}],
+                    "style_description": "genuine, specific, not generic — reference something in their profile",
+                    "contact_name": None,
+                },
+                timeout=10,
+            )
+            resp.raise_for_status()
+            comment = resp.json().get("suggestion", "")
+            return comment[:150]  # Hinge comment character limit
+        except Exception as exc:
+            logger.debug("AI comment generation failed: %s", exc)
+            return ""
+
     def run_swipe_session(
         self,
         like_ratio: float = 0.45,
@@ -120,7 +154,7 @@ class HingeClient:
                 if should_like:
                     comment = ""
                     if ai_comments and random.random() < 0.3:
-                        comment = "Love this!"  # TODO: AI-generated comment
+                        comment = self._generate_comment(profile) if self._ai_service_url else ""
                     success = self.like_profile(subject_id, comment)
                     if success:
                         results["liked"] += 1
