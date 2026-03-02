@@ -68,7 +68,7 @@ export default function ReferralsPage() {
 
   const shareTwitter = () => {
     const text = encodeURIComponent(
-      'Check out Outward — the AI dating co-pilot. Use my link:'
+      'Check out Clapcheeks — the AI dating co-pilot. Use my link:'
     )
     window.open(
       `https://twitter.com/intent/tweet?text=${text}&url=${encodeURIComponent(referralLink)}`,
@@ -78,7 +78,7 @@ export default function ReferralsPage() {
 
   const shareSMS = () => {
     const body = encodeURIComponent(
-      `Check out Outward, the AI dating co-pilot! Sign up with my link and we both win: ${referralLink}`
+      `Check out Clapcheeks, the AI dating co-pilot! Sign up with my link and we both win: ${referralLink}`
     )
     window.open(`sms:?body=${body}`, '_self')
   }
@@ -103,7 +103,7 @@ export default function ReferralsPage() {
             <span className="text-brand-300 text-xs font-medium">Referral Program</span>
           </div>
           <h1 className="text-3xl sm:text-4xl font-bold text-white mb-3">
-            Share Outward, Get a Free Month
+            Share Clapcheeks, Get a Free Month
           </h1>
           <p className="text-white/45 text-lg max-w-lg mx-auto">
             Refer friends. When they sign up and subscribe, you get 1 free month.

@@ -2,7 +2,7 @@ import type { Metadata } from 'next'
 import PricingClient from './pricing-client'
 
 export const metadata: Metadata = {
-  title: 'Pricing — Outward',
+  title: 'Pricing — Clapcheeks',
   description:
     'Simple, transparent pricing for your AI dating co-pilot. Start free, upgrade when you\'re ready.',
 }

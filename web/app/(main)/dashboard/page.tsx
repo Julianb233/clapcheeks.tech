@@ -15,8 +15,8 @@ import { DashboardCharts } from './components/dashboard-charts'
 import { calculateRizzScore, getRizzTrend } from '@/lib/rizz'
 
 export const metadata: Metadata = {
-  title: 'Dashboard — Outward',
-  description: 'Your Outward AI dating co-pilot dashboard.',
+  title: 'Dashboard — Clapcheeks',
+  description: 'Your Clapcheeks AI dating co-pilot dashboard.',
 }
 
 interface DailyRow {
@@ -273,7 +273,7 @@ export default async function Dashboard() {
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8">
           <div className="flex items-center gap-3">
-            <span className="text-xl sm:text-2xl font-bold bg-gradient-to-r from-pink-500 via-purple-500 to-pink-400 bg-clip-text text-transparent">Outward</span>
+            <span className="text-xl sm:text-2xl font-bold bg-gradient-to-r from-pink-500 via-purple-500 to-pink-400 bg-clip-text text-transparent">Clapcheeks</span>
             <span className="text-xs text-white/30 font-mono bg-white/5 px-2 py-0.5 rounded">beta</span>
             <PlanBadge plan={userPlan} subscriptionStatus={userSubStatus} />
           </div>
@@ -368,12 +368,12 @@ export default async function Dashboard() {
                 <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
               </svg>
             </div>
-            <h2 className="text-white font-semibold text-lg mb-2">Install the Outward agent</h2>
+            <h2 className="text-white font-semibold text-lg mb-2">Install the Clapcheeks agent</h2>
             <p className="text-white/40 text-sm mb-6 max-w-md mx-auto">
               Run this command on your Mac to connect your dating apps and start tracking swipes, matches, and dates automatically.
             </p>
             <div className="bg-black/50 border border-white/10 rounded-xl px-4 md:px-6 py-4 max-w-lg mx-auto text-left">
-              <p className="text-white/30 text-xs font-mono mb-2"># Install Outward on your Mac</p>
+              <p className="text-white/30 text-xs font-mono mb-2"># Install Clapcheeks on your Mac</p>
               <pre className="text-xs sm:text-sm font-mono text-purple-400 overflow-x-auto">
                 curl -fsSL https://clapcheeks.tech/install.sh | bash
               </pre>

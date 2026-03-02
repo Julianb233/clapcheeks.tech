@@ -108,9 +108,9 @@ export async function GET(request: NextRequest) {
 
           // Send via Resend
           const { error: sendError } = await resend.emails.send({
-            from: 'Outward <hello@clapcheeks.tech>',
+            from: 'Clapcheeks <hello@clapcheeks.tech>',
             to: [email],
-            subject: 'Your Outward Week in Review',
+            subject: 'Your Clapcheeks Week in Review',
             html,
             headers: {
               'List-Unsubscribe': '<https://clapcheeks.tech/reports?unsubscribe=1>',

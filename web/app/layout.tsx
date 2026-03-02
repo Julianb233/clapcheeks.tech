@@ -7,7 +7,7 @@ const _geist = Geist({ subsets: ['latin'] })
 const _geistMono = Geist_Mono({ subsets: ['latin'] })
 
 export const metadata: Metadata = {
-  title: 'Outward — AI Dating Co-Pilot',
+  title: 'Clapcheeks — AI Dating Co-Pilot',
   description:
     'Your unfair advantage. AI that automates your dating apps — swipes, messages, and dates booked on autopilot. Privacy-first, runs locally on your Mac.',
   keywords: [
@@ -23,16 +23,16 @@ export const metadata: Metadata = {
   ],
   manifest: '/manifest.json',
   openGraph: {
-    title: 'Outward — AI Dating Co-Pilot',
+    title: 'Clapcheeks — AI Dating Co-Pilot',
     description: 'AI that automates your dating apps. Swipes, messages, and dates — all on autopilot.',
     url: 'https://clapcheeks.tech',
-    siteName: 'Outward',
+    siteName: 'Clapcheeks',
     type: 'website',
-    images: [{ url: 'https://clapcheeks.tech/og-image.png', width: 1200, height: 630, alt: 'Outward — AI Dating Co-Pilot' }],
+    images: [{ url: 'https://clapcheeks.tech/og-image.png', width: 1200, height: 630, alt: 'Clapcheeks — AI Dating Co-Pilot' }],
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'Outward — AI Dating Co-Pilot',
+    title: 'Clapcheeks — AI Dating Co-Pilot',
     description: 'AI that automates your dating apps. Swipes, messages, and dates — all on autopilot.',
     images: ['https://clapcheeks.tech/og-image.png'],
   },

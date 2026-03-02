@@ -3,8 +3,8 @@ import Link from 'next/link'
 import { ArrowLeft } from 'lucide-react'
 
 export const metadata: Metadata = {
-  title: 'Terms of Service — Outward',
-  description: 'Terms of service for using Outward.',
+  title: 'Terms of Service — Clapcheeks',
+  description: 'Terms of service for using Clapcheeks.',
 }
 
 export default function TermsPage() {
@@ -14,7 +14,7 @@ export default function TermsPage() {
         <div className="max-w-3xl mx-auto">
           <Link href="/" className="flex items-center gap-2 text-white/40 hover:text-white/70 text-sm transition-colors w-fit">
             <ArrowLeft className="w-4 h-4" />
-            Back to Outward
+            Back to Clapcheeks
           </Link>
         </div>
       </div>
@@ -27,21 +27,21 @@ export default function TermsPage() {
           <section>
             <h2 className="text-xl font-semibold text-white mb-3">1. Acceptance of Terms</h2>
             <p>
-              By using Outward ("the Service"), you agree to these Terms of Service. If you do not agree, do not use the Service. We may update these terms from time to time, and continued use constitutes acceptance of any changes.
+              By using Clapcheeks ("the Service"), you agree to these Terms of Service. If you do not agree, do not use the Service. We may update these terms from time to time, and continued use constitutes acceptance of any changes.
             </p>
           </section>
 
           <section>
             <h2 className="text-xl font-semibold text-white mb-3">2. Description of Service</h2>
             <p>
-              Outward provides an AI-powered dating automation tool that runs locally on your macOS device. The Service includes a local agent application, a web dashboard, and cloud-based analytics. The local agent interacts with third-party dating platforms on your behalf.
+              Clapcheeks provides an AI-powered dating automation tool that runs locally on your macOS device. The Service includes a local agent application, a web dashboard, and cloud-based analytics. The local agent interacts with third-party dating platforms on your behalf.
             </p>
           </section>
 
           <section>
             <h2 className="text-xl font-semibold text-white mb-3">3. Eligibility</h2>
             <p>
-              You must be at least 18 years old to use the Service. By using Outward, you represent that you are of legal age and have the legal capacity to enter into this agreement.
+              You must be at least 18 years old to use the Service. By using Clapcheeks, you represent that you are of legal age and have the legal capacity to enter into this agreement.
             </p>
           </section>
 
@@ -91,7 +91,7 @@ export default function TermsPage() {
           <section>
             <h2 className="text-xl font-semibold text-white mb-3">8. Third-Party Platforms</h2>
             <p>
-              Outward interacts with third-party dating platforms (Tinder, Bumble, Hinge, etc.). We are not affiliated with, endorsed by, or sponsored by these platforms. Use of the Service with these platforms is at your own risk. You are responsible for complying with each platform's terms of service.
+              Clapcheeks interacts with third-party dating platforms (Tinder, Bumble, Hinge, etc.). We are not affiliated with, endorsed by, or sponsored by these platforms. Use of the Service with these platforms is at your own risk. You are responsible for complying with each platform's terms of service.
             </p>
           </section>
 
@@ -105,7 +105,7 @@ export default function TermsPage() {
           <section>
             <h2 className="text-xl font-semibold text-white mb-3">10. Limitation of Liability</h2>
             <p>
-              To the maximum extent permitted by law, Outward shall not be liable for any indirect, incidental, special, consequential, or punitive damages arising from your use of the Service, including but not limited to account suspensions on third-party platforms.
+              To the maximum extent permitted by law, Clapcheeks shall not be liable for any indirect, incidental, special, consequential, or punitive damages arising from your use of the Service, including but not limited to account suspensions on third-party platforms.
             </p>
           </section>
 

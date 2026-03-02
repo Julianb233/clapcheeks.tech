@@ -5,7 +5,7 @@ import ReportsList from './reports-list'
 import ReportPreferences from './report-preferences'
 
 export const metadata: Metadata = {
-  title: 'Reports — Outward',
+  title: 'Reports — Clapcheeks',
   description: 'Your weekly performance reports.',
 }
 
