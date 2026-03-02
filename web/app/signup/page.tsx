@@ -1,6 +1,7 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { signup, loginWithGoogle } from '@/app/auth/actions'
 
@@ -9,6 +10,15 @@ export default function SignupPage() {
   const [googleLoading, setGoogleLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
+  const searchParams = useSearchParams()
+
+  // Capture referral code from URL and store in localStorage
+  useEffect(() => {
+    const ref = searchParams.get('ref')
+    if (ref) {
+      localStorage.setItem('clapcheeks_ref', ref)
+    }
+  }, [searchParams])
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -31,18 +41,27 @@ export default function SignupPage() {
       return
     }
 
+    // Include referral code if present
+    const ref = localStorage.getItem('clapcheeks_ref')
+    if (ref) {
+      formData.set('ref', ref)
+    }
+
     const result = await signup(formData)
 
     if (result?.error) {
       setError(result.error)
       setIsLoading(false)
     } else {
+      // Clear stored referral code after successful signup
+      localStorage.removeItem('clapcheeks_ref')
       setSuccess(true)
     }
   }
 
   async function handleGoogleSignup() {
     setGoogleLoading(true)
+    // Store ref in localStorage so callback can pick it up
     await loginWithGoogle()
   }
 
@@ -100,6 +119,13 @@ export default function SignupPage() {
         <div className="bg-white/[0.03] border border-white/10 rounded-2xl p-8 glow-border">
           <h1 className="text-2xl font-bold text-white mb-1">Create account</h1>
           <p className="text-white/40 text-sm mb-8">Start your AI dating co-pilot journey</p>
+
+          {/* Referral banner */}
+          {searchParams.get('ref') && (
+            <div className="bg-brand-900/30 border border-brand-700/30 rounded-xl px-4 py-3 mb-6">
+              <p className="text-brand-300 text-sm">You were referred by a friend! Sign up and subscribe to earn them a free month.</p>
+            </div>
+          )}
 
           {/* Error */}
           {error && (

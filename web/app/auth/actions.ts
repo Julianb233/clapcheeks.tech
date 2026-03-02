@@ -43,19 +43,29 @@ export async function signup(formData: FormData) {
   const email = formData.get('email') as string
   const password = formData.get('password') as string
   const fullName = formData.get('full_name') as string
+  const ref = formData.get('ref') as string | null
 
-  const { error } = await supabase.auth.signUp({
+  const { data, error } = await supabase.auth.signUp({
     email,
     password,
     options: {
       data: {
         full_name: fullName,
+        ...(ref ? { referred_by: ref } : {}),
       },
     },
   })
 
   if (error) {
     return { error: error.message }
+  }
+
+  // If there's a referral code and user was created, store it on their profile
+  if (ref && data.user) {
+    await supabase
+      .from('profiles')
+      .update({ referred_by: ref })
+      .eq('id', data.user.id)
   }
 
   revalidatePath('/', 'layout')

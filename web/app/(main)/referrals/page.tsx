@@ -2,20 +2,22 @@
 
 import { useEffect, useState } from 'react'
 import { createBrowserClient } from '@supabase/ssr'
-import { Copy, Share2, Users, Gift, CheckCircle2, Clock } from 'lucide-react'
+import { Copy, Share2, Users, Gift, CheckCircle2, Clock, MessageSquare } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 
 interface Referral {
   id: string
-  referee_id: string | null
+  referred_id: string | null
   status: string
+  converted_at: string | null
+  rewarded_at: string | null
   created_at: string
 }
 
 export default function ReferralsPage() {
   const [refCode, setRefCode] = useState<string | null>(null)
   const [referrals, setReferrals] = useState<Referral[]>([])
-  const [credits, setCredits] = useState(0)
+  const [monthsEarned, setMonthsEarned] = useState(0)
   const [loading, setLoading] = useState(true)
   const [copied, setCopied] = useState(false)
 
@@ -29,28 +31,23 @@ export default function ReferralsPage() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
 
-      // Get profile with ref_code
+      // Get profile with referral_code
       const { data: profile } = await supabase
         .from('profiles')
-        .select('ref_code, referral_credits')
+        .select('referral_code, free_months_earned')
         .eq('id', user.id)
         .single()
 
-      if (profile?.ref_code) {
-        setRefCode(profile.ref_code)
-      } else {
-        // Generate one
-        const res = await fetch('/api/referral/generate', { method: 'POST' })
-        const data = await res.json()
-        if (data.ref_code) setRefCode(data.ref_code)
+      if (profile?.referral_code) {
+        setRefCode(profile.referral_code)
       }
 
-      setCredits(profile?.referral_credits || 0)
+      setMonthsEarned(profile?.free_months_earned || 0)
 
       // Get referrals
       const { data: refs } = await supabase
         .from('clapcheeks_referrals')
-        .select('id, referee_id, status, created_at')
+        .select('id, referred_id, status, converted_at, rewarded_at, created_at')
         .eq('referrer_id', user.id)
         .order('created_at', { ascending: false })
 
@@ -60,7 +57,7 @@ export default function ReferralsPage() {
     load()
   }, [supabase])
 
-  const referralLink = refCode ? `https://clapcheeks.tech/?ref=${refCode}` : ''
+  const referralLink = refCode ? `https://clapcheeks.tech?ref=${refCode}` : ''
 
   const copyLink = async () => {
     if (!referralLink) return
@@ -71,7 +68,7 @@ export default function ReferralsPage() {
 
   const shareTwitter = () => {
     const text = encodeURIComponent(
-      'Check out Outward — the AI dating co-pilot that runs privately on your Mac. Use my link:'
+      'Check out Clap Cheeks — the AI dating co-pilot. Use my link:'
     )
     window.open(
       `https://twitter.com/intent/tweet?text=${text}&url=${encodeURIComponent(referralLink)}`,
@@ -79,8 +76,14 @@ export default function ReferralsPage() {
     )
   }
 
-  const converted = referrals.filter((r) => r.status === 'converted' || r.status === 'credited').length
-  const credited = referrals.filter((r) => r.status === 'credited').length
+  const shareSMS = () => {
+    const body = encodeURIComponent(
+      `Check out Clap Cheeks, the AI dating co-pilot! Sign up with my link and we both win: ${referralLink}`
+    )
+    window.open(`sms:?body=${body}`, '_self')
+  }
+
+  const converted = referrals.filter((r) => r.status === 'converted' || r.status === 'rewarded').length
 
   if (loading) {
     return (
@@ -100,10 +103,10 @@ export default function ReferralsPage() {
             <span className="text-brand-300 text-xs font-medium">Referral Program</span>
           </div>
           <h1 className="text-3xl sm:text-4xl font-bold text-white mb-3">
-            Give a month, get a month
+            Share Clap Cheeks, Get a Free Month
           </h1>
           <p className="text-white/45 text-lg max-w-lg mx-auto">
-            Share Outward with friends. When they subscribe, you both win.
+            Refer friends. When they sign up and subscribe, you get 1 free month.
           </p>
         </div>
 
@@ -127,15 +130,6 @@ export default function ReferralsPage() {
           {/* Share buttons */}
           <div className="flex items-center gap-3 mt-4">
             <Button
-              onClick={shareTwitter}
-              variant="outline"
-              size="sm"
-              className="border-white/10 bg-white/5 hover:bg-white/10 text-white/60 hover:text-white"
-            >
-              <Share2 className="w-3.5 h-3.5 mr-1.5" />
-              Twitter / X
-            </Button>
-            <Button
               onClick={copyLink}
               variant="outline"
               size="sm"
@@ -144,6 +138,24 @@ export default function ReferralsPage() {
               <Copy className="w-3.5 h-3.5 mr-1.5" />
               Copy Link
             </Button>
+            <Button
+              onClick={shareSMS}
+              variant="outline"
+              size="sm"
+              className="border-white/10 bg-white/5 hover:bg-white/10 text-white/60 hover:text-white"
+            >
+              <MessageSquare className="w-3.5 h-3.5 mr-1.5" />
+              Text Message
+            </Button>
+            <Button
+              onClick={shareTwitter}
+              variant="outline"
+              size="sm"
+              className="border-white/10 bg-white/5 hover:bg-white/10 text-white/60 hover:text-white"
+            >
+              <Share2 className="w-3.5 h-3.5 mr-1.5" />
+              Twitter / X
+            </Button>
           </div>
         </div>
 
@@ -151,15 +163,15 @@ export default function ReferralsPage() {
         <div className="grid grid-cols-3 gap-3 mb-8">
           <div className="bg-white/[0.03] border border-white/8 rounded-xl p-4 text-center">
             <div className="text-2xl font-bold text-white">{referrals.length}</div>
-            <div className="text-white/40 text-xs mt-1">Referrals Sent</div>
+            <div className="text-white/40 text-xs mt-1">Friends Referred</div>
           </div>
           <div className="bg-white/[0.03] border border-white/8 rounded-xl p-4 text-center">
             <div className="text-2xl font-bold text-white">{converted}</div>
             <div className="text-white/40 text-xs mt-1">Converted</div>
           </div>
           <div className="bg-white/[0.03] border border-white/8 rounded-xl p-4 text-center">
-            <div className="text-2xl font-bold text-brand-400">{credits}</div>
-            <div className="text-white/40 text-xs mt-1">Credits Earned</div>
+            <div className="text-2xl font-bold text-brand-400">{monthsEarned}</div>
+            <div className="text-white/40 text-xs mt-1">Free Months Earned</div>
           </div>
         </div>
 
@@ -178,8 +190,8 @@ export default function ReferralsPage() {
               <div className="w-10 h-10 rounded-full bg-brand-900/60 border border-brand-700/40 flex items-center justify-center mx-auto mb-3">
                 <span className="text-brand-300 font-bold text-sm">2</span>
               </div>
-              <h3 className="text-white text-sm font-medium mb-1">Friend subscribes</h3>
-              <p className="text-white/40 text-xs">They sign up and start a paid subscription</p>
+              <h3 className="text-white text-sm font-medium mb-1">Friend signs up + subscribes</h3>
+              <p className="text-white/40 text-xs">They create an account and start a paid plan</p>
             </div>
             <div className="text-center">
               <div className="w-10 h-10 rounded-full bg-brand-900/60 border border-brand-700/40 flex items-center justify-center mx-auto mb-3">
@@ -191,10 +203,10 @@ export default function ReferralsPage() {
           </div>
         </div>
 
-        {/* Referral List */}
+        {/* Referral History */}
         {referrals.length > 0 && (
           <div className="bg-white/[0.03] border border-white/8 rounded-2xl p-6">
-            <h2 className="text-white font-semibold mb-4">Your referrals</h2>
+            <h2 className="text-white font-semibold mb-4">Referral history</h2>
             <div className="space-y-3">
               {referrals.map((ref) => (
                 <div
@@ -213,14 +225,14 @@ export default function ReferralsPage() {
                     </span>
                     <span
                       className={`text-xs px-2 py-0.5 rounded-full ${
-                        ref.status === 'credited'
+                        ref.status === 'rewarded'
                           ? 'bg-green-900/40 text-green-400 border border-green-700/40'
                           : ref.status === 'converted'
                           ? 'bg-blue-900/40 text-blue-400 border border-blue-700/40'
                           : 'bg-white/5 text-white/40 border border-white/10'
                       }`}
                     >
-                      {ref.status === 'credited' && <CheckCircle2 className="w-3 h-3 inline mr-1" />}
+                      {ref.status === 'rewarded' && <CheckCircle2 className="w-3 h-3 inline mr-1" />}
                       {ref.status === 'pending' && <Clock className="w-3 h-3 inline mr-1" />}
                       {ref.status}
                     </span>
@@ -234,7 +246,7 @@ export default function ReferralsPage() {
         {referrals.length === 0 && (
           <div className="text-center py-12">
             <Users className="w-10 h-10 text-white/15 mx-auto mb-3" />
-            <p className="text-white/30 text-sm">No referrals yet. Share your link to get started.</p>
+            <p className="text-white/30 text-sm">No referrals yet. Share your link to get started!</p>
           </div>
         )}
       </div>
