@@ -946,6 +946,97 @@ export type Database = {
           },
         ]
       }
+      clapcheeks_dates: {
+        Row: {
+          id: string
+          user_id: string
+          match_name: string | null
+          platform: string | null
+          location: string | null
+          scheduled_at: string | null
+          status: string
+          notes: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          match_name?: string | null
+          platform?: string | null
+          location?: string | null
+          scheduled_at?: string | null
+          status?: string
+          notes?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          match_name?: string | null
+          platform?: string | null
+          location?: string | null
+          scheduled_at?: string | null
+          status?: string
+          notes?: string | null
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "clapcheeks_dates_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      clapcheeks_conversations: {
+        Row: {
+          id: string
+          user_id: string
+          platform: string
+          match_id: string
+          match_name: string | null
+          messages: Json
+          stage: string
+          last_message: string | null
+          last_message_at: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          platform: string
+          match_id: string
+          match_name?: string | null
+          messages?: Json
+          stage?: string
+          last_message?: string | null
+          last_message_at?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          platform?: string
+          match_id?: string
+          match_name?: string | null
+          messages?: Json
+          stage?: string
+          last_message?: string | null
+          last_message_at?: string | null
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "clapcheeks_conversations_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       clapcheeks_device_codes: {
         Row: {
           code: string
@@ -1022,6 +1113,8 @@ export type VoiceProfile = Database["public"]["Tables"]["clapcheeks_voice_profil
 export type WeeklyReport = Database["public"]["Tables"]["clapcheeks_weekly_reports"]["Row"]
 export type Referral = Database["public"]["Tables"]["clapcheeks_referrals"]["Row"]
 export type QueuedReply = Database["public"]["Tables"]["clapcheeks_queued_replies"]["Row"]
+export type ClapcheeksDate = Database["public"]["Tables"]["clapcheeks_dates"]["Row"]
+export type Conversation = Database["public"]["Tables"]["clapcheeks_conversations"]["Row"]
 
 export type AppName = "tinder" | "bumble" | "hinge"
 export type PlanTier = "starter" | "pro" | "elite"
