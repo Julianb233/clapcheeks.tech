@@ -19,10 +19,10 @@ export function RizzScoreCard({ score, trend, matchRate }: RizzScoreCardProps) {
       <h2 className="text-white/60 text-xs font-semibold uppercase tracking-wider mb-4">
         Rizz Score
       </h2>
-      <div className="flex items-center gap-6">
+      <div className="flex flex-col sm:flex-row items-center gap-4 sm:gap-6">
         {/* Circular gauge */}
-        <div className="relative w-32 h-32 shrink-0">
-          <svg className="w-32 h-32 -rotate-90" viewBox="0 0 120 120">
+        <div className="relative w-24 h-24 sm:w-32 sm:h-32 shrink-0">
+          <svg className="w-24 h-24 sm:w-32 sm:h-32 -rotate-90" viewBox="0 0 120 120">
             <circle cx="60" cy="60" r="54" fill="none" stroke="rgba(255,255,255,0.1)" strokeWidth="8" />
             <circle
               cx="60" cy="60" r="54" fill="none"

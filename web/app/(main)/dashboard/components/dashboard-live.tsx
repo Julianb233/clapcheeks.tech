@@ -261,7 +261,7 @@ export default function DashboardLive({ initialData, hasAgent }: DashboardLivePr
         </div>
 
         {/* Health badge legend */}
-        <div className="flex items-center gap-4 mt-4 pt-3 border-t border-white/5">
+        <div className="flex items-center gap-2 md:gap-4 mt-4 pt-3 border-t border-white/5">
           <div className="flex items-center gap-1.5 text-[10px] text-white/30">
             <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-400" /> Active
           </div>

@@ -31,7 +31,7 @@ export function PlatformBreakdown({ data }: PlatformBreakdownProps) {
       <h2 className="text-white/60 text-xs font-semibold uppercase tracking-wider mb-4">
         Platform Breakdown
       </h2>
-      <div className="h-56">
+      <div className="h-44 sm:h-56">
         <ResponsiveContainer width="100%" height="100%">
           <BarChart data={chartData} margin={{ top: 5, right: 5, bottom: 5, left: 0 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.08)" />

@@ -80,7 +80,7 @@ export function DashboardCharts({ initialData, days }: DashboardChartsProps) {
       <SwipeMatchChart data={data.timeSeries} />
 
       {/* Platform Breakdown + Conversion Funnel side by side on desktop */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
         <PlatformBreakdown data={data.platforms} />
         <ConversionFunnel data={data.funnel} />
       </div>

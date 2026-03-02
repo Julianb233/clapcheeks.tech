@@ -35,7 +35,7 @@ export function SpendingChart({ totalSpent, costPerMatch, costPerDate, byCategor
       <h2 className="text-white/60 text-xs font-semibold uppercase tracking-wider mb-4">
         Spend Tracker
       </h2>
-      <div className="grid grid-cols-3 gap-3 mb-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-3 mb-4">
         <div className="text-center">
           <div className="text-lg font-bold text-white">${totalSpent.toFixed(2)}</div>
           <div className="text-white/40 text-xs">Total This Month</div>
@@ -50,7 +50,7 @@ export function SpendingChart({ totalSpent, costPerMatch, costPerDate, byCategor
         </div>
       </div>
       {chartData.length > 0 && (
-        <div className="h-40">
+        <div className="h-36 sm:h-40">
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={chartData} margin={{ top: 5, right: 5, bottom: 5, left: 0 }}>
               <XAxis
