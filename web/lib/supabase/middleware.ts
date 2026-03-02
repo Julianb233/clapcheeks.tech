@@ -36,6 +36,10 @@ export async function updateSession(request: NextRequest) {
     "/auth/sign-up-success",
     "/auth/verify-email",
     "/diagnostics",
+    "/affiliate/apply",
+    "/press",
+    "/privacy",
+    "/terms",
   ]
   const isPublicRoute = publicRoutes.some((route) => request.nextUrl.pathname.startsWith(route))
 
