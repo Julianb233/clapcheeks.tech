@@ -8,6 +8,7 @@ import click
 from rich.console import Console
 from rich.panel import Panel
 
+from clapcheeks.calendar.client import _is_macos
 from clapcheeks.config import load, save, save_agent_token
 
 console = Console()
@@ -72,19 +73,26 @@ def run_setup() -> None:
         config["ai_service_url"] = "http://localhost:8000"
         console.print("[green]✓ Kimi AI configured[/green]")
 
-    # Step 4: Google Calendar (optional)
-    console.print("\n[bold]Step 4: Google Calendar[/bold] [dim](optional — enables date scheduling)[/dim]")
-    if click.confirm("Set up Google Calendar for automatic date booking?", default=False):
-        client_id = click.prompt("GOOGLE_CLIENT_ID", default="")
-        client_secret = click.prompt("GOOGLE_CLIENT_SECRET", default="", hide_input=True)
-        refresh_token = click.prompt("GOOGLE_REFRESH_TOKEN", default="", hide_input=True)
-        if client_id and refresh_token:
-            _write_env("GOOGLE_CLIENT_ID", client_id)
-            _write_env("GOOGLE_CLIENT_SECRET", client_secret)
-            _write_env("GOOGLE_REFRESH_TOKEN", refresh_token)
-            console.print("[green]✓ Google Calendar configured[/green]")
+    # Step 4: Calendar Integration
+    console.print("\n[bold]Step 4: Calendar Integration[/bold] [dim](enables date scheduling)[/dim]")
+
+    if _is_macos():
+        console.print("[green]✓ macOS detected — Clap Cheeks can read Calendar.app directly[/green]")
+        console.print("[dim]No credentials needed. macOS will ask for Calendar permission on first use.[/dim]")
+        console.print("[dim]Make sure System Settings → Privacy → Calendars allows Terminal access.[/dim]")
+        config["calendar_provider"] = "macos"
     else:
-        console.print("[dim]Skipped — run setup again to add later[/dim]")
+        console.print("[dim]Non-Mac environment — Google Calendar OAuth required[/dim]")
+        if click.confirm("Set up Google Calendar?", default=False):
+            client_id = click.prompt("GOOGLE_CLIENT_ID", default="")
+            client_secret = click.prompt("GOOGLE_CLIENT_SECRET", default="", hide_input=True)
+            refresh_token = click.prompt("GOOGLE_REFRESH_TOKEN", default="", hide_input=True)
+            if client_id and refresh_token:
+                _write_env("GOOGLE_CLIENT_ID", client_id)
+                _write_env("GOOGLE_CLIENT_SECRET", client_secret)
+                _write_env("GOOGLE_REFRESH_TOKEN", refresh_token)
+                config["calendar_provider"] = "google"
+                console.print("[green]✓ Google Calendar configured[/green]")
 
     # Step 5: Dashboard account (optional)
     console.print("\n[bold]Step 5: Clap Cheeks Account[/bold] [dim](optional — enables dashboard sync)[/dim]")
