@@ -11,6 +11,7 @@ from outward.config import load as load_config
 from outward.modes import MODE_LABELS
 from outward.modes.detect import detect_mode
 from outward.session.rate_limiter import get_daily_summary
+from outward.commands.spend import spend
 
 console = Console()
 
@@ -26,6 +27,9 @@ def main() -> None:
     Get started: outward setup
     """
     pass
+
+
+main.add_command(spend)
 
 
 @main.command()
@@ -245,6 +249,10 @@ def converse(platform: str, dry_run: bool) -> None:
         title=f"[magenta]Conversation Run — {platform}[/magenta]",
         border_style="magenta",
     ))
+
+
+from outward.commands.profile import profile
+main.add_command(profile)
 
 
 class _nullctx:
