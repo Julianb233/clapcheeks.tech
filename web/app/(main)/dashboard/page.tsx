@@ -7,6 +7,7 @@ import ManageBillingButton from '@/components/manage-billing-button'
 import PlanBadge from '@/components/plan-badge'
 import EliteOnly from '@/components/elite-only'
 import CoachingSection from './components/coaching-section'
+import DashboardLive from './components/dashboard-live'
 import { getLatestCoaching } from '@/lib/coaching/generate'
 
 export const metadata: Metadata = {
@@ -110,12 +111,35 @@ export default async function Dashboard() {
   const todayRows = rows.filter((r) => r.date === today)
   const todaySwipes = todayRows.reduce((a, r) => a + r.swipes_right + r.swipes_left, 0)
 
-  // Per-platform breakdown
-  const byPlatform: Record<string, { swipes: number; matches: number }> = {}
+  // Per-platform breakdown (detailed for DashboardLive)
+  const byPlatform: Record<string, { swipes_right: number; matches: number; messages_sent: number; dates_booked: number }> = {}
   for (const r of rows) {
-    if (!byPlatform[r.platform]) byPlatform[r.platform] = { swipes: 0, matches: 0 }
-    byPlatform[r.platform].swipes += r.swipes_right
+    if (!byPlatform[r.platform]) byPlatform[r.platform] = { swipes_right: 0, matches: 0, messages_sent: 0, dates_booked: 0 }
+    byPlatform[r.platform].swipes_right += r.swipes_right
     byPlatform[r.platform].matches += r.matches
+    byPlatform[r.platform].messages_sent += r.messages_sent
+    byPlatform[r.platform].dates_booked += r.dates_booked
+  }
+
+  // Build initial data for the live client component
+  const initialLiveData = {
+    totals: {
+      swipes_right: totals.swipes_right,
+      swipes_left: totals.swipes - totals.swipes_right,
+      matches: totals.matches,
+      messages_sent: totals.messages,
+      dates_booked: totals.dates,
+      conversations: totals.messages,
+    },
+    todaySwipes,
+    platforms: byPlatform,
+    funnel: [
+      { stage: 'Swipes', value: totals.swipes_right },
+      { stage: 'Matches', value: totals.matches },
+      { stage: 'Conversations', value: totals.messages },
+      { stage: 'Date-ready', value: Math.round(totals.messages * 0.3) },
+      { stage: 'Dates Booked', value: totals.dates },
+    ],
   }
 
   const stats = [
@@ -220,33 +244,10 @@ export default async function Dashboard() {
           ))}
         </div>
 
-        {/* Platform breakdown */}
-        {hasAgent && Object.keys(byPlatform).length > 0 && (
-          <div className="bg-white/5 border border-white/10 rounded-xl p-5 mb-8">
-            <h2 className="text-white/60 text-xs font-semibold uppercase tracking-wider mb-4">
-              By Platform — Last 30 Days
-            </h2>
-            <div className="space-y-3">
-              {Object.entries(byPlatform)
-                .sort((a, b) => b[1].matches - a[1].matches)
-                .map(([platform, data]) => (
-                  <div key={platform} className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <div className="w-2 h-2 rounded-full bg-brand-500" />
-                      <span className="text-white capitalize text-sm">{platform}</span>
-                    </div>
-                    <div className="flex items-center gap-6 text-sm">
-                      <span className="text-white/40">{data.swipes} swipes</span>
-                      <span className="text-brand-400 font-medium">{data.matches} matches</span>
-                      <span className="text-white/30 text-xs">
-                        {data.swipes > 0 ? ((data.matches / data.swipes) * 100).toFixed(1) : '0.0'}% rate
-                      </span>
-                    </div>
-                  </div>
-                ))}
-            </div>
-          </div>
-        )}
+        {/* Live platform stats, funnel, and health badges */}
+        <div className="mb-8">
+          <DashboardLive initialData={initialLiveData} hasAgent={hasAgent} />
+        </div>
 
         {/* Elite Features */}
         <div className="space-y-4 mb-8">
