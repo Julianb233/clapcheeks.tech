@@ -90,7 +90,7 @@ export default async function Dashboard() {
       .order('last_seen_at', { ascending: false })
       .limit(1),
     supabase
-      .from('subscriptions')
+      .from('clapcheeks_subscriptions')
       .select('status')
       .eq('user_id', user.id)
       .limit(1)

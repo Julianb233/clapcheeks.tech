@@ -53,9 +53,10 @@ create table if not exists public.ai_suggestions (
 create index idx_ai_suggestions_user_id on public.ai_suggestions(user_id);
 
 -- ============================================================
--- 4. subscriptions — Stripe subscription tracking
+-- 4. clapcheeks_subscriptions — Stripe subscription tracking
+-- (named clapcheeks_ to avoid collision with existing subscriptions table)
 -- ============================================================
-create table if not exists public.subscriptions (
+create table if not exists public.clapcheeks_subscriptions (
   id uuid default gen_random_uuid() primary key,
   user_id uuid references auth.users(id) on delete cascade not null,
   stripe_subscription_id text unique,
@@ -67,10 +68,10 @@ create table if not exists public.subscriptions (
   updated_at timestamptz default now() not null
 );
 
-create index idx_subscriptions_user_id on public.subscriptions(user_id);
-create index idx_subscriptions_stripe_id on public.subscriptions(stripe_subscription_id);
+create index if not exists idx_clapcheeks_subscriptions_user_id on public.clapcheeks_subscriptions(user_id);
+create index if not exists idx_clapcheeks_subscriptions_stripe_id on public.clapcheeks_subscriptions(stripe_subscription_id);
 
--- Auto-update updated_at on subscriptions
-create or replace trigger subscriptions_updated_at
-  before update on public.subscriptions
+-- Auto-update updated_at on clapcheeks_subscriptions
+create or replace trigger clapcheeks_subscriptions_updated_at
+  before update on public.clapcheeks_subscriptions
   for each row execute function public.set_updated_at();

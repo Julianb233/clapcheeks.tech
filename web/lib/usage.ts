@@ -22,7 +22,7 @@ export interface UsageSummary {
 async function getUserPlan(userId: string): Promise<'base' | 'elite'> {
   const supabase = await createClient()
   const { data } = await supabase
-    .from('subscriptions')
+    .from('clapcheeks_subscriptions')
     .select('plan')
     .eq('user_id', userId)
     .eq('status', 'active')
