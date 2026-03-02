@@ -99,6 +99,23 @@ def swipe(mode: str | None, platform: str, swipes: int, like_ratio: float) -> No
     """Run an automated swipe session."""
     config = load_config()
 
+    # Show coaching tips if profile exists and has room for improvement
+    from clapcheeks.profile import profile_exists, load_profile
+    if profile_exists():
+        from clapcheeks.ai.profile_coach import analyze_profile, format_coach_tips
+        prof = load_profile()
+        tips = analyze_profile(prof)
+        if tips:
+            formatted = format_coach_tips(tips)
+            console.print()
+            console.print(Panel(
+                formatted,
+                title="[bold]AI Coach[/bold]",
+                border_style="magenta",
+                padding=(1, 2),
+            ))
+            console.print()
+
     from clapcheeks.session.manager import SessionManager
 
     platforms = ["tinder", "bumble", "hinge"] if platform == "all" else [platform]
@@ -300,6 +317,39 @@ def converse(platform: str, dry_run: bool) -> None:
 
 from clapcheeks.commands.profile import profile
 main.add_command(profile)
+
+
+@main.command()
+def coach() -> None:
+    """Run the AI profile coach — get actionable tips to improve your profile."""
+    from clapcheeks.profile import profile_exists, load_profile
+    from clapcheeks.ai.profile_coach import analyze_profile, format_coach_tips
+
+    if not profile_exists():
+        console.print("[yellow]No profile found. Run [cyan]clapcheeks profile setup[/cyan] first.[/yellow]")
+        return
+
+    prof = load_profile()
+    tips = analyze_profile(prof)
+
+    if not tips:
+        console.print(Panel(
+            "[bold green]Your profile looks great![/bold green] No tips right now.",
+            title="[bold]AI Coach[/bold]",
+            border_style="magenta",
+            padding=(1, 2),
+        ))
+        return
+
+    formatted = format_coach_tips(tips)
+    console.print()
+    console.print(Panel(
+        formatted,
+        title="[bold]AI Coach[/bold]",
+        border_style="magenta",
+        padding=(1, 2),
+    ))
+    console.print()
 
 
 @main.command()
