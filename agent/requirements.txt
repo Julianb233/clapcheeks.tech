@@ -9,3 +9,4 @@ python-dotenv>=1.0
 ollama>=0.3
 Appium-Python-Client>=3.1
 browserbase>=0.3
+watchdog>=4.0
