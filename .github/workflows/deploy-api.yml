@@ -1,4 +1,4 @@
-name: Deploy API to Railway
+name: Deploy API to Fly.io
 
 on:
   push:
@@ -12,11 +12,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Railway CLI
-        run: npm install -g @railway/cli
+      - uses: superfly/flyctl-actions/setup-flyctl@master
 
-      - name: Deploy to Railway
-        run: railway up --service clapcheeks-api --detach
+      - name: Deploy to Fly.io
+        run: flyctl deploy --remote-only --app clapcheeks-api
         working-directory: api
         env:
-          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
