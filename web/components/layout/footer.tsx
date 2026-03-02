@@ -25,7 +25,7 @@ export default function Footer() {
   return (
     <footer className="border-t border-white/6 bg-black">
       <div className="max-w-7xl mx-auto px-6 py-16">
-        <div className="grid grid-cols-1 md:grid-cols-5 gap-12 mb-12">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-8 md:gap-12 mb-12">
           {/* Brand column */}
           <div className="md:col-span-2">
             <div className="flex items-center gap-2 mb-4">

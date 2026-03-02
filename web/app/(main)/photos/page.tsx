@@ -229,11 +229,11 @@ export default function PhotosPage() {
     : 0
 
   return (
-    <div className="min-h-screen bg-[#0a0a0f] px-6 py-8">
+    <div className="min-h-screen bg-[#0a0a0f] px-4 sm:px-6 py-8">
       <div className="max-w-5xl mx-auto">
         {/* Header */}
         <div className="mb-8 animate-slide-up">
-          <h1 className="text-3xl font-bold gradient-text mb-2">Photo Optimizer</h1>
+          <h1 className="text-2xl sm:text-3xl font-bold gradient-text mb-2">Photo Optimizer</h1>
           <p className="text-white/40 text-sm animate-fade-in delay-150">
             Upload your dating profile photos to get AI-powered scores and ranking recommendations.
           </p>
@@ -245,7 +245,7 @@ export default function PhotosPage() {
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
-          className={`relative cursor-pointer rounded-2xl border-2 border-dashed p-12 text-center transition-all duration-200 mb-8 ${
+          className={`relative cursor-pointer rounded-2xl border-2 border-dashed p-6 sm:p-10 md:p-12 text-center transition-all duration-200 mb-8 ${
             dragging
               ? 'border-violet-500 bg-violet-500/10 scale-[1.01]'
               : 'border-violet-500/30 bg-white/[0.02] hover:border-violet-500/50 hover:bg-white/[0.04]'
@@ -421,7 +421,7 @@ export default function PhotosPage() {
 
             {/* Best photo callout */}
             {bestPhoto && bestPhoto.score > 0 && (
-              <div className="flex items-center gap-4 mb-5 bg-violet-500/10 border border-violet-500/20 rounded-xl p-4">
+              <div className="flex flex-col sm:flex-row items-center gap-4 mb-5 bg-violet-500/10 border border-violet-500/20 rounded-xl p-4">
                 <img
                   src={bestPhoto.preview}
                   alt="Best photo"

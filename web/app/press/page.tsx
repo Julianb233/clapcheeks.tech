@@ -30,7 +30,7 @@ export default function PressPage() {
           </div>
         </div>
 
-        <div className="max-w-4xl mx-auto px-6 py-16">
+        <div className="max-w-4xl mx-auto px-4 sm:px-6 py-12 sm:py-16">
           {/* Hero */}
           <div className="text-center mb-16">
             <h1 className="text-4xl sm:text-5xl font-bold gradient-text mb-4 animate-slide-up">Press & Media</h1>
@@ -42,7 +42,7 @@ export default function PressPage() {
           {/* Brand Assets */}
           <section className="mb-16">
             <h2 className="text-2xl font-bold text-white mb-6 border-l-2 border-brand-600/50 pl-3">Brand Assets</h2>
-            <div className="grid sm:grid-cols-3 gap-4 mb-8">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
               <div className="feature-card bg-white/[0.03] border border-white/8 rounded-xl p-6 text-center hover:border-purple-500/30 animate-fade-in delay-150">
                 <div className="w-16 h-16 rounded-xl bg-gradient-to-br from-[#7c3aed] to-[#ec4899] flex items-center justify-center mx-auto mb-4">
                   <svg width="28" height="28" viewBox="0 0 14 14" fill="none">
@@ -103,7 +103,7 @@ export default function PressPage() {
           {/* Product Screenshots */}
           <section className="mb-16">
             <h2 className="text-2xl font-bold text-white mb-6 border-l-2 border-brand-600/50 pl-3">Product Screenshots</h2>
-            <div className="grid sm:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {['Dashboard', 'Analytics', 'Pricing', 'Referrals'].map((name, i) => (
                 <div key={name} className={`feature-card bg-white/[0.03] border border-white/8 rounded-xl p-6 aspect-video flex items-center justify-center hover:border-purple-500/30 animate-fade-in delay-${[150, 300, 500, 700][i]}`}>
                   <div className="text-center">
@@ -126,7 +126,7 @@ export default function PressPage() {
                 <p className="text-white/40 text-xs uppercase tracking-wider mb-1">One-liner</p>
                 <p className="text-white">Clapcheeks is a privacy-first AI dating co-pilot that runs locally on your Mac, automating swipes, conversations, and date booking across Tinder, Bumble, and Hinge.</p>
               </div>
-              <div className="grid sm:grid-cols-3 gap-4 pt-2">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-2">
                 <div>
                   <p className="text-white/40 text-xs uppercase tracking-wider mb-1">Founded</p>
                   <p className="text-white text-sm">2025</p>
