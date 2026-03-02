@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import Stripe from 'stripe'
 import { stripe } from '@/lib/stripe'
 import { createClient } from '@/lib/supabase/server'
 
@@ -33,7 +34,7 @@ export async function GET() {
         customer: profile.stripe_customer_id,
         limit: 5,
       }),
-      stripe.invoices.retrieveUpcoming({
+      stripe.invoices.createPreview({
         customer: profile.stripe_customer_id,
       }).catch(() => null),
     ])
@@ -52,14 +53,15 @@ export async function GET() {
       }
     }
 
+    const sub = subscription as any
     return NextResponse.json({
       subscribed: true,
       plan: profile.plan,
       status: profile.subscription_status,
-      currentPeriodEnd: subscription.current_period_end,
-      cancelAtPeriodEnd: subscription.cancel_at_period_end,
+      currentPeriodEnd: sub.current_period_end,
+      cancelAtPeriodEnd: sub.cancel_at_period_end,
       card,
-      invoices: invoices.data.map(inv => ({
+      invoices: invoices.data.map((inv: Stripe.Invoice) => ({
         id: inv.id,
         date: inv.created,
         amount: inv.amount_paid,

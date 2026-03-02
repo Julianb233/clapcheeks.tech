@@ -170,7 +170,7 @@ export default async function ProfilePage() {
               </CardHeader>
               <CardContent>
                 <div className="flex flex-wrap gap-2">
-                  {profile.preferred_sports.map((sport) => (
+                  {profile.preferred_sports.map((sport: string) => (
                     <Badge key={sport} variant="outline" className="bg-purple-50 text-purple-700 border-purple-200">
                       {sport.replace("_", " ")}
                     </Badge>
