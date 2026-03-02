@@ -111,7 +111,7 @@ export default function ConversationPage() {
   const needsVoiceSetup = !profileLoading && !voiceProfile && !showVoiceSetup
 
   return (
-    <div className="min-h-screen bg-black px-6 py-8">
+    <div className="min-h-screen bg-black px-4 md:px-6 py-6 md:py-8">
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
         <div
           className="orb w-96 h-96 bg-brand-600"
@@ -207,7 +207,7 @@ export default function ConversationPage() {
 
         {/* Conversation Input */}
         <div className="bg-white/5 border border-white/10 rounded-xl p-5 mb-6">
-          <div className="grid grid-cols-2 gap-3 mb-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
             <div>
               <label className="text-white/60 text-xs block mb-1.5">Match name</label>
               <div className="flex items-center gap-2 bg-white/5 border border-white/10 rounded-lg px-3 py-2">

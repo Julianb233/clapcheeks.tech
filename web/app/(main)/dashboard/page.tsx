@@ -268,16 +268,16 @@ export default async function Dashboard() {
   ]
 
   return (
-    <div className="min-h-screen bg-black px-6 py-8">
+    <div className="min-h-screen bg-black px-4 md:px-6 py-6 md:py-8">
       <div className="relative max-w-5xl mx-auto">
         {/* Header */}
-        <div className="flex items-center justify-between mb-8">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8">
           <div className="flex items-center gap-3">
-            <span className="text-2xl font-bold bg-gradient-to-r from-pink-500 via-purple-500 to-pink-400 bg-clip-text text-transparent">Outward</span>
+            <span className="text-xl sm:text-2xl font-bold bg-gradient-to-r from-pink-500 via-purple-500 to-pink-400 bg-clip-text text-transparent">Outward</span>
             <span className="text-xs text-white/30 font-mono bg-white/5 px-2 py-0.5 rounded">beta</span>
             <PlanBadge plan={userPlan} subscriptionStatus={userSubStatus} />
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 flex-wrap">
             {user?.email && (
               <span className="text-white/30 text-xs hidden sm:block">{user.email}</span>
             )}
@@ -334,7 +334,7 @@ export default async function Dashboard() {
           <AgentStatusBadge initialDevice={device} />
         </div>
 
-        <h1 className="text-3xl font-bold text-white mb-2">
+        <h1 className="text-2xl md:text-3xl font-bold text-white mb-2">
           Hey {displayName}
         </h1>
         <p className="text-white/40 text-sm mb-8">
@@ -362,7 +362,7 @@ export default async function Dashboard() {
 
         {/* Empty state -- Install CTA */}
         {!hasAgent && (
-          <div className="bg-white/[0.03] border border-white/[0.08] rounded-xl p-8 text-center mb-8">
+          <div className="bg-white/[0.03] border border-white/[0.08] rounded-xl p-5 md:p-8 text-center mb-8">
             <div className="w-16 h-16 bg-purple-500/10 border border-purple-500/20 rounded-2xl flex items-center justify-center mx-auto mb-4">
               <svg className="w-8 h-8 text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
@@ -372,9 +372,9 @@ export default async function Dashboard() {
             <p className="text-white/40 text-sm mb-6 max-w-md mx-auto">
               Run this command on your Mac to connect your dating apps and start tracking swipes, matches, and dates automatically.
             </p>
-            <div className="bg-black/50 border border-white/10 rounded-xl px-6 py-4 max-w-lg mx-auto text-left">
+            <div className="bg-black/50 border border-white/10 rounded-xl px-4 md:px-6 py-4 max-w-lg mx-auto text-left">
               <p className="text-white/30 text-xs font-mono mb-2"># Install Outward on your Mac</p>
-              <pre className="text-sm font-mono text-purple-400">
+              <pre className="text-xs sm:text-sm font-mono text-purple-400 overflow-x-auto">
                 curl -fsSL https://clapcheeks.tech/install.sh | bash
               </pre>
             </div>

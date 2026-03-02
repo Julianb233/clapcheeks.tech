@@ -103,16 +103,16 @@ export default function BillingClient({ plan, subscriptionStatus, hasStripeCusto
           </div>
           <h2 className="text-xl font-bold text-white mb-2">Get started with Clap Cheeks</h2>
           <p className="text-white/40 text-sm mb-6">Choose a plan to unlock your AI dating co-pilot.</p>
-          <div className="flex items-center justify-center gap-4">
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-3 sm:gap-4">
             <button
               onClick={() => handleCheckout('base')}
-              className="bg-white/10 hover:bg-white/15 text-white font-semibold px-6 py-2.5 rounded-xl transition-all text-sm"
+              className="bg-white/10 hover:bg-white/15 text-white font-semibold px-6 py-2.5 rounded-xl transition-all text-sm w-full sm:w-auto"
             >
               Base — $97/mo
             </button>
             <button
               onClick={() => handleCheckout('elite')}
-              className="bg-brand-600 hover:bg-brand-500 text-white font-semibold px-6 py-2.5 rounded-xl transition-all text-sm shadow-lg shadow-brand-900/40"
+              className="bg-brand-600 hover:bg-brand-500 text-white font-semibold px-6 py-2.5 rounded-xl transition-all text-sm shadow-lg shadow-brand-900/40 w-full sm:w-auto"
             >
               Elite — $197/mo
             </button>
@@ -217,10 +217,10 @@ export default function BillingClient({ plan, subscriptionStatus, hasStripeCusto
         {billing?.invoices && billing.invoices.length > 0 ? (
           <div className="space-y-3">
             {billing.invoices.map(inv => (
-              <div key={inv.id} className="flex items-center justify-between py-2 border-b border-white/5 last:border-0">
-                <div className="flex items-center gap-4">
-                  <span className="text-white/60 text-sm">{formatDate(inv.date)}</span>
-                  <span className="text-white text-sm font-medium">{formatAmount(inv.amount)}</span>
+              <div key={inv.id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 sm:gap-0 py-2 border-b border-white/5 last:border-0">
+                <div className="flex items-center gap-3 sm:gap-4">
+                  <span className="text-white/60 text-xs sm:text-sm">{formatDate(inv.date)}</span>
+                  <span className="text-white text-xs sm:text-sm font-medium">{formatAmount(inv.amount)}</span>
                 </div>
                 <div className="flex items-center gap-3">
                   <InvoiceStatus status={inv.status} />

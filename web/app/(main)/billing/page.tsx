@@ -21,7 +21,7 @@ export default async function BillingPage() {
     .single()
 
   return (
-    <div className="min-h-screen bg-black px-6 py-8">
+    <div className="min-h-screen bg-black px-4 md:px-6 py-6 md:py-8">
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
         <div
           className="orb w-96 h-96 bg-brand-600"

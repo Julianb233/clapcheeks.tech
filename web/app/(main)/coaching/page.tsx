@@ -96,7 +96,7 @@ export default function CoachingPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-black px-6 py-8">
+      <div className="min-h-screen bg-black px-4 md:px-6 py-6 md:py-8">
         <div className="max-w-4xl mx-auto">
           <div className="flex items-center gap-2 mb-8">
             <div className="w-6 h-6 bg-white/10 rounded animate-pulse" />
@@ -120,7 +120,7 @@ export default function CoachingPage() {
 
   if (error) {
     return (
-      <div className="min-h-screen bg-black px-6 py-8">
+      <div className="min-h-screen bg-black px-4 md:px-6 py-6 md:py-8">
         <div className="max-w-4xl mx-auto">
           <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-6 text-center">
             <p className="text-red-400 text-sm">{error}</p>
@@ -133,13 +133,13 @@ export default function CoachingPage() {
   if (!data) return null
 
   return (
-    <div className="min-h-screen bg-black px-6 py-8">
+    <div className="min-h-screen bg-black px-4 md:px-6 py-6 md:py-8">
       <div className="max-w-4xl mx-auto">
         {/* Header */}
-        <div className="flex items-center gap-2 mb-8">
+        <div className="flex flex-wrap items-center gap-2 mb-8">
           <Sparkles className="w-6 h-6 text-purple-400" />
-          <h1 className="text-2xl font-bold text-white">AI Coach</h1>
-          <span className="text-white/30 text-sm ml-2">Personalized insights from your dating data</span>
+          <h1 className="text-xl md:text-2xl font-bold text-white">AI Coach</h1>
+          <span className="text-white/30 text-xs sm:text-sm ml-2">Personalized insights from your dating data</span>
         </div>
 
         {/* Performance Score */}
