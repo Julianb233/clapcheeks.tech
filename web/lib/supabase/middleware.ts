@@ -7,8 +7,8 @@ export async function updateSession(request: NextRequest) {
   })
 
   const supabase = createServerClient(
-    process.env.SUPABASE_NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
         getAll() {
@@ -31,15 +31,19 @@ export async function updateSession(request: NextRequest) {
 
   const publicRoutes = [
     "/",
+    "/login",
+    "/signup",
     "/auth/login",
     "/auth/sign-up",
     "/auth/sign-up-success",
     "/auth/verify-email",
+    "/auth/callback",
     "/diagnostics",
     "/affiliate/apply",
     "/press",
     "/privacy",
     "/terms",
+    "/pricing",
   ]
   const isPublicRoute = publicRoutes.some((route) => request.nextUrl.pathname.startsWith(route))
 
