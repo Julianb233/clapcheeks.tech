@@ -306,11 +306,12 @@ main.add_command(profile)
 @click.option("--contacts", default=None, help="Comma-separated phone numbers or emails to watch.")
 @click.option("--interval", default=5.0, show_default=True, help="Polling interval in seconds.")
 @click.option("--style-refresh", is_flag=True, default=False, help="Force re-analyze texting style (ignore cache).")
-def watch(contacts: str | None, interval: float, style_refresh: bool) -> None:
-    """Watch iMessage for new messages and suggest AI replies.
+@click.option("--dry-run", is_flag=True, default=False, help="Log replies without sending them.")
+def watch(contacts: str | None, interval: float, style_refresh: bool, dry_run: bool) -> None:
+    """Watch iMessage and auto-reply using AI in your voice.
 
-    Monitors your iMessage conversations and generates reply suggestions
-    using local Ollama. All data stays on your device.
+    Automatically sends replies to incoming messages using local Ollama.
+    All data stays on your device. Use --dry-run to preview without sending.
     """
     from clapcheeks.imessage.permissions import check_full_disk_access, prompt_fda_instructions
     from clapcheeks.imessage.reader import IMMessageReader
@@ -322,6 +323,9 @@ def watch(contacts: str | None, interval: float, style_refresh: bool) -> None:
     if not check_full_disk_access():
         prompt_fda_instructions()
         raise SystemExit(1)
+
+    if dry_run:
+        console.print("[yellow]DRY RUN — replies will not be sent[/yellow]")
 
     reader = IMMessageReader()
 
@@ -349,7 +353,7 @@ def watch(contacts: str | None, interval: float, style_refresh: bool) -> None:
     if contacts:
         contact_list = [c.strip() for c in contacts.split(",") if c.strip()]
 
-    watcher = IMMessageWatcher(reader, reply_gen, contacts=contact_list)
+    watcher = IMMessageWatcher(reader, reply_gen, contacts=contact_list, dry_run=dry_run)
 
     try:
         watcher.start(poll_interval=interval)

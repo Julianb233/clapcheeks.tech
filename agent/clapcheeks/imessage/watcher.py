@@ -1,10 +1,9 @@
-"""iMessage watcher — polls chat.db for new incoming messages."""
+"""iMessage watcher — polls chat.db for new incoming messages and auto-replies."""
 from __future__ import annotations
 
 import json
 import logging
 import subprocess
-import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -12,7 +11,6 @@ from typing import TYPE_CHECKING
 
 from rich.console import Console
 from rich.panel import Panel
-from rich.prompt import Prompt
 
 if TYPE_CHECKING:
     from clapcheeks.imessage.ai_reply import ReplyGenerator
@@ -23,6 +21,10 @@ console = Console()
 
 STATS_DIR = Path.home() / ".clapcheeks"
 STATS_FILE = STATS_DIR / "imessage_stats.jsonl"
+
+# Minimum seconds to wait before replying (human-like delay)
+_MIN_REPLY_DELAY = 8
+_MAX_REPLY_DELAY = 45
 
 
 def _log_stat(chat_id: int, action: str, contact: str) -> None:
@@ -38,21 +40,47 @@ def _log_stat(chat_id: int, action: str, contact: str) -> None:
         f.write(json.dumps(entry) + "\n")
 
 
-def _copy_to_clipboard(text: str) -> bool:
-    """Copy text to macOS clipboard via pbcopy. Returns True on success."""
+def _send_imessage(handle_id: str, text: str) -> bool:
+    """Send a message via AppleScript to the Messages app.
+
+    Uses the recipient's phone number or email (handle_id).
+    Returns True on success.
+    """
+    # Escape double quotes in the message text for AppleScript
+    safe_text = text.replace("\\", "\\\\").replace('"', '\\"')
+    script = (
+        f'tell application "Messages"\n'
+        f'  set targetService to 1st service whose service type = iMessage\n'
+        f'  set targetBuddy to buddy "{handle_id}" of targetService\n'
+        f'  send "{safe_text}" to targetBuddy\n'
+        f'end tell'
+    )
     try:
-        subprocess.run(["pbcopy"], input=text.encode(), check=True)
+        result = subprocess.run(
+            ["osascript", "-e", script],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        if result.returncode != 0:
+            logger.error("osascript error: %s", result.stderr.strip())
+            return False
         return True
-    except (FileNotFoundError, subprocess.CalledProcessError):
+    except (FileNotFoundError, subprocess.TimeoutExpired) as exc:
+        logger.error("Failed to send via osascript: %s", exc)
         return False
 
 
 class IMMessageWatcher:
-    """Polls chat.db for new incoming messages and suggests replies.
+    """Polls chat.db for new incoming messages and auto-replies.
 
     Uses polling instead of filesystem watchers because SQLite WAL mode
     means chat.db-wal gets modified, not chat.db itself. A 5-second
     poll on a read-only SELECT is negligible overhead.
+
+    In auto mode (default), replies are sent immediately via AppleScript
+    with a randomized human-like delay. In dry_run mode, replies are
+    logged to console only — nothing is sent.
     """
 
     def __init__(
@@ -60,10 +88,12 @@ class IMMessageWatcher:
         reader: IMMessageReader,
         reply_gen: ReplyGenerator,
         contacts: list[str] | None = None,
+        dry_run: bool = False,
     ) -> None:
         self._reader = reader
         self._reply_gen = reply_gen
         self._contacts = contacts
+        self._dry_run = dry_run
         self._snapshot: dict[int, dict] = {}
 
     def _take_snapshot(self) -> dict[int, dict]:
@@ -84,15 +114,15 @@ class IMMessageWatcher:
         return snapshot
 
     def start(self, poll_interval: float = 5.0) -> None:
-        """Main polling loop — detects new messages and suggests replies."""
+        """Main polling loop — detects new messages and auto-replies."""
+        mode = "[yellow]DRY RUN[/yellow]" if self._dry_run else "[green]AUTO-REPLY[/green]"
         console.print(
-            f"[bold green]Watching conversations for new messages...[/bold green] "
-            f"(poll every {poll_interval}s, Ctrl+C to stop)\n"
+            f"[bold green]Watching conversations...[/bold green] "
+            f"mode={mode} poll={poll_interval}s  (Ctrl+C to stop)\n"
         )
 
         self._snapshot = self._take_snapshot()
-        watched_count = len(self._snapshot)
-        console.print(f"[dim]Tracking {watched_count} conversation(s)[/dim]\n")
+        console.print(f"[dim]Tracking {len(self._snapshot)} conversation(s)[/dim]\n")
 
         try:
             while True:
@@ -103,19 +133,23 @@ class IMMessageWatcher:
                     old = self._snapshot.get(chat_id)
                     if old is None:
                         continue
-                    # Detect new incoming message (different rowid and not from us)
                     if info["rowid"] != old["rowid"]:
                         latest = self._reader.get_latest_message(chat_id)
                         if latest and not latest["is_from_me"]:
-                            self._handle_new_message(chat_id, info["display_name"], latest)
+                            self._handle_new_message(chat_id, info, latest)
 
                 self._snapshot = new_snapshot
 
         except KeyboardInterrupt:
             console.print("\n[dim]Watcher stopped.[/dim]")
 
-    def _handle_new_message(self, chat_id: int, contact_name: str, message: dict) -> None:
-        """Show reply suggestions for a new incoming message."""
+    def _handle_new_message(self, chat_id: int, info: dict, message: dict) -> None:
+        """Generate and auto-send a reply to a new incoming message."""
+        import random
+
+        contact_name = info["display_name"]
+        handle_id = info["handle_id"]
+
         console.print()
         console.print(Panel(
             f"[bold]{contact_name}[/bold]: {message['text']}",
@@ -123,32 +157,29 @@ class IMMessageWatcher:
             border_style="cyan",
         ))
 
-        # Get conversation context
+        # Generate reply from conversation context
         messages = self._reader.get_messages(chat_id, limit=15)
-        suggestions = self._reply_gen.suggest_multiple(messages, contact_name=contact_name)
+        reply = self._reply_gen.suggest_reply(messages, contact_name=contact_name)
 
-        console.print("\n[bold]Reply suggestions:[/bold]")
-        for i, suggestion in enumerate(suggestions, 1):
-            console.print(f"  [bold magenta]({i})[/bold magenta] {suggestion}")
-        console.print(f"  [dim](s) skip  (c) custom reply[/dim]\n")
+        if not reply or reply.startswith("Error") or reply.startswith("Ollama"):
+            console.print(f"[red]Reply generation failed:[/red] {reply}")
+            _log_stat(chat_id, "error", contact_name)
+            return
 
-        choice = Prompt.ask("Pick", choices=["1", "2", "3", "s", "c"], default="s")
+        # Human-like send delay
+        delay = random.uniform(_MIN_REPLY_DELAY, _MAX_REPLY_DELAY)
+        console.print(f"[dim]Sending in {delay:.0f}s →[/dim] {reply}")
+        time.sleep(delay)
 
-        if choice in ("1", "2", "3"):
-            idx = int(choice) - 1
-            reply = suggestions[idx] if idx < len(suggestions) else suggestions[0]
-            if _copy_to_clipboard(reply):
-                console.print(f"[green]Reply copied to clipboard[/green]")
-            else:
-                console.print(f"[yellow]Clipboard unavailable. Reply:[/yellow] {reply}")
-            _log_stat(chat_id, "picked", contact_name)
-        elif choice == "c":
-            custom = Prompt.ask("Your reply")
-            if custom and _copy_to_clipboard(custom):
-                console.print(f"[green]Custom reply copied to clipboard[/green]")
-            elif custom:
-                console.print(f"[yellow]Clipboard unavailable.[/yellow]")
-            _log_stat(chat_id, "custom", contact_name)
+        if self._dry_run:
+            console.print(f"[yellow][DRY RUN] Would send to {contact_name}:[/yellow] {reply}")
+            _log_stat(chat_id, "dry_run", contact_name)
+            return
+
+        success = _send_imessage(handle_id, reply)
+        if success:
+            console.print(f"[green]✓ Sent to {contact_name}[/green]")
+            _log_stat(chat_id, "auto_sent", contact_name)
         else:
-            console.print("[dim]Skipped[/dim]")
-            _log_stat(chat_id, "skipped", contact_name)
+            console.print(f"[red]✗ Failed to send to {contact_name}[/red]")
+            _log_stat(chat_id, "send_failed", contact_name)
