@@ -1,6 +1,6 @@
 # Getting Your Hinge Bearer Token
 
-Hinge uses a private REST API (`api.hingeaws.net`). Clap Cheeks supports two modes for Hinge:
+Hinge uses a private REST API (`api.hingeaws.net`). Outward supports two modes for Hinge:
 
 - **Browser mode** (default): slower but requires no token
 - **API mode** (recommended): faster, more reliable, lower ban risk — requires a Bearer token
@@ -95,7 +95,7 @@ Add to `~/.clapcheeks/.env`:
 HINGE_AUTH_TOKEN=eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9...
 ```
 
-Clap Cheeks will automatically detect this variable and use API mode for Hinge.
+Outward will automatically detect this variable and use API mode for Hinge.
 
 **9. Clean up**
 
@@ -164,7 +164,7 @@ HINGE_AUTH_TOKEN=<your token>
 
 Hinge Bearer tokens expire after approximately **7 days**.
 
-When your token expires, Clap Cheeks will:
+When your token expires, Outward will:
 1. Log an authentication error in `~/.clapcheeks/logs/agent.log`
 2. Fall back to browser mode automatically (if browser mode is configured)
 3. Send a Telegram notification if your bot is configured
@@ -194,11 +194,11 @@ The status output will show whether API mode is active and when the token was la
 
 The SSL certificate is not trusted on your iPhone. Go back to Settings → General → About → Certificate Trust Settings and verify the Charles certificate is toggled on.
 
-### Token does not work / "401 Unauthorized" in Clap Cheeks
+### Token does not work / "401 Unauthorized" in Outward
 
 - The token may have already expired — re-capture it
 - Ensure there is no leading/trailing whitespace in the `.env` file value
-- Confirm you copied the token value only, not the `Bearer ` prefix (Clap Cheeks adds that automatically)
+- Confirm you copied the token value only, not the `Bearer ` prefix (Outward adds that automatically)
 
 ### HTTP Toolkit certificate install fails on Android
 

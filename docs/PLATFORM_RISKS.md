@@ -2,7 +2,7 @@
 
 ## Overview
 
-Dating app automation violates the Terms of Service of all major platforms. Clap Cheeks is built for **personal use only**. Using it may result in account suspension, permanent ban, or — in rare cases involving data scraping at scale — legal action under computer fraud statutes.
+Dating app automation violates the Terms of Service of all major platforms. Outward is built for **personal use only**. Using it may result in account suspension, permanent ban, or — in rare cases involving data scraping at scale — legal action under computer fraud statutes.
 
 Read this document before using the tool. Understanding your risk profile per platform allows you to make informed decisions about which platforms to automate and at what intensity.
 
@@ -79,7 +79,7 @@ These platforms have no shared infrastructure with each other or with Match Grou
 
 ### Velocity Detection
 
-Platforms measure how fast you swipe relative to normal human behavior. Swiping 100 profiles in 2 minutes is a clear automation flag. Clap Cheeks uses **Gaussian jitter** (mean 6s delay, standard deviation 2.5s) between actions to simulate human pacing.
+Platforms measure how fast you swipe relative to normal human behavior. Swiping 100 profiles in 2 minutes is a clear automation flag. Outward uses **Gaussian jitter** (mean 6s delay, standard deviation 2.5s) between actions to simulate human pacing.
 
 Do not override or reduce delay settings. The jitter is calibrated to stay inside normal human behavioral variance.
 
@@ -92,7 +92,7 @@ Modern platforms (Tinder, Bumble) use ML models trained on billions of sessions 
 - No profile photo views before swiping
 - Swipe patterns that don't correlate with photo attractiveness scoring
 
-Clap Cheeks introduces randomness across all of these dimensions. However, no mitigation is perfect.
+Outward introduces randomness across all of these dimensions. However, no mitigation is perfect.
 
 ### Device and IP Fingerprinting
 
@@ -106,13 +106,13 @@ For cloud mode, use **residential proxies** — datacenter IPs (AWS, GCP, Digita
 
 ### API Abuse Detection
 
-For platforms accessed via API (Hinge, OkCupid, Grindr, Feeld), request rate, header patterns, and token usage patterns are monitored. Clap Cheeks enforces per-platform rate limits that fall within typical client behavior.
+For platforms accessed via API (Hinge, OkCupid, Grindr, Feeld), request rate, header patterns, and token usage patterns are monitored. Outward enforces per-platform rate limits that fall within typical client behavior.
 
 ---
 
 ## Ban Avoidance Best Practices
 
-1. **Honor rate limits** — Clap Cheeks enforces daily caps per platform. Do not override them, even if you have Gold/Unlimited subscriptions that technically allow unlimited likes. Rate is more detectable than total count.
+1. **Honor rate limits** — Outward enforces daily caps per platform. Do not override them, even if you have Gold/Unlimited subscriptions that technically allow unlimited likes. Rate is more detectable than total count.
 
 2. **Simulate active hours** — Configure `active_hours` in your config to run only during reasonable waking hours (e.g., 9am–11pm). Running at 3am every day is a signal.
 
@@ -177,7 +177,7 @@ Users are solely responsible for:
 - Compliance with applicable local, state, and federal laws
 - Any consequences arising from use of this software, including account bans, data loss, or legal action
 
-The developers of Clap Cheeks accept no liability for account suspensions, permanent bans, data breaches, privacy violations, or any other consequences resulting from use of this tool.
+The developers of Outward accept no liability for account suspensions, permanent bans, data breaches, privacy violations, or any other consequences resulting from use of this tool.
 
 **Do not use this tool to:**
 - Scrape or sell user data from dating platforms

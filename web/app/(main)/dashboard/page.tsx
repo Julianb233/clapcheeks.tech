@@ -10,8 +10,8 @@ import CoachingSection from './components/coaching-section'
 import { getLatestCoaching } from '@/lib/coaching/generate'
 
 export const metadata: Metadata = {
-  title: 'Dashboard — Clap Cheeks',
-  description: 'Your Clap Cheeks AI dating co-pilot dashboard.',
+  title: 'Dashboard — Outward',
+  description: 'Your Outward AI dating co-pilot dashboard.',
 }
 
 interface DailyRow {
@@ -139,7 +139,7 @@ export default async function Dashboard() {
         {/* Header */}
         <div className="flex items-center justify-between mb-8">
           <div className="flex items-center gap-3">
-            <span className="text-2xl font-bold gradient-text">Clap Cheeks</span>
+            <span className="text-2xl font-bold gradient-text">Outward</span>
             <span className="text-xs text-white/30 font-mono bg-white/5 px-2 py-0.5 rounded">beta</span>
             <PlanBadge plan={userPlan} subscriptionStatus={userSubStatus} />
           </div>
@@ -294,12 +294,12 @@ export default async function Dashboard() {
         {/* Install CTA — only show if no agent */}
         {!hasAgent && (
           <div className="bg-white/3 border border-white/8 rounded-xl p-6">
-            <h2 className="text-white font-semibold mb-2">Install the Clap Cheeks agent</h2>
+            <h2 className="text-white font-semibold mb-2">Install the Outward agent</h2>
             <p className="text-white/40 text-sm mb-4">
               Run this command on your Mac to connect your dating apps.
             </p>
             <div className="code-block px-5 py-4 text-left">
-              <p className="text-white/30 text-xs font-mono mb-2"># Install Clap Cheeks on your Mac</p>
+              <p className="text-white/30 text-xs font-mono mb-2"># Install Outward on your Mac</p>
               <pre className="text-sm font-mono text-brand-400">
                 curl -fsSL https://clapcheeks.tech/install.sh | bash
               </pre>

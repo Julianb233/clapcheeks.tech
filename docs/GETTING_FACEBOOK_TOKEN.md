@@ -1,6 +1,6 @@
 # Getting Your Facebook Access Token for Happn
 
-Happn uses Facebook OAuth for login. To use Clap Cheeks with Happn, you need a Facebook User Access Token with the correct permissions.
+Happn uses Facebook OAuth for login. To use Outward with Happn, you need a Facebook User Access Token with the correct permissions.
 
 ---
 
@@ -65,7 +65,7 @@ You do not need to publish or submit the app for review. Using it privately for 
 
 ## Step 3: Save the Token
 
-Add the token to your Clap Cheeks environment file:
+Add the token to your Outward environment file:
 
 ```bash
 echo 'HAPPN_FB_TOKEN=EAAxxxxxxxxxxxxxxxxxx' >> ~/.clapcheeks/.env
@@ -83,7 +83,7 @@ HAPPN_FB_TOKEN=EAAxxxxxxxxxxxxxxxxxx
 
 Save and exit (`Ctrl+O`, `Enter`, `Ctrl+X` in nano).
 
-Verify Clap Cheeks can authenticate:
+Verify Outward can authenticate:
 ```bash
 clapcheeks status --platform happn
 ```
@@ -140,14 +140,14 @@ HAPPN_FB_TOKEN=EAAxxxxxxxxxxxxxxxxxx  # long-lived version
 
 ## Token Renewal
 
-Long-lived tokens automatically renew if used within 60 days. If you use Clap Cheeks regularly, the token will stay active indefinitely through automatic renewal.
+Long-lived tokens automatically renew if used within 60 days. If you use Outward regularly, the token will stay active indefinitely through automatic renewal.
 
 If the token expires:
 1. Return to the Graph API Explorer and generate a new short-lived token
 2. Exchange it for a long-lived token using the process above
 3. Update `~/.clapcheeks/.env` with the new token
 
-Clap Cheeks will notify you via Telegram (if configured) and log a warning when a Happn authentication failure is detected.
+Outward will notify you via Telegram (if configured) and log a warning when a Happn authentication failure is detected.
 
 ---
 

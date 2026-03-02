@@ -3,21 +3,21 @@ const features = [
     icon: '💬',
     title: 'iMessage AI',
     description:
-      'Clap Cheeks reads your existing conversations and learns your texting style. Then it replies in your voice using local LLMs — your matches never know the difference.',
+      'Outward reads your existing conversations and learns your texting style. Then it replies in your voice using local LLMs — your matches never know the difference.',
     tag: 'Conversations',
   },
   {
     icon: '👆',
     title: 'Smart Swiping',
     description:
-      'Set your preferences once. Clap Cheeks auto-swipes Tinder, Bumble, and Hinge based on your attraction patterns, running in the background while you live your life.',
+      'Set your preferences once. Outward auto-swipes Tinder, Bumble, and Hinge based on your attraction patterns, running in the background while you live your life.',
     tag: 'Automation',
   },
   {
     icon: '📅',
     title: 'Date Booking',
     description:
-      'When a conversation reaches the right moment, Clap Cheeks checks your calendar and proposes a time. Dates get scheduled, reminders get set, and confirmations get sent — automatically.',
+      'When a conversation reaches the right moment, Outward checks your calendar and proposes a time. Dates get scheduled, reminders get set, and confirmations get sent — automatically.',
     tag: 'Scheduling',
   },
   {
@@ -31,7 +31,7 @@ const features = [
     icon: '🧠',
     title: 'AI Coaching',
     description:
-      'Get personalized weekly reports with actionable suggestions. Clap Cheeks analyzes what openers, photos, and conversation styles drive the highest response rates for you specifically.',
+      'Get personalized weekly reports with actionable suggestions. Outward analyzes what openers, photos, and conversation styles drive the highest response rates for you specifically.',
     tag: 'Coaching',
   },
   {
@@ -64,7 +64,7 @@ export default function Features() {
             One app. Every edge.
           </h2>
           <p className="text-white/45 text-lg max-w-xl mx-auto leading-relaxed">
-            Clap Cheeks combines AI conversation management, intelligent automation, and deep analytics
+            Outward combines AI conversation management, intelligent automation, and deep analytics
             into a single agent that runs silently on your Mac.
           </p>
         </div>

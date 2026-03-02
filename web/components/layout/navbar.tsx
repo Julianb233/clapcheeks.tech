@@ -43,7 +43,7 @@ export default function Navbar() {
               <circle cx="7" cy="7" r="1.5" fill="white" />
             </svg>
           </div>
-          <span className="text-lg font-bold gradient-text">Clap Cheeks</span>
+          <span className="text-lg font-bold gradient-text">Outward</span>
           <span className="text-[10px] text-white/25 font-mono bg-white/5 px-1.5 py-0.5 rounded">
             beta
           </span>

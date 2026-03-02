@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { generateReplies } from '@/lib/conversation-ai/generate-replies'
 import { checkLimit, incrementUsage } from '@/lib/usage'
 
 export async function POST(request: NextRequest) {
@@ -32,15 +33,27 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json()
+    const { conversationContext, matchName, platform } = body
+
+    if (!conversationContext || !matchName || !platform) {
+      return NextResponse.json(
+        { error: 'Missing required fields: conversationContext, matchName, platform' },
+        { status: 400 }
+      )
+    }
+
+    const suggestions = await generateReplies(
+      supabase,
+      user.id,
+      conversationContext,
+      matchName,
+      platform
+    )
 
     // Increment usage after successful suggestion
     await incrementUsage(user.id, 'ai_replies')
 
-    // TODO: Implement actual AI reply suggestion generation
-    return NextResponse.json({
-      message: 'Conversation suggestion endpoint ready. AI generation not yet implemented.',
-      context: body,
-    })
+    return NextResponse.json({ suggestions })
   } catch (error) {
     console.error('Conversation suggest error:', error)
     return NextResponse.json(

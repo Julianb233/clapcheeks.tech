@@ -71,7 +71,7 @@ export default function ReferralsPage() {
 
   const shareTwitter = () => {
     const text = encodeURIComponent(
-      'Check out Clap Cheeks — the AI dating co-pilot that runs privately on your Mac. Use my link:'
+      'Check out Outward — the AI dating co-pilot that runs privately on your Mac. Use my link:'
     )
     window.open(
       `https://twitter.com/intent/tweet?text=${text}&url=${encodeURIComponent(referralLink)}`,
@@ -103,7 +103,7 @@ export default function ReferralsPage() {
             Give a month, get a month
           </h1>
           <p className="text-white/45 text-lg max-w-lg mx-auto">
-            Share Clap Cheeks with friends. When they subscribe, you both win.
+            Share Outward with friends. When they subscribe, you both win.
           </p>
         </div>
 

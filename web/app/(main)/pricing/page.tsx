@@ -3,7 +3,7 @@ import { Check, X } from 'lucide-react'
 import PricingClient from './pricing-client'
 
 export const metadata: Metadata = {
-  title: 'Pricing — Clap Cheeks',
+  title: 'Pricing — Outward',
   description:
     'Simple, premium pricing for your AI dating co-pilot. Two plans, powerful add-ons.',
 }
@@ -92,10 +92,10 @@ const comparisonFeatures = [
 const faqs = [
   {
     q: 'Is my data private? What can you see?',
-    a: 'Clap Cheeks runs entirely on your Mac. Your dating profiles, messages, and photos never leave your device. We only receive anonymous, aggregated analytics (match counts, swipe rates) to improve the AI. We cannot see your conversations or personal data.',
+    a: 'Outward runs entirely on your Mac. Your dating profiles, messages, and photos never leave your device. We only receive anonymous, aggregated analytics (match counts, swipe rates) to improve the AI. We cannot see your conversations or personal data.',
   },
   {
-    q: 'Do I need a Mac to use Clap Cheeks?',
+    q: 'Do I need a Mac to use Outward?',
     a: 'Yes. The local agent runs natively on macOS (Apple Silicon & Intel). It needs access to your dating apps and iMessage, which requires macOS. We are exploring Windows and Linux support for a future release.',
   },
   {

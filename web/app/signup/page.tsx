@@ -89,7 +89,7 @@ export default function SignupPage() {
         {/* Logo */}
         <div className="flex items-center justify-center gap-2 mb-10">
           <Link href="/" className="flex items-center gap-2">
-            <span className="text-2xl font-bold gradient-text">Clap Cheeks</span>
+            <span className="text-2xl font-bold gradient-text">Outward</span>
             <span className="text-xs text-white/30 font-mono bg-white/5 px-2 py-0.5 rounded">
               beta
             </span>

@@ -297,7 +297,7 @@ def _book_date_google(
         event = {
             "summary": f"Date with {match_name}",
             "location": location,
-            "description": description or "Booked via Clap Cheeks",
+            "description": description or "Booked via Outward",
             "start": {"dateTime": start_dt.isoformat(), "timeZone": "UTC"},
             "end": {"dateTime": end_dt.isoformat(), "timeZone": "UTC"},
             "reminders": {"useDefault": False, "overrides": [{"method": "popup", "minutes": 60}]},

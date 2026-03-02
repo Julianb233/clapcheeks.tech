@@ -1,4 +1,4 @@
-"""Clap Cheeks AI Service — coaching, reply suggestions, date planning.
+"""Outward AI Service — coaching, reply suggestions, date planning.
 
 Uses Kimi (Moonshot AI) via OpenAI-compatible API.
 """
@@ -11,7 +11,7 @@ from openai import OpenAI
 
 load_dotenv()
 
-app = FastAPI(title="Clap Cheeks AI", version="0.2.0")
+app = FastAPI(title="Outward AI", version="0.2.0")
 
 KIMI_MODEL = os.environ.get("KIMI_MODEL", "moonshot-v1-8k")
 

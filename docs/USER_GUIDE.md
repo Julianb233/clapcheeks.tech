@@ -1,8 +1,8 @@
-# Clap Cheeks — User Guide
+# Outward — User Guide
 
 ## Introduction
 
-Clap Cheeks is an AI-powered dating co-pilot that automates swiping, sends AI-generated openers, manages conversations using NLP mirroring and persuasion techniques, and books dates on your calendar — all while staying under platform rate limits to minimize ban risk.
+Outward is an AI-powered dating co-pilot that automates swiping, sends AI-generated openers, manages conversations using NLP mirroring and persuasion techniques, and books dates on your calendar — all while staying under platform rate limits to minimize ban risk.
 
 The agent runs locally on your Mac (or on your iPhone via USB/WiFi) and uses Kimi AI (Moonshot) to generate context-aware, human-sounding messages that mirror each match's communication style. You stay in control: review conversations, override suggestions, and confirm dates before they're booked.
 
@@ -18,7 +18,7 @@ The agent runs locally on your Mac (or on your iPhone via USB/WiFi) and uses Kim
 | Cloud automation | Browserbase account (optional, for cloud/headless mode) |
 | Calendar | macOS Calendar.app (built-in) or Google Calendar (via OAuth) |
 
-> **Note:** Linux and Windows users can run Clap Cheeks in cloud mode using Browserbase, but macOS Calendar integration requires a Mac. Google Calendar is the fallback for non-Mac environments.
+> **Note:** Linux and Windows users can run Outward in cloud mode using Browserbase, but macOS Calendar integration requires a Mac. Google Calendar is the fallback for non-Mac environments.
 
 ---
 
@@ -67,7 +67,7 @@ Skip this step if using iPhone mode.
 
 ### Step 3: Kimi AI API Key
 
-Clap Cheeks uses Kimi 2.5 (Moonshot AI) as its default AI provider.
+Outward uses Kimi 2.5 (Moonshot AI) as its default AI provider.
 
 1. Go to [platform.moonshot.cn](https://platform.moonshot.cn)
 2. Create a free account
@@ -85,7 +85,7 @@ Choose your calendar integration:
 
 ### Step 5: Dashboard Token Registration
 
-The wizard generates a unique agent token and links it to your Clap Cheeks account at [clapcheeks.tech/dashboard](https://clapcheeks.tech/dashboard). Create a free account on the dashboard first, then paste your dashboard API key when prompted.
+The wizard generates a unique agent token and links it to your Outward account at [clapcheeks.tech/dashboard](https://clapcheeks.tech/dashboard). Create a free account on the dashboard first, then paste your dashboard API key when prompted.
 
 ---
 
@@ -101,7 +101,7 @@ The wizard generates a unique agent token and links it to your Clap Cheeks accou
 3. Cookies are cached for 30 days. Re-login if authentication expires.
 
 **Special notes:**
-- No Tinder API key is needed — Clap Cheeks uses browser automation.
+- No Tinder API key is needed — Outward uses browser automation.
 - Tinder Gold/Platinum users get unlimited likes. Free accounts have a 100/12-hour like cap.
 - Tinder shares infrastructure with Hinge, OkCupid, and POF (Match Group). See `PLATFORM_RISKS.md` for cross-ban risk.
 
@@ -375,7 +375,7 @@ clapcheeks watch
   Shows: active conversations, recent matches, today's swipe count, next date.
 
 clapcheeks daemon
-  Run Clap Cheeks as a background service. Swipes and replies on schedule
+  Run Outward as a background service. Swipes and replies on schedule
   according to active_hours settings in config.
 
 clapcheeks menu
@@ -438,7 +438,7 @@ Ollama runs on `http://localhost:11434` by default. No API key required.
 
 ### macOS Calendar (Primary)
 
-Clap Cheeks uses AppleScript to read and write events in macOS Calendar.app. No login or OAuth is required.
+Outward uses AppleScript to read and write events in macOS Calendar.app. No login or OAuth is required.
 
 **First-run permission:** On first use, macOS will prompt you to grant Calendar access. In the dialog, click "OK". If you dismissed the prompt:
 1. Open System Settings
@@ -465,7 +465,7 @@ For non-Mac environments or Google Calendar preference:
 
 ## NLP & Communication Style
 
-Clap Cheeks does not send generic copy-paste openers. The AI analyzes each match's profile and writing style before composing any message.
+Outward does not send generic copy-paste openers. The AI analyzes each match's profile and writing style before composing any message.
 
 ### Style Mirroring
 
