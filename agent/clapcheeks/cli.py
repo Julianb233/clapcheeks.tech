@@ -409,6 +409,54 @@ def install() -> None:
         raise SystemExit(1)
 
 
+PLATFORM_URLS = {
+    "tinder": "https://tinder.com",
+    "bumble": "https://bumble.com/app",
+    "hinge": "https://hinge.co/app",
+}
+
+
+@main.command()
+@click.option("--platform", type=click.Choice(["tinder", "bumble", "hinge", "all"]),
+              default="all", show_default=True, help="Platform(s) to connect.")
+def connect(platform: str) -> None:
+    """Log into dating apps and save your session.
+
+    Opens a browser window so you can log in manually. Your session cookies
+    are saved to ~/.clapcheeks/sessions/ for future automation runs.
+    """
+    import asyncio
+    from clapcheeks.browser.driver import BrowserDriver
+
+    platforms = list(PLATFORM_URLS) if platform == "all" else [platform]
+
+    for plat in platforms:
+        url = PLATFORM_URLS[plat]
+        console.print(f"\n[bold cyan]{plat.capitalize()}[/bold cyan]")
+        console.print(f"  Opening {url}")
+        console.print(f"  [bold]Log into {plat.capitalize()} now, then press Enter when done.[/bold]")
+
+        async def _connect(p: str, u: str) -> bool:
+            driver = BrowserDriver(platform=p, headless=False)
+            page = await driver.launch()
+            await page.goto(u, wait_until="domcontentloaded")
+            # Wait for user to press Enter in the terminal
+            await asyncio.get_event_loop().run_in_executor(None, input)
+            await driver.close()
+            return driver.session_store.path.exists()
+
+        loop = asyncio.new_event_loop()
+        saved = loop.run_until_complete(_connect(plat, url))
+        loop.close()
+
+        if saved:
+            console.print(f"  [green]Session saved for {plat.capitalize()}.[/green]")
+        else:
+            console.print(f"  [yellow]Warning: no session saved for {plat.capitalize()}.[/yellow]")
+
+    console.print("\n[dim]All done. Run [cyan]clapcheeks swipe[/cyan] to start swiping.[/dim]\n")
+
+
 @main.command(name='date-suggest')
 @click.option('--platform', default='tinder', type=click.Choice(['tinder', 'bumble', 'hinge']), help='Platform.')
 @click.option('--match-name', required=True, help='Name of your match.')
