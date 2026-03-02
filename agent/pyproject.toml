@@ -7,7 +7,7 @@ name = "clapcheeks"
 version = "0.1.0"
 description = "AI-powered dating co-pilot — swipe, converse, and book dates autonomously"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.10"
 license = {text = "MIT"}
 dependencies = [
     "click>=8.0",
