@@ -10,6 +10,7 @@ import { router as stripeRouter } from './routes/stripe.js'
 import { router as referralRouter } from './routes/referral.js'
 import { router as intelligenceRouter } from './routes/intelligence.js'
 import { router as eventsRouter } from './routes/events.js'
+import { router as emailRouter } from './routes/email.js'
 
 const app = express()
 const PORT = process.env.PORT || 3001
@@ -48,6 +49,10 @@ app.use('/stripe', stripeRouter)
 app.use('/referral', referralRouter)
 app.use('/intelligence', intelligenceRouter)
 app.use('/events', eventsRouter)
+// Email onboarding sequence (welcome, day3, day7, day14 via Resend)
+// To trigger welcome email automatically on signup, create a Supabase Database Webhook
+// on auth.users INSERT → POST to https://api.clapcheeks.tech/email/welcome
+app.use('/email', emailRouter)
 
 app.get('/health', (req, res) => res.json({ status: 'ok', version: '0.1.0' }))
 
