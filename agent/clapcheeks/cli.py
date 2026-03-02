@@ -354,6 +354,89 @@ from clapcheeks.commands.profile import profile
 main.add_command(profile)
 
 
+@main.group()
+def reengagement() -> None:
+    """Cold match recovery — find and re-engage silent matches."""
+    pass
+
+
+@reengagement.command(name='check')
+def reengagement_check() -> None:
+    """Show all cold matches (3+ days without reply)."""
+    from clapcheeks.conversation.reengagement import find_cold_matches, get_reengagement_stage
+
+    cold = find_cold_matches()
+    if not cold:
+        console.print('[green]No cold matches found — all conversations are active.[/green]')
+        return
+
+    table = Table(title='Cold Matches', show_header=True, header_style='bold magenta')
+    table.add_column('Name', style='bold white')
+    table.add_column('Platform', style='cyan')
+    table.add_column('Days Cold', justify='right')
+    table.add_column('Stage', style='bold')
+
+    stage_colors = {'bump': 'yellow', 'restart': 'orange3', 'final': 'red', 'archive': 'dim'}
+    for m in cold:
+        stage = get_reengagement_stage(m.days_cold)
+        color = stage_colors.get(stage, 'white')
+        table.add_row(m.name, m.platform, str(m.days_cold), f'[{color}]{stage}[/{color}]')
+
+    console.print(table)
+    console.print(f'\n[dim]{len(cold)} cold match(es). Run [cyan]clapcheeks reengagement run[/cyan] to send messages.[/dim]')
+
+
+@reengagement.command(name='run')
+@click.option('--platform', default=None, type=click.Choice(['tinder', 'bumble', 'hinge']),
+              help='Only re-engage on a specific platform.')
+@click.option('--dry-run', is_flag=True, default=False, help='Show what would be sent without sending.')
+def reengagement_run(platform: str | None, dry_run: bool) -> None:
+    """Run re-engagement pass — send messages to cold matches."""
+    from clapcheeks.conversation.reengagement import run_reengagement_pass
+
+    config = load_config()
+    if dry_run:
+        config['dry_run'] = True
+        console.print('[yellow]DRY RUN mode — messages will not be sent[/yellow]')
+
+    # Build platform clients for requested platforms
+    platform_clients: dict = {}
+    platforms_to_check = [platform] if platform else ['tinder', 'bumble', 'hinge']
+
+    for plat in platforms_to_check:
+        try:
+            from clapcheeks.session.manager import SessionManager
+            session = SessionManager(config)
+            driver = session.get_driver(plat)
+            if plat == 'tinder':
+                from clapcheeks.platforms.tinder import TinderClient
+                platform_clients[plat] = TinderClient(driver=driver)
+            elif plat == 'hinge':
+                from clapcheeks.platforms.hinge import HingeClient
+                platform_clients[plat] = HingeClient(driver=driver, ai_service_url=config.get('ai_service_url'))
+            elif plat == 'bumble':
+                from clapcheeks.platforms.bumble import BumbleClient
+                platform_clients[plat] = BumbleClient(driver=driver)
+        except Exception as exc:
+            console.print(f'[dim]Skipping {plat}: {exc}[/dim]')
+
+    if not platform_clients:
+        console.print('[yellow]No platform connections available. Run [cyan]clapcheeks connect[/cyan] first.[/yellow]')
+        return
+
+    with console.status('[bold green]Running re-engagement pass...[/bold green]'):
+        results = run_reengagement_pass(platform_clients, config)
+
+    console.print(Panel(
+        f"[bold white]Checked:[/bold white] {results['checked']}\n"
+        f"[bold green]Sent:[/bold green] {results['sent']}\n"
+        f"[bold dim]Archived:[/bold dim] {results['archived']}\n"
+        f"[bold red]Errors:[/bold red] {results['errors']}",
+        title='[magenta]Re-engagement Results[/magenta]',
+        border_style='magenta',
+    ))
+
+
 @main.command()
 def coach() -> None:
     """Run the AI profile coach — get actionable tips to improve your profile."""

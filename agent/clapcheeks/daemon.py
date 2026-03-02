@@ -39,6 +39,9 @@ PLATFORM_CLIENTS = {
 
 _shutdown = threading.Event()
 
+# Track last re-engagement time per platform (max once per 23h)
+_last_reengagement: dict[str, float] = {}
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -170,6 +173,13 @@ def _platform_worker(
                 cm = ConversationManager(client, platform, config)
                 convo_result = cm.run_loop()
                 log.info("[%s] Conversation result: %s", platform, convo_result)
+
+                # --- Re-engagement pass (once per 23h per platform) ---
+                now = time.time()
+                if now - _last_reengagement.get(platform, 0) > 23 * 3600:
+                    result = cm.run_reengagement()
+                    log.info("[%s] Re-engagement: %s", platform, result)
+                    _last_reengagement[platform] = now
 
             session_mgr.close_all()
         except Exception as exc:

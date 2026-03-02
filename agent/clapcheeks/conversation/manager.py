@@ -228,6 +228,14 @@ class ConversationManager:
                 results["errors"] += 1
         return results
 
+    def run_reengagement(self) -> dict:
+        """Run re-engagement pass for cold matches on this platform."""
+        from clapcheeks.conversation.reengagement import run_reengagement_pass
+        return run_reengagement_pass(
+            platform_clients={self._platform: self._client},
+            config={"ai_service_url": self._ai_url, "dry_run": self._dry_run},
+        )
+
     def run_loop(self) -> dict:
         summary = {"openers_sent": 0, "replies_sent": 0, "dates_proposed": 0, "reengaged": 0, "errors": 0}
         new_matches = self.get_new_matches()
