@@ -53,3 +53,36 @@ async def apply_stealth(page) -> None:
 async def human_delay() -> None:
     """Sleep a random human-like interval between actions."""
     await asyncio.sleep(random.uniform(0.5, 2.0))
+
+
+async def random_delay(min_s: float = 0.5, max_s: float = 2.5) -> None:
+    """Sleep a random duration with jitter to avoid uniform distributions."""
+    delay = random.uniform(min_s, max_s)
+    # Add jitter to avoid perfectly uniform distributions
+    delay *= random.uniform(0.8, 1.2)
+    # Clamp so jitter doesn't go below minimum
+    delay = max(min_s, min(max_s * 1.2, delay))
+    await asyncio.sleep(delay)
+
+
+async def human_mouse_move(page, target, steps: int = 10) -> None:
+    """Move mouse to target element in an arc with slight random offsets."""
+    box = await target.bounding_box()
+    if box is None:
+        await target.click()
+        return
+
+    target_x = box["x"] + box["width"] / 2
+    target_y = box["y"] + box["height"] / 2
+
+    # Start from origin (0,0) — Playwright doesn't expose current mouse pos
+    start_x, start_y = 0.0, 0.0
+
+    for i in range(steps):
+        t = (i + 1) / steps
+        x = start_x + (target_x - start_x) * t + random.uniform(-2, 2)
+        y = start_y + (target_y - start_y) * t + random.uniform(-3, 3)
+        await page.mouse.move(x, y)
+        await asyncio.sleep(random.uniform(0.01, 0.03))
+
+    await target.click()
