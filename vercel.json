@@ -9,5 +9,11 @@
     "NEXT_PUBLIC_SUPABASE_ANON_KEY": "@supabase-anon-key",
     "NEXT_PUBLIC_API_URL": "@api-url",
     "NEXT_PUBLIC_AI_URL": "@ai-url"
-  }
+  },
+  "crons": [
+    {
+      "path": "/api/reports/weekly",
+      "schedule": "0 9 * * 1"
+    }
+  ]
 }
