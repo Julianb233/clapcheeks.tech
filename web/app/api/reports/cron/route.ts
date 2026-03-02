@@ -26,9 +26,9 @@ export async function GET(request: NextRequest) {
 
   // Get all users with active subscriptions
   const { data: subscribers } = await supabase
-    .from('clapcheeks_subscriptions')
+    .from('subscriptions')
     .select('user_id')
-    .eq('subscription_status', 'active')
+    .eq('status', 'active')
 
   if (!subscribers || subscribers.length === 0) {
     return NextResponse.json({ message: 'No active subscribers', processed: 0 })
