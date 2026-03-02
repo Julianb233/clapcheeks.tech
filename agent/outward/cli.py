@@ -127,6 +127,27 @@ def swipe(mode: str | None, platform: str, swipes: int, like_ratio: float) -> No
                     f"[yellow]{results.get('errors', 0)}[/yellow] errors"
                 )
 
+                # Sync to dashboard (non-blocking)
+                agent_token = config.get('agent_token')
+                api_url = config.get('api_url', 'https://api.clapcheeks.tech')
+                if agent_token and results:
+                    try:
+                        import requests as _req
+                        _req.post(
+                            f'{api_url}/analytics/sync',
+                            json={
+                                'platform': plat,
+                                'swipes_right': results.get('liked', 0),
+                                'swipes_left': results.get('passed', 0),
+                                'matches': len(results.get('new_matches', [])),
+                            },
+                            headers={'Authorization': f'Bearer {agent_token}'},
+                            timeout=5,
+                        )
+                        console.print('[dim]✓ Synced to dashboard[/dim]')
+                    except Exception:
+                        pass  # Silent failure — don't block the user
+
             except Exception as exc:
                 console.print(f"  [red]✗[/red] {plat} failed: {exc}")
 

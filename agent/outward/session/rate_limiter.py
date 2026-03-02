@@ -31,6 +31,13 @@ DELAY_CONFIG = {
     "session_break": {"mean": 120.0, "std": 30.0, "min": 60.0, "max": 300.0},
 }
 
+# Paid feature costs per use
+PLATFORM_COSTS = {
+    "tinder": {"boost": 3.99, "super_like": 0.99, "gold_upgrade": 29.99},
+    "bumble": {"spotlight": 2.99, "superswipe": 0.99, "boost": 7.99},
+    "hinge": {"rose": 0.99, "boost": 6.99},
+}
+
 STATE_FILE = Path.home() / ".outward" / "daily_counts.json"
 
 
@@ -94,3 +101,32 @@ def get_daily_summary() -> dict:
     """Return today's swipe counts per platform."""
     state = _load_state()
     return state.get("counts", {})
+
+
+def record_spend(platform: str, amount_usd: float) -> None:
+    """Record money spent on a platform feature today."""
+    state = _load_state()
+    spend = state.setdefault("spend", {})
+    key = str(platform)
+    spend[key] = round(spend.get(key, 0.0) + amount_usd, 2)
+    _save_state(state)
+
+
+def track_feature_use(platform: str, feature: str) -> float:
+    """Record a paid feature use and return the cost incurred."""
+    cost = PLATFORM_COSTS.get(platform, {}).get(feature, 0.0)
+    if cost > 0:
+        record_spend(platform, cost)
+        logger.info("Recorded spend: %s/%s = $%.2f", platform, feature, cost)
+    return cost
+
+
+def get_daily_spend() -> dict:
+    """Return today's spending by platform."""
+    state = _load_state()
+    return state.get("spend", {})
+
+
+def get_total_daily_spend() -> float:
+    """Return total dollars spent today across all platforms."""
+    return sum(get_daily_spend().values())
