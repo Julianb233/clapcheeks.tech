@@ -93,7 +93,8 @@ class TestSuggestReply:
 
     def test_returns_none_on_api_error(self):
         mgr, _ = _make_manager()
-        with patch("requests.post", side_effect=Exception("connection refused")):
+        with patch("requests.post", side_effect=Exception("connection refused")), \
+             patch("clapcheeks.conversation.manager.generate_reply", side_effect=Exception("no local model")):
             result = mgr.suggest_reply([], contact_name="Test")
             assert result is None
 
