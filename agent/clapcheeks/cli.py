@@ -367,10 +367,32 @@ def browser() -> None:
 
 @browser.command()
 def install() -> None:
-    """Install Chromium browser for Playwright automation."""
+    """Install browser dependencies for Playwright automation.
+
+    Clap Cheeks uses your system Chrome by default (no download needed).
+    This command installs bundled Chromium as a fallback only.
+    """
     import subprocess
     import sys
-    console.print("[bold green]Installing Chromium for Playwright...[/bold green]")
+    console.print("[bold]Checking for system Chrome...[/bold]")
+    # Check if system Chrome is available via Playwright channel
+    try:
+        result = subprocess.run(
+            [sys.executable, "-c",
+             "from playwright.sync_api import sync_playwright; "
+             "p = sync_playwright().start(); "
+             "b = p.chromium.launch(channel='chrome', headless=True); "
+             "b.close(); p.stop(); "
+             "print('ok')"],
+            capture_output=True, text=True, timeout=30,
+        )
+        if "ok" in result.stdout:
+            console.print("[green]System Chrome detected -- no download needed.[/green]")
+            return
+    except Exception:
+        pass
+
+    console.print("[yellow]System Chrome not found. Installing bundled Chromium as fallback...[/yellow]")
     result = subprocess.run(
         [sys.executable, "-m", "playwright", "install", "chromium"],
         capture_output=False,

@@ -1,8 +1,12 @@
 """Async Playwright browser manager with anti-detection and session persistence."""
 from __future__ import annotations
 
+from pathlib import Path
+
 from clapcheeks.browser.stealth import StealthConfig, apply_stealth
 from clapcheeks.browser.session import SessionStore
+
+BROWSER_PROFILE_DIR = Path.home() / ".clapcheeks" / "browser-profile"
 
 
 class BrowserDriver:
@@ -22,15 +26,32 @@ class BrowserDriver:
         """Start Playwright, launch Chromium with anti-detection, return Page."""
         from playwright.async_api import async_playwright
 
+        BROWSER_PROFILE_DIR.mkdir(parents=True, exist_ok=True)
+
         self._playwright = await async_playwright().start()
-        self._browser = await self._playwright.chromium.launch(
-            headless=self.headless,
-            args=[
-                "--disable-blink-features=AutomationControlled",
-                "--no-first-run",
-                "--no-default-browser-check",
-            ],
-        )
+        # Use system Chrome to avoid downloading Chromium (~100MB).
+        # Falls back to bundled Chromium if system Chrome is not available.
+        try:
+            self._browser = await self._playwright.chromium.launch(
+                channel="chrome",
+                headless=self.headless,
+                args=[
+                    "--disable-blink-features=AutomationControlled",
+                    "--no-first-run",
+                    "--no-default-browser-check",
+                    f"--user-data-dir={BROWSER_PROFILE_DIR}",
+                ],
+            )
+        except Exception:
+            self._browser = await self._playwright.chromium.launch(
+                headless=self.headless,
+                args=[
+                    "--disable-blink-features=AutomationControlled",
+                    "--no-first-run",
+                    "--no-default-browser-check",
+                    f"--user-data-dir={BROWSER_PROFILE_DIR}",
+                ],
+            )
         self._context = await self._browser.new_context(
             viewport={
                 "width": self.stealth.viewport_width,
