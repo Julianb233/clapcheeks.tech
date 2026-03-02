@@ -274,3 +274,51 @@ class TinderClient:
                 pass
 
         return {"name": match_name, "opener": opener_text}
+
+    # ------------------------------------------------------------------
+    # Match & messaging helpers (for ConversationManager integration)
+    # ------------------------------------------------------------------
+
+    def check_new_matches(self) -> list[dict]:
+        """Return matches with no messages yet (need an opener)."""
+        # Browser-based: check the matches tab for unread/new matches
+        page = self._get_page()
+        new_matches = []
+        try:
+            # Navigate to matches if not already there
+            if page and hasattr(page, 'locator'):
+                # Look for match cards without message indicators
+                match_cards = page.locator('[class*="matchCard"], [data-testid="match-card"]').all()
+                for i, card in enumerate(match_cards[:20]):
+                    try:
+                        name_el = card.locator('[class*="matchName"], [itemprop="name"]').first
+                        name = name_el.inner_text() if name_el else f"Match {i+1}"
+                        # Check if there's no message preview (new match)
+                        has_message = card.locator('[class*="messagePreview"], [class*="lastMessage"]').count() > 0
+                        if not has_message:
+                            new_matches.append({"match_id": f"match_{i}", "name": name})
+                    except Exception:
+                        continue
+        except Exception as exc:
+            logger.debug("check_new_matches browser check failed: %s", exc)
+        return new_matches
+
+    def send_message(self, match_id: str, message: str) -> bool:
+        """Send a message to a match via browser automation."""
+        page = self._get_page()
+        if not page:
+            return False
+        try:
+            # Click on the match chat input
+            input_el = page.locator(SELECTORS["message_input"]).first
+            input_el.fill(message)
+            page.locator(SELECTORS["send_message"]).first.click()
+            return True
+        except Exception as exc:
+            logger.error("send_message failed: %s", exc)
+            return False
+
+    def get_matches(self, count: int = 20) -> list[dict]:
+        """Get recent matches from the browser."""
+        # Returns empty list — browser-based match listing TBD in phase 12
+        return []
