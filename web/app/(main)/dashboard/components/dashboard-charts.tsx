@@ -7,7 +7,7 @@ import { PlatformBreakdown } from './platform-breakdown'
 import { ConversionFunnel } from './conversion-funnel'
 import { SpendingChart } from './spending-chart'
 
-interface AnalyticsSummary {
+export interface AnalyticsSummary {
   totals: {
     swipes_right: number
     matches: number
@@ -37,21 +37,23 @@ interface AnalyticsSummary {
 
 interface DashboardChartsProps {
   initialData: AnalyticsSummary | null
+  days?: number
 }
 
-export function DashboardCharts({ initialData }: DashboardChartsProps) {
+export function DashboardCharts({ initialData, days }: DashboardChartsProps) {
   const [data, setData] = useState<AnalyticsSummary | null>(initialData)
   const [loading, setLoading] = useState(!initialData)
+  const effectiveDays = days ?? 30
 
   useEffect(() => {
-    if (!initialData) {
-      fetch('/api/analytics/summary')
-        .then(r => r.json())
-        .then(setData)
-        .catch(() => {})
-        .finally(() => setLoading(false))
-    }
-  }, [initialData])
+    if (initialData && !days) return
+    setLoading(true)
+    fetch(`/api/analytics/summary?days=${effectiveDays}`)
+      .then(r => r.json())
+      .then(setData)
+      .catch(() => {})
+      .finally(() => setLoading(false))
+  }, [initialData, days, effectiveDays])
 
   if (loading) {
     return (

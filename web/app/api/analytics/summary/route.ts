@@ -1,17 +1,22 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { calculateRizzScore, getRizzTrend, type AnalyticsRow } from '@/lib/rizz'
 
-export async function GET() {
+const VALID_DAYS = [7, 30, 90] as const
+
+export async function GET(request: NextRequest) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
+  const daysParam = Number(request.nextUrl.searchParams.get('days') ?? 30)
+  const days = VALID_DAYS.includes(daysParam as (typeof VALID_DAYS)[number]) ? daysParam : 30
+
   const now = new Date()
-  const thirtyDaysAgo = new Date(now)
-  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
+  const rangeStart = new Date(now)
+  rangeStart.setDate(rangeStart.getDate() - days)
   const sevenDaysAgo = new Date(now)
   sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7)
   const fourteenDaysAgo = new Date(now)
@@ -24,26 +29,26 @@ export async function GET() {
       .from('clapcheeks_analytics_daily')
       .select('platform, swipes_right, swipes_left, matches, messages_sent, dates_booked, date')
       .eq('user_id', user.id)
-      .gte('date', fmt(thirtyDaysAgo))
+      .gte('date', fmt(rangeStart))
       .order('date', { ascending: true }),
     supabase
       .from('clapcheeks_conversation_stats')
       .select('platform, messages_sent, messages_received, conversations_started, conversations_replied, conversations_ghosted, date')
       .eq('user_id', user.id)
-      .gte('date', fmt(thirtyDaysAgo))
+      .gte('date', fmt(rangeStart))
       .order('date', { ascending: true }),
     supabase
       .from('clapcheeks_spending')
       .select('amount, category, date')
       .eq('user_id', user.id)
-      .gte('date', fmt(thirtyDaysAgo)),
+      .gte('date', fmt(rangeStart)),
   ])
 
   const analytics = analyticsRes.data || []
   const convos = convoRes.data || []
   const spending = spendRes.data || []
 
-  // 30-day aggregates
+  // Range aggregates
   const totals = analytics.reduce(
     (acc, r) => ({
       swipes_right: acc.swipes_right + (r.swipes_right || 0),
