@@ -2,7 +2,12 @@ import type { Metadata } from 'next'
 import { createClient } from '@/lib/supabase/server'
 import { logout } from '@/app/auth/actions'
 import { redirect } from 'next/navigation'
+import Link from 'next/link'
 import ManageBillingButton from '@/components/manage-billing-button'
+import PlanBadge from '@/components/plan-badge'
+import EliteOnly from '@/components/elite-only'
+import CoachingSection from './components/coaching-section'
+import { getLatestCoaching } from '@/lib/coaching/generate'
 
 export const metadata: Metadata = {
   title: 'Dashboard — Clap Cheeks',
@@ -46,7 +51,7 @@ export default async function Dashboard() {
   const sinceStr = since.toISOString().split('T')[0]
   const today = new Date().toISOString().split('T')[0]
 
-  const [analyticsRes, tokenRes, subRes] = await Promise.all([
+  const [analyticsRes, tokenRes, subRes, profileRes] = await Promise.all([
     supabase
       .from('clapcheeks_analytics_daily')
       .select('platform, swipes_right, swipes_left, matches, messages_sent, dates_booked, date')
@@ -65,9 +70,20 @@ export default async function Dashboard() {
       .eq('user_id', user.id)
       .limit(1)
       .single(),
+    supabase
+      .from('profiles')
+      .select('plan, subscription_status')
+      .eq('id', user.id)
+      .single(),
   ])
 
+  // Fetch coaching session
+  const coachingSession = await getLatestCoaching(supabase, user.id)
+
   const isSubscribed = subRes.data?.subscription_status === 'active'
+  const userPlan = (profileRes.data?.plan || 'base') as 'base' | 'elite'
+  const userSubStatus = profileRes.data?.subscription_status || 'inactive'
+  const userIsElite = userPlan === 'elite' && userSubStatus === 'active'
 
   const rows: DailyRow[] = analyticsRes.data || []
   const agentToken: AgentToken | null = tokenRes.data?.[0] || null
@@ -125,11 +141,24 @@ export default async function Dashboard() {
           <div className="flex items-center gap-3">
             <span className="text-2xl font-bold gradient-text">Clap Cheeks</span>
             <span className="text-xs text-white/30 font-mono bg-white/5 px-2 py-0.5 rounded">beta</span>
+            <PlanBadge plan={userPlan} subscriptionStatus={userSubStatus} />
           </div>
           <div className="flex items-center gap-3">
             {user?.email && (
               <span className="text-white/30 text-xs hidden sm:block">{user.email}</span>
             )}
+            <Link
+              href="/conversation"
+              className="text-white/40 hover:text-white/70 text-xs bg-white/5 hover:bg-white/10 border border-white/10 px-3 py-1.5 rounded-lg transition-all"
+            >
+              Conversation AI
+            </Link>
+            <Link
+              href="/billing"
+              className="text-white/40 hover:text-white/70 text-xs bg-white/5 hover:bg-white/10 border border-white/10 px-3 py-1.5 rounded-lg transition-all"
+            >
+              Billing
+            </Link>
             {isSubscribed && <ManageBillingButton />}
             <form action={logout}>
               <button
@@ -216,6 +245,49 @@ export default async function Dashboard() {
                   </div>
                 ))}
             </div>
+          </div>
+        )}
+
+        {/* Elite Features */}
+        <div className="space-y-4 mb-8">
+          <h2 className="text-white/60 text-xs font-semibold uppercase tracking-wider">
+            Elite Features
+          </h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <EliteOnly isElite={userIsElite} featureName="Autopilot">
+              <div className="bg-white/5 border border-white/10 rounded-xl p-5">
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="text-white font-semibold text-sm">Autopilot</h3>
+                  <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+                </div>
+                <p className="text-white/40 text-xs">Auto-swiping is active across all platforms.</p>
+              </div>
+            </EliteOnly>
+            <EliteOnly isElite={userIsElite} featureName="Match Intel">
+              <div className="bg-white/5 border border-white/10 rounded-xl p-5">
+                <h3 className="text-white font-semibold text-sm mb-2">Match Intel</h3>
+                <p className="text-white/40 text-xs">Deep profile analysis on your latest matches.</p>
+              </div>
+            </EliteOnly>
+            <EliteOnly isElite={userIsElite} featureName="Ghost Hunter">
+              <div className="bg-white/5 border border-white/10 rounded-xl p-5">
+                <h3 className="text-white font-semibold text-sm mb-2">Ghost Hunter</h3>
+                <p className="text-white/40 text-xs">Detect and re-engage inactive matches.</p>
+              </div>
+            </EliteOnly>
+            <EliteOnly isElite={userIsElite} featureName="Date Closer">
+              <div className="bg-white/5 border border-white/10 rounded-xl p-5">
+                <h3 className="text-white font-semibold text-sm mb-2">Date Closer</h3>
+                <p className="text-white/40 text-xs">AI-assisted date scheduling and booking.</p>
+              </div>
+            </EliteOnly>
+          </div>
+        </div>
+
+        {/* AI Coaching Section */}
+        {hasAgent && (
+          <div className="mb-8">
+            <CoachingSection initialSession={coachingSession} />
           </div>
         )}
 
