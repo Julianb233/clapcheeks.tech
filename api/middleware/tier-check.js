@@ -9,7 +9,7 @@ export const TIER_LIMITS = {
 
 export async function getTierForToken(agentToken) {
   const { data } = await supabase
-    .from('outward_agent_tokens')
+    .from('clapcheeks_agent_tokens')
     .select('user_id')
     .eq('token', agentToken)
     .single()

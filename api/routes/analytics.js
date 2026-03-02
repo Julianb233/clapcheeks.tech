@@ -12,7 +12,7 @@ router.post('/sync', validateAgentToken, requireTierAccess, async (req, res) => 
   const today = date || new Date().toISOString().split('T')[0]
 
   const { error } = await supabase
-    .from('outward_analytics_daily')
+    .from('clapcheeks_analytics_daily')
     .upsert({
       user_id: req.userId,
       date: today,
@@ -55,7 +55,7 @@ router.get('/summary', validateAgentToken, async (req, res) => {
   const sinceStr = since.toISOString().split('T')[0]
 
   const { data, error } = await supabase
-    .from('outward_analytics_daily')
+    .from('clapcheeks_analytics_daily')
     .select('platform, swipes_right, swipes_left, matches, messages_sent, dates_booked')
     .eq('user_id', req.userId)
     .gte('date', sinceStr)

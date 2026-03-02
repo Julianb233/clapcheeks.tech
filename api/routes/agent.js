@@ -20,7 +20,7 @@ router.post('/register', requireAuth, async (req, res) => {
   const { device_name } = req.body
   const token = randomUUID()
   const { data, error } = await supabase
-    .from('outward_agent_tokens')
+    .from('clapcheeks_agent_tokens')
     .insert({ user_id: req.user.id, token, device_name: device_name || 'My Mac' })
     .select()
     .single()
@@ -57,7 +57,7 @@ router.get('/config', validateAgentToken, async (req, res) => {
 // POST /agent/heartbeat — update last_seen_at
 router.post('/heartbeat', validateAgentToken, async (req, res) => {
   await supabase
-    .from('outward_agent_tokens')
+    .from('clapcheeks_agent_tokens')
     .update({ last_seen_at: new Date().toISOString() })
     .eq('user_id', req.userId)
   res.json({ ok: true })
