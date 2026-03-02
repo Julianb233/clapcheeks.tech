@@ -33,6 +33,34 @@ main.add_command(spend)
 
 
 @main.command()
+def login() -> None:
+    """Authenticate with your Clap Cheeks account (device flow).
+
+    Opens your browser to clapcheeks.tech/activate and displays a pairing
+    code. Log in on the web, and your CLI is connected automatically.
+    """
+    from clapcheeks.auth import device_login
+    from clapcheeks.config import load as load_cfg, save_agent_token
+
+    cfg = load_cfg()
+
+    if cfg.get("agent_token"):
+        console.print("[dim]Already logged in. Use [cyan]clapcheeks status[/cyan] to check.[/dim]")
+        if not click.confirm("Log in again?", default=False):
+            return
+
+    token = device_login(api_url=cfg.get("api_url", "https://api.clapcheeks.tech"))
+
+    if token:
+        save_agent_token(token)
+        console.print("[bold green]Logged in successfully.[/bold green]")
+        console.print("[dim]Next step: [cyan]clapcheeks connect[/cyan] to link your dating apps.[/dim]")
+    else:
+        console.print("[red]Login timed out.[/red] Try again with [cyan]clapcheeks login[/cyan].")
+        raise SystemExit(1)
+
+
+@main.command()
 def setup() -> None:
     """Interactive first-time setup wizard."""
     from clapcheeks.setup.wizard import run_setup
