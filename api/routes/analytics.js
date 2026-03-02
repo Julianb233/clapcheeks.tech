@@ -5,7 +5,7 @@ export const router = Router()
 
 // POST /analytics/sync — agent reports session results
 router.post('/sync', validateAgentToken, async (req, res) => {
-  const { platform, date, swipes_right, swipes_left, matches, messages_sent, dates_booked } = req.body
+  const { platform, date, swipes_right, swipes_left, matches, messages_sent, dates_booked, conversations_started, money_spent } = req.body
   if (!platform) return res.status(400).json({ error: 'platform required' })
 
   const today = date || new Date().toISOString().split('T')[0]
@@ -21,6 +21,8 @@ router.post('/sync', validateAgentToken, async (req, res) => {
       matches: matches || 0,
       messages_sent: messages_sent || 0,
       dates_booked: dates_booked || 0,
+      conversations_started: conversations_started || 0,
+      money_spent: money_spent || 0,
     }, { onConflict: 'user_id,date,platform', ignoreDuplicates: false })
 
   if (error) return res.status(500).json({ error: error.message })

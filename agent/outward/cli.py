@@ -288,6 +288,63 @@ from outward.commands.profile import profile
 main.add_command(profile)
 
 
+@main.command()
+@click.option("--contacts", default=None, help="Comma-separated phone numbers or emails to watch.")
+@click.option("--interval", default=5.0, show_default=True, help="Polling interval in seconds.")
+@click.option("--style-refresh", is_flag=True, default=False, help="Force re-analyze texting style (ignore cache).")
+def watch(contacts: str | None, interval: float, style_refresh: bool) -> None:
+    """Watch iMessage for new messages and suggest AI replies.
+
+    Monitors your iMessage conversations and generates reply suggestions
+    using local Ollama. All data stays on your device.
+    """
+    from outward.imessage.permissions import check_full_disk_access, prompt_fda_instructions
+    from outward.imessage.reader import IMMessageReader
+    from outward.imessage.voice import VoiceAnalyzer
+    from outward.imessage.ai_reply import ReplyGenerator
+    from outward.imessage.watcher import IMMessageWatcher
+
+    # Check Full Disk Access
+    if not check_full_disk_access():
+        prompt_fda_instructions()
+        raise SystemExit(1)
+
+    reader = IMMessageReader()
+
+    # Analyze texting style
+    analyzer = VoiceAnalyzer(reader)
+    if style_refresh:
+        from outward.imessage.voice import STYLE_CACHE
+        if STYLE_CACHE.exists():
+            STYLE_CACHE.unlink()
+
+    with console.status("[bold green]Analyzing your texting style...[/bold green]"):
+        style = analyzer.analyze_style()
+
+    console.print(Panel(
+        f"[bold]Your style:[/bold] {style['tone_description']}",
+        title="[magenta]Clap Cheeks[/magenta]",
+        border_style="magenta",
+    ))
+
+    style_prompt = analyzer.get_style_prompt(style)
+    reply_gen = ReplyGenerator(style_prompt=style_prompt)
+
+    # Parse contacts filter
+    contact_list: list[str] | None = None
+    if contacts:
+        contact_list = [c.strip() for c in contacts.split(",") if c.strip()]
+
+    watcher = IMMessageWatcher(reader, reply_gen, contacts=contact_list)
+
+    try:
+        watcher.start(poll_interval=interval)
+    except KeyboardInterrupt:
+        console.print("\n[dim]Stopped watching.[/dim]")
+    finally:
+        reader.close()
+
+
 class _nullctx:
     """No-op context manager for drivers that don't support 'with'."""
     def __init__(self, val): self.val = val
