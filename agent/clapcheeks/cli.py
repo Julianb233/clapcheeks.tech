@@ -345,6 +345,30 @@ def watch(contacts: str | None, interval: float, style_refresh: bool) -> None:
         reader.close()
 
 
+@main.group()
+def browser() -> None:
+    """Manage local browser for dating app automation."""
+    pass
+
+
+@browser.command()
+def install() -> None:
+    """Install Chromium browser for Playwright automation."""
+    import subprocess
+    import sys
+    console.print("[bold green]Installing Chromium for Playwright...[/bold green]")
+    result = subprocess.run(
+        [sys.executable, "-m", "playwright", "install", "chromium"],
+        capture_output=False,
+    )
+    if result.returncode == 0:
+        console.print("[green]Chromium installed successfully.[/green]")
+    else:
+        console.print("[red]Failed to install Chromium. Run manually:[/red]")
+        console.print("  [cyan]python -m playwright install chromium[/cyan]")
+        raise SystemExit(1)
+
+
 class _nullctx:
     """No-op context manager for drivers that don't support 'with'."""
     def __init__(self, val): self.val = val
