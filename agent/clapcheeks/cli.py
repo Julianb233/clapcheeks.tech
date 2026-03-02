@@ -114,6 +114,14 @@ def swipe(mode: str | None, platform: str, swipes: int, like_ratio: float) -> No
 
     with mgr:
         for plat in platforms:
+            # Check rate limit before starting platform
+            from clapcheeks.session.rate_limiter import check_limit, RateLimitExceeded, record_swipe
+            try:
+                check_limit(plat, "swipe")
+            except RateLimitExceeded as e:
+                console.print(f"  [yellow]⚠[/yellow] {e}")
+                continue
+
             console.print(f"[bold cyan]{plat.capitalize()}[/bold cyan] — starting swipe session...")
 
             try:
@@ -134,6 +142,12 @@ def swipe(mode: str | None, platform: str, swipes: int, like_ratio: float) -> No
                         like_ratio=like_ratio,
                         max_swipes=swipes,
                     )
+
+                # Record swipes for rate limiting
+                for _ in range(results.get('liked', 0)):
+                    record_swipe(plat, 'right')
+                for _ in range(results.get('passed', 0)):
+                    record_swipe(plat, 'left')
 
                 console.print(
                     f"  [green]✓[/green] {results.get('liked', 0)} liked · "
@@ -251,37 +265,37 @@ def converse(platform: str, dry_run: bool) -> None:
 
     console.print(f'\n[bold magenta]Clap Cheeks[/bold magenta] conversation manager — [bold]{platform}[/bold]')
 
-    with console.status(f'[bold green]Setting up {platform} connection...[/bold green]'):
-        session = SessionManager(config)
-        try:
-            driver = session.get_driver()
-        except Exception as e:
-            console.print(f'[bold red]Error:[/bold red] {e}')
-            raise SystemExit(1)
+    with SessionManager(config) as session:
+        with console.status(f'[bold green]Setting up {platform} connection...[/bold green]'):
+            try:
+                driver = session.get_driver(platform)
+            except Exception as e:
+                console.print(f'[bold red]Error:[/bold red] {e}')
+                raise SystemExit(1)
 
-    # Get platform client
-    if platform == 'tinder':
-        from clapcheeks.platforms.tinder import TinderClient
-        client = TinderClient(driver=driver)
-    elif platform == 'hinge':
-        from clapcheeks.platforms.hinge import HingeClient
-        client = HingeClient(driver=driver, ai_service_url=config.get('ai_service_url'))
-    else:
-        console.print(f'[yellow]Bumble conversation management uses the driver directly.[/yellow]')
-        raise SystemExit(0)
+        # Get platform client
+        if platform == 'tinder':
+            from clapcheeks.platforms.tinder import TinderClient
+            client = TinderClient(driver=driver)
+        elif platform == 'hinge':
+            from clapcheeks.platforms.hinge import HingeClient
+            client = HingeClient(driver=driver, ai_service_url=config.get('ai_service_url'))
+        else:
+            console.print(f'[yellow]Bumble conversation management uses the driver directly.[/yellow]')
+            raise SystemExit(0)
 
-    mgr = ConversationManager(client, platform, config)
+        mgr = ConversationManager(client, platform, config)
 
-    with console.status('[bold green]Running conversation loop...[/bold green]'):
-        results = mgr.run_loop()
+        with console.status('[bold green]Running conversation loop...[/bold green]'):
+            results = mgr.run_loop()
 
-    console.print(Panel(
-        f"[bold green]Openers sent:[/bold green] {results['openers_sent']}\n"
-        f"[bold cyan]Replies sent:[/bold cyan] {results['replies_sent']}\n"
-        f"[bold red]Errors:[/bold red] {results['errors']}",
-        title=f"[magenta]Conversation Run — {platform}[/magenta]",
-        border_style="magenta",
-    ))
+        console.print(Panel(
+            f"[bold green]Openers sent:[/bold green] {results['openers_sent']}\n"
+            f"[bold cyan]Replies sent:[/bold cyan] {results['replies_sent']}\n"
+            f"[bold red]Errors:[/bold red] {results['errors']}",
+            title=f"[magenta]Conversation Run — {platform}[/magenta]",
+            border_style="magenta",
+        ))
 
 
 from clapcheeks.commands.profile import profile
