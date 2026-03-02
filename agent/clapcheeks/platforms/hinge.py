@@ -13,6 +13,10 @@ logger = logging.getLogger("clapcheeks.hinge")
 SELECTORS = {
     "feed": '[class*="feed"], [data-testid*="feed"], main',
     "card": '[class*="profile"], [data-testid*="profile"], [data-testid*="card"]',
+    "most_compatible": (
+        '[data-testid*="most-compatible"], [class*="most-compatible"], '
+        '[aria-label*="Most Compatible"], [class*="mostCompatible"]'
+    ),
     "name": '[data-testid*="name"], h1, [class*="name"]',
     "prompt_block": '[class*="prompt"], [data-testid*="prompt"]',
     "prompt_question": '[class*="prompt-question"], [data-testid*="prompt-question"]',
@@ -141,6 +145,88 @@ class HingeClient:
     # Swipe session
     # ------------------------------------------------------------------
 
+    # ------------------------------------------------------------------
+    # Most Compatible prioritization
+    # ------------------------------------------------------------------
+
+    def check_most_compatible(self) -> int:
+        """Navigate to Most Compatible section and like up to 3 profiles.
+
+        Most Compatible profiles have an 8x higher date rate than regular
+        feed, so we process them first before the regular swipe loop.
+
+        Returns the number of Most Compatible profiles acted on.
+        """
+        import asyncio
+
+        page = self._get_page()
+        acted_on = 0
+
+        async def _process_most_compatible() -> int:
+            nonlocal acted_on
+
+            # Look for the Most Compatible section
+            try:
+                mc_section = page.locator(SELECTORS["most_compatible"]).first
+                await mc_section.wait_for(state="visible", timeout=5_000)
+            except Exception:
+                logger.info("No Most Compatible section found, skipping.")
+                return 0
+
+            # Click into Most Compatible section
+            try:
+                await mc_section.click(timeout=5_000)
+                await asyncio.sleep(random.uniform(1.5, 3.0))
+            except Exception:
+                logger.info("Could not enter Most Compatible section.")
+                return 0
+
+            # Process up to 3 Most Compatible profiles
+            for i in range(3):
+                try:
+                    await page.locator(SELECTORS["card"]).first.wait_for(
+                        state="visible", timeout=8_000,
+                    )
+                except Exception:
+                    logger.info("No more Most Compatible profiles at index %d.", i)
+                    break
+
+                card = await self._get_current_card(page)
+
+                # Always like Most Compatible — with comment if possible
+                if (
+                    card["has_prompt"]
+                    and self.ai_service_url
+                ):
+                    await self._like_with_comment(page, card)
+                else:
+                    await self._like_photo(page, card)
+
+                acted_on += 1
+                logger.info(
+                    "Most Compatible %d/3: liked %s",
+                    acted_on, card.get("name", "unknown"),
+                )
+
+                await asyncio.sleep(random.uniform(1.5, 3.5))
+
+            return acted_on
+
+        loop = asyncio.new_event_loop()
+        try:
+            acted_on = loop.run_until_complete(_process_most_compatible())
+        finally:
+            loop.close()
+
+        if acted_on > 0:
+            logger.info("Processed %d Most Compatible profiles.", acted_on)
+
+        return acted_on
+
+    # ------------------------------------------------------------------
+    # Swipe session
+    # ------------------------------------------------------------------
+
     def run_swipe_session(
         self,
         like_ratio: float = 0.5,
@@ -150,6 +236,9 @@ class HingeClient:
         import asyncio
 
         self.login()
+
+        # Prioritize Most Compatible before regular feed
+        mc_count = self.check_most_compatible()
 
         # Rate-limit check
         from clapcheeks.session.rate_limiter import get_daily_summary, record_swipe
@@ -216,6 +305,7 @@ class HingeClient:
             "passed": self.passed,
             "errors": self.errors,
             "commented": self.commented,
+            "most_compatible": mc_count,
         }
 
     # ------------------------------------------------------------------
