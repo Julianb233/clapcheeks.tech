@@ -36,16 +36,17 @@ export default function LoginForm() {
       {/* Background orbs */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
         <div
-          className="orb w-[500px] h-[500px] bg-brand-700"
+          className="orb floating w-[500px] h-[500px] bg-brand-700"
           style={{ top: '-10%', right: '-10%' }}
         />
         <div
-          className="orb w-72 h-72 bg-pink-700"
+          className="orb floating-slow w-72 h-72 bg-pink-700"
           style={{ bottom: '10%', left: '-5%' }}
         />
+        <div className="orb floating-delayed w-48 h-48 bg-red-800" style={{ top: '50%', right: '5%', animationDelay: '2s' }} />
       </div>
 
-      <div className="relative w-full max-w-sm">
+      <div className="relative w-full max-w-sm animate-scale-in">
         {/* Logo */}
         <div className="flex items-center justify-center gap-2 mb-10">
           <Link href="/" className="flex items-center gap-2 group">
@@ -55,9 +56,10 @@ export default function LoginForm() {
             </span>
           </Link>
         </div>
+        <div className="w-16 h-0.5 bg-gradient-to-r from-transparent via-brand-500 to-transparent mx-auto mb-8" />
 
         {/* Card */}
-        <div className="bg-white/[0.03] border border-white/10 rounded-2xl p-8 glow-border">
+        <div className="bg-white/[0.03] border border-white/[0.12] rounded-2xl p-8 glow-border shadow-2xl shadow-brand-900/20">
           <h1 className="text-2xl font-bold text-white mb-1">Welcome back</h1>
           <p className="text-white/40 text-sm mb-8">Sign in to your Clapcheeks account</p>
 
@@ -125,7 +127,7 @@ export default function LoginForm() {
             <button
               type="submit"
               disabled={isLoading || googleLoading}
-              className="w-full bg-brand-600 hover:bg-brand-500 text-white font-medium py-3 rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              className="w-full bg-brand-600 hover:bg-brand-500 text-white font-medium py-3 rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-lg shadow-brand-900/40 hover:animate-glow"
             >
               {isLoading ? (
                 <span className="w-5 h-5 border-2 border-white/20 border-t-white rounded-full animate-spin" />

@@ -71,7 +71,7 @@ export default function SignupForm() {
         <div className="absolute inset-0 overflow-hidden pointer-events-none">
           <div className="orb w-[500px] h-[500px] bg-brand-700" style={{ top: '-10%', right: '-10%' }} />
         </div>
-        <div className="relative text-center max-w-sm">
+        <div className="relative text-center max-w-sm animate-scale-in">
           <div className="w-14 h-14 bg-brand-600/20 border border-brand-500/30 rounded-2xl flex items-center justify-center mx-auto mb-6">
             <CheckIcon />
           </div>
@@ -95,16 +95,17 @@ export default function SignupForm() {
       {/* Background orbs */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
         <div
-          className="orb w-[500px] h-[500px] bg-brand-700"
+          className="orb floating w-[500px] h-[500px] bg-brand-700"
           style={{ top: '-10%', right: '-10%' }}
         />
         <div
-          className="orb w-72 h-72 bg-pink-700"
+          className="orb floating-slow w-72 h-72 bg-pink-700"
           style={{ bottom: '10%', left: '-5%' }}
         />
+        <div className="orb floating w-56 h-56 bg-red-900" style={{ top: '20%', left: '5%', animationDelay: '1s' }} />
       </div>
 
-      <div className="relative w-full max-w-sm">
+      <div className="relative w-full max-w-sm animate-scale-in">
         {/* Logo */}
         <div className="flex items-center justify-center gap-2 mb-10">
           <Link href="/" className="flex items-center gap-2">
@@ -114,9 +115,10 @@ export default function SignupForm() {
             </span>
           </Link>
         </div>
+        <div className="w-16 h-0.5 bg-gradient-to-r from-transparent via-brand-500 to-transparent mx-auto mb-8" />
 
         {/* Card */}
-        <div className="bg-white/[0.03] border border-white/10 rounded-2xl p-8 glow-border">
+        <div className="bg-white/[0.03] border border-white/[0.12] rounded-2xl p-8 glow-border shadow-2xl shadow-brand-900/20">
           <h1 className="text-2xl font-bold text-white mb-1">Create account</h1>
           <p className="text-white/40 text-sm mb-8">Start your AI dating co-pilot journey</p>
 
