@@ -25,9 +25,16 @@ class RateLimitExceeded(Exception):
 
 
 DAILY_LIMITS = {
-    "tinder": {"right": 50, "left": 300, "messages": 30},
-    "bumble": {"right": 60, "left": 250, "messages": 25},
-    "hinge":  {"right": 50, "left": 200, "messages": 20},
+    "tinder":  {"right": 50,  "left": 300, "messages": 30},
+    "bumble":  {"right": 60,  "left": 250, "messages": 25},
+    "hinge":   {"right": 50,  "left": 200, "messages": 20},
+    "grindr":  {"right": 200, "left": 500, "messages": 50},
+    "badoo":   {"right": 100, "left": 300, "messages": 30},
+    "happn":   {"right": 100, "left": 300, "messages": 30},
+    "okcupid": {"right": 100, "left": 300, "messages": 30},
+    "pof":     {"right": 100, "left": 300, "messages": 30},
+    "feeld":   {"right": 50,  "left": 200, "messages": 20},
+    "cmb":     {"right": 21,  "left": 21,  "messages": 21},
 }
 
 DELAY_CONFIG = {
@@ -84,7 +91,18 @@ def can_swipe(platform: str, direction: str = "right") -> bool:
 
 
 # Aggregate daily caps for check_limit (total swipes regardless of direction)
-_AGGREGATE_CAPS = {"tinder": 100, "bumble": 75, "hinge": 50}
+_AGGREGATE_CAPS = {
+    "tinder":  100,
+    "bumble":  75,
+    "hinge":   50,
+    "grindr":  200,
+    "badoo":   100,
+    "happn":   100,
+    "okcupid": 100,
+    "pof":     100,
+    "feeld":   50,
+    "cmb":     21,
+}
 
 
 def check_limit(platform: str, action: str = "swipe") -> bool:
