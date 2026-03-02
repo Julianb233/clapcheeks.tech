@@ -21,6 +21,7 @@ export const metadata: Metadata = {
     'Grindr automation',
     'auto swipe',
   ],
+  manifest: '/manifest.json',
   openGraph: {
     title: 'Clapcheeks — AI Dating Co-Pilot',
     description: 'Your unfair advantage. AI-powered dating automation across 10 platforms.',
@@ -39,7 +40,14 @@ export const metadata: Metadata = {
       { url: '/icon-dark-32x32.png', media: '(prefers-color-scheme: dark)' },
       { url: '/icon.svg', type: 'image/svg+xml' },
     ],
-    apple: '/apple-icon.png',
+    apple: '/icons/icon-192.png',
+  },
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: 'black',
+  },
+  other: {
+    'theme-color': '#000000',
   },
   robots: { index: true, follow: true },
 }
