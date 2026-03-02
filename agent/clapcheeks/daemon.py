@@ -14,6 +14,7 @@ from datetime import datetime
 import requests
 
 from clapcheeks.config import load, get_agent_token, CONFIG_DIR
+from clapcheeks.events import EventEmitter
 from clapcheeks.session.ban_detector import BanDetector
 
 LOG_FILE = CONFIG_DIR / "daemon.log"
@@ -137,6 +138,7 @@ def _platform_worker(
     platform: str,
     config: dict,
     daemon_cfg: dict,
+    emitter: EventEmitter | None = None,
 ) -> None:
     """Run swipe + conversation loop for a single platform on a timer."""
     from clapcheeks.session.manager import SessionManager
@@ -181,6 +183,12 @@ def _platform_worker(
             ban_status = ban_detector.check_session_result(platform, swipe_result)
             if ban_status.value in ("soft_ban", "hard_ban"):
                 log.warning("[%s] Ban signal detected: %s", platform, ban_status.value)
+                if emitter:
+                    emitter.ban_detected(platform, ban_status.value)
+
+            # Emit session_complete event
+            if emitter and swipe_result:
+                emitter.session_complete(platform, swipe_result)
 
             # --- Conversation loop ---
             if converse_after and ban_status.value not in ("soft_ban", "hard_ban"):
@@ -188,6 +196,13 @@ def _platform_worker(
                 cm = ConversationManager(client, platform, config)
                 convo_result = cm.run_loop()
                 log.info("[%s] Conversation result: %s", platform, convo_result)
+
+                # Emit events for conversation results
+                if emitter and convo_result:
+                    for _ in range(convo_result.get("openers_sent", 0)):
+                        emitter.opener_sent(platform, "match", "")
+                    if convo_result.get("dates_proposed", 0) > 0:
+                        emitter.date_booked(platform, "match", "")
 
                 # --- Re-engagement pass (once per 23h per platform) ---
                 now = time.time()
@@ -231,6 +246,9 @@ def run_daemon() -> None:
              platforms, daemon_cfg["swipe_interval_hours"],
              daemon_cfg["active_hours"], sync_interval)
 
+    # Initialize event emitter for push notifications
+    emitter = EventEmitter(api_url, token)
+
     threads: list[threading.Thread] = []
 
     # Heartbeat thread
@@ -260,7 +278,7 @@ def run_daemon() -> None:
             continue
         t = threading.Thread(
             target=_platform_worker,
-            args=(platform, config, daemon_cfg),
+            args=(platform, config, daemon_cfg, emitter),
             name=f"platform-{platform}",
             daemon=True,
         )
