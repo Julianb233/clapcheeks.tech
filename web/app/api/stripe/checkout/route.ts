@@ -26,9 +26,14 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
-    const { plan, addons } = body as { plan: 'base' | 'elite'; addons?: string[] }
+    const { plan, addons, annual } = body as {
+      plan: 'base' | 'starter' | 'pro' | 'elite'
+      addons?: string[]
+      annual?: boolean
+    }
 
-    if (!plan || !['base', 'elite'].includes(plan)) {
+    const validPlans = ['base', 'starter', 'pro', 'elite']
+    if (!plan || !validPlans.includes(plan)) {
       return NextResponse.json({ error: 'Invalid plan' }, { status: 400 })
     }
 
@@ -39,7 +44,8 @@ export async function POST(request: NextRequest) {
       .eq('id', user.id)
       .single()
 
-    const lookupKey = plan === 'base' ? 'base_monthly' : 'elite_monthly'
+    const interval = annual ? 'annual' : 'monthly'
+    const lookupKey = `${plan}_${interval}`
 
     const prices = await stripe.prices.list({ lookup_keys: [lookupKey], limit: 1 })
     if (!prices.data.length) {

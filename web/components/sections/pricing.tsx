@@ -8,15 +8,13 @@ const plans = [
     period: '/mo',
     tagline: 'Perfect for getting started',
     features: [
-      '1 dating app (Tinder, Bumble, or Hinge)',
-      'iMessage AI — replies in your voice',
-      'Basic analytics dashboard',
-      '500 AI-powered swipes per day',
-      'Weekly summary report',
-      'Email support',
+      '3 platforms: Tinder, Bumble, Hinge',
+      '100 swipes/day per platform',
+      'AI conversation replies',
+      'Basic analytics',
     ],
-    cta: 'Start free trial',
-    ctaHref: '/#install',
+    cta: 'Get Started',
+    ctaHref: '/pricing',
     popular: false,
   },
   {
@@ -25,17 +23,15 @@ const plans = [
     period: '/mo',
     tagline: 'For serious daters',
     features: [
-      '3 dating apps simultaneously',
-      'iMessage AI — all features',
-      'Unlimited AI swipes per day',
-      'Full analytics + conversion tracking',
-      'AI coaching & weekly recommendations',
-      'Date booking & calendar sync',
-      'Priority support',
-      'Early access to new features',
+      'Everything in Starter +',
+      '7 platforms (+ Grindr, Badoo, Happn, OKCupid)',
+      '150 swipes/day',
+      'Calendar date booking',
+      'NLP style personalization',
+      'Photo optimizer',
     ],
-    cta: 'Start free trial',
-    ctaHref: '/#install',
+    cta: 'Get Started',
+    ctaHref: '/pricing',
     popular: true,
   },
   {
@@ -44,17 +40,14 @@ const plans = [
     period: '/mo',
     tagline: 'The unfair advantage',
     features: [
-      'Unlimited dating apps',
-      'Custom AI persona & voice tuning',
-      'Advanced analytics (heatmaps, A/B testing)',
-      'White-glove onboarding call',
-      'Dedicated account manager',
-      'Slack / Discord support channel',
-      'API access for custom integrations',
-      'Early beta access',
+      'Everything in Pro +',
+      'All 10 platforms',
+      '300 swipes/day',
+      'Re-engagement sequences',
+      'Priority support',
     ],
-    cta: 'Talk to us',
-    ctaHref: 'mailto:elite@clapcheeks.tech',
+    cta: 'Get Started',
+    ctaHref: '/pricing',
     popular: false,
   },
 ]
@@ -77,10 +70,10 @@ export default function Pricing() {
             <span className="text-brand-300 text-xs font-medium">Simple pricing</span>
           </div>
           <h2 className="text-3xl sm:text-4xl lg:text-5xl font-bold text-white mb-5">
-            Invest in your love life
+            Simple, Transparent Pricing
           </h2>
           <p className="text-white/45 text-lg max-w-lg mx-auto leading-relaxed">
-            All plans include a 7-day free trial. No credit card required.
+            Start free. Upgrade when you&apos;re ready.
           </p>
         </div>
 
@@ -91,14 +84,14 @@ export default function Pricing() {
               key={plan.name}
               className={`relative flex flex-col rounded-2xl p-6 transition-all duration-300 ${
                 plan.popular
-                  ? 'bg-brand-900/30 border border-brand-600/60 pricing-popular'
+                  ? 'bg-brand-900/30 border-2 border-[#D4AF37]/60 md:scale-105 md:-my-2 shadow-lg shadow-[#D4AF37]/10'
                   : 'bg-white/[0.02] border border-white/8 hover:border-white/15'
               }`}
             >
               {/* Popular badge */}
               {plan.popular && (
                 <div className="absolute -top-3.5 left-1/2 -translate-x-1/2">
-                  <span className="bg-gradient-to-r from-brand-600 to-brand-500 text-white text-xs font-bold px-4 py-1 rounded-full shadow-lg shadow-brand-900/50 whitespace-nowrap">
+                  <span className="bg-gradient-to-r from-[#D4AF37] to-[#F5D76E] text-black text-xs font-bold px-4 py-1 rounded-full shadow-lg shadow-[#D4AF37]/30 whitespace-nowrap">
                     MOST POPULAR
                   </span>
                 </div>
@@ -108,7 +101,7 @@ export default function Pricing() {
               <div className="mb-6 pt-2">
                 <h3
                   className={`text-base font-bold mb-1 ${
-                    plan.popular ? 'text-brand-300' : 'text-white/70'
+                    plan.popular ? 'text-[#D4AF37]' : 'text-white/70'
                   }`}
                 >
                   {plan.name}
@@ -124,7 +117,7 @@ export default function Pricing() {
               <div
                 className={`h-px mb-6 ${
                   plan.popular
-                    ? 'bg-gradient-to-r from-transparent via-brand-600 to-transparent'
+                    ? 'bg-gradient-to-r from-transparent via-[#D4AF37] to-transparent'
                     : 'bg-white/6'
                 }`}
               />
@@ -136,13 +129,13 @@ export default function Pricing() {
                     <div
                       className={`mt-0.5 w-4 h-4 rounded-full flex items-center justify-center shrink-0 ${
                         plan.popular
-                          ? 'bg-brand-600/30 border border-brand-600/50'
+                          ? 'bg-[#D4AF37]/20 border border-[#D4AF37]/40'
                           : 'bg-white/6 border border-white/10'
                       }`}
                     >
                       <Check
                         size={9}
-                        className={plan.popular ? 'text-brand-400' : 'text-white/40'}
+                        className={plan.popular ? 'text-[#D4AF37]' : 'text-white/40'}
                       />
                     </div>
                     <span className="text-sm text-white/55 leading-snug">{feature}</span>
@@ -155,7 +148,7 @@ export default function Pricing() {
                 href={plan.ctaHref}
                 className={`block text-center font-semibold text-sm py-3 rounded-xl transition-all duration-200 active:scale-[0.98] ${
                   plan.popular
-                    ? 'bg-brand-600 hover:bg-brand-500 text-white shadow-lg shadow-brand-900/40'
+                    ? 'bg-gradient-to-r from-[#D4AF37] to-[#F5D76E] hover:from-[#C4A030] hover:to-[#E5C75E] text-black shadow-lg shadow-[#D4AF37]/30'
                     : 'bg-white/6 hover:bg-white/10 border border-white/10 hover:border-white/20 text-white'
                 }`}
               >
@@ -165,19 +158,23 @@ export default function Pricing() {
           ))}
         </div>
 
-        {/* Bottom note */}
+        {/* Free tier note */}
         <div className="text-center mt-10">
+          <p className="text-sm text-white/40 mb-2">
+            Start free — Tinder only, 50 swipes/day, no credit card required.
+          </p>
+          <Link
+            href="/signup"
+            className="text-brand-400 hover:text-brand-300 text-sm font-semibold transition-colors"
+          >
+            Sign up free &rarr;
+          </Link>
+        </div>
+
+        {/* Bottom note */}
+        <div className="text-center mt-6">
           <p className="text-xs text-white/25">
             All prices in USD &middot; Cancel anytime &middot; 7-day free trial on all plans
-          </p>
-          <p className="text-xs text-white/20 mt-2">
-            Need a custom plan for a team or agency?{' '}
-            <a
-              href="mailto:hello@clapcheeks.tech"
-              className="text-brand-400 hover:text-brand-300 transition-colors"
-            >
-              Get in touch
-            </a>
           </p>
         </div>
       </div>
