@@ -1,6 +1,6 @@
 {
-  "name": "Clapcheeks — AI Dating Co-Pilot",
-  "short_name": "Clapcheeks",
+  "name": "Outward — AI Dating Co-Pilot",
+  "short_name": "Outward",
   "description": "AI that automates your dating apps",
   "start_url": "/dashboard",
   "display": "standalone",
