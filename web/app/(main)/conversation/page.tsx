@@ -1,7 +1,8 @@
 'use client'
 
-import { useState } from 'react'
-import { Copy, Check, Loader2, MessageSquare, User, Mic } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { Copy, Check, Loader2, MessageSquare, User, Mic, ChevronRight } from 'lucide-react'
+import VoiceProfileSetup from './components/voice-profile-setup'
 
 interface Suggestion {
   text: string
@@ -32,15 +33,28 @@ export default function ConversationPage() {
   const [loading, setLoading] = useState(false)
   const [copied, setCopied] = useState<number | null>(null)
 
-  // Voice profile state
   const [voiceProfile, setVoiceProfile] = useState<VoiceProfile | null>(null)
-  const [sampleMessages, setSampleMessages] = useState('')
-  const [voiceLoading, setVoiceLoading] = useState(false)
   const [showVoiceSetup, setShowVoiceSetup] = useState(false)
+  const [profileLoading, setProfileLoading] = useState(true)
+
+  // Load existing voice profile on mount
+  useEffect(() => {
+    fetch('/api/conversation/voice-profile')
+      .then(r => r.json())
+      .then(data => {
+        if (data.profile) setVoiceProfile(data.profile)
+      })
+      .catch(() => {})
+      .finally(() => setProfileLoading(false))
+  }, [])
+
+  function handleProfileComplete(profile: VoiceProfile) {
+    setVoiceProfile(profile)
+    setShowVoiceSetup(false)
+  }
 
   async function handleGenerate() {
     if (!conversationContext.trim() || !matchName.trim()) return
-
     setLoading(true)
     setSuggestions([])
     try {
@@ -49,12 +63,11 @@ export default function ConversationPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ conversationContext, matchName, platform }),
       })
+      const data = await res.json()
       if (!res.ok) {
-        const data = await res.json()
-        alert(data.error || data.message || 'Failed to generate replies')
+        alert(data.error || 'Failed to generate replies')
         return
       }
-      const data = await res.json()
       setSuggestions(data.suggestions || [])
     } catch {
       alert('Failed to generate reply suggestions')
@@ -69,49 +82,8 @@ export default function ConversationPage() {
     setTimeout(() => setCopied(null), 2000)
   }
 
-  async function handleVoiceProfile() {
-    const messages = sampleMessages
-      .split('\n')
-      .map((m) => m.trim())
-      .filter((m) => m.length > 0)
-
-    if (messages.length < 5) {
-      alert('Please provide at least 5 sample messages (one per line)')
-      return
-    }
-
-    setVoiceLoading(true)
-    try {
-      const res = await fetch('/api/conversation/voice-profile', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sampleMessages: messages }),
-      })
-      if (!res.ok) {
-        const data = await res.json()
-        alert(data.error || 'Failed to analyze voice')
-        return
-      }
-      const data = await res.json()
-      setVoiceProfile(data.profile)
-      setShowVoiceSetup(false)
-      setSampleMessages('')
-    } catch {
-      alert('Failed to update voice profile')
-    } finally {
-      setVoiceLoading(false)
-    }
-  }
-
-  // Load voice profile on mount
-  useState(() => {
-    fetch('/api/conversation/voice-profile')
-      .then((r) => r.json())
-      .then((data) => {
-        if (data.profile) setVoiceProfile(data.profile)
-      })
-      .catch(() => {})
-  })
+  // Show voice setup if no profile yet and not loading
+  const needsVoiceSetup = !profileLoading && !voiceProfile && !showVoiceSetup
 
   return (
     <div className="min-h-screen bg-black px-6 py-8">
@@ -133,55 +105,77 @@ export default function ConversationPage() {
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
               <Mic className="w-4 h-4 text-brand-400" />
-              <h2 className="text-white font-semibold text-sm">Voice Profile</h2>
+              <h2 className="text-white font-semibold text-sm">Your Voice Profile</h2>
             </div>
-            <button
-              onClick={() => setShowVoiceSetup(!showVoiceSetup)}
-              className="text-brand-400 hover:text-brand-300 text-xs transition-colors"
-            >
-              {voiceProfile ? 'Update' : 'Set up'}
-            </button>
+            {voiceProfile && !showVoiceSetup && (
+              <button
+                onClick={() => setShowVoiceSetup(true)}
+                className="text-white/30 hover:text-white/60 text-xs transition-colors"
+              >
+                Retrain
+              </button>
+            )}
           </div>
 
-          {voiceProfile ? (
-            <div>
-              <p className="text-white/60 text-sm">{voiceProfile.style_summary}</p>
-              <p className="text-white/30 text-xs mt-1">
-                Tone: {voiceProfile.tone} | Analyzed from {voiceProfile.messages_analyzed} messages
-              </p>
+          {profileLoading ? (
+            <div className="flex items-center gap-2 text-white/30 text-sm">
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              Loading profile...
             </div>
-          ) : (
-            <p className="text-white/40 text-sm">
-              No voice profile yet. Set one up so AI replies sound like you.
-            </p>
-          )}
+          ) : voiceProfile && !showVoiceSetup ? (
+            // Profile exists — show summary
+            <div>
+              <p className="text-white/70 text-sm">{voiceProfile.style_summary}</p>
+              <div className="flex items-center gap-3 mt-2">
+                <span className="text-white/30 text-xs capitalize">
+                  Tone: {voiceProfile.tone}
+                </span>
+                <span className="text-white/20 text-xs">·</span>
+                <span className="text-white/30 text-xs">
+                  {voiceProfile.messages_analyzed} messages analyzed
+                </span>
+              </div>
+              {voiceProfile.sample_phrases?.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 mt-3">
+                  {voiceProfile.sample_phrases.slice(0, 5).map((p, i) => (
+                    <span
+                      key={i}
+                      className="text-xs bg-brand-600/20 border border-brand-500/30 text-brand-300 px-2 py-0.5 rounded-lg"
+                    >
+                      {p}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : needsVoiceSetup ? (
+            // No profile — prompt to set up
+            <button
+              onClick={() => setShowVoiceSetup(true)}
+              className="w-full flex items-center justify-between text-left group"
+            >
+              <div>
+                <p className="text-white/60 text-sm">No voice profile yet</p>
+                <p className="text-white/30 text-xs mt-0.5">
+                  Set up your voice so AI replies sound exactly like you
+                </p>
+              </div>
+              <ChevronRight className="w-4 h-4 text-white/30 group-hover:text-brand-400 transition-colors" />
+            </button>
+          ) : null}
 
+          {/* Inline voice setup */}
           {showVoiceSetup && (
             <div className="mt-4 border-t border-white/10 pt-4">
-              <label className="text-white/60 text-xs block mb-2">
-                Paste your sample messages (one per line, at least 5):
-              </label>
-              <textarea
-                value={sampleMessages}
-                onChange={(e) => setSampleMessages(e.target.value)}
-                placeholder={"hey what's up\nlol that's wild\nwanna grab coffee sometime?\nyeah I'm down\nhaha no way"}
-                rows={6}
-                className="w-full bg-white/5 border border-white/10 rounded-lg p-3 text-white text-sm placeholder:text-white/20 focus:outline-none focus:border-brand-500/50 resize-none"
-              />
-              <button
-                onClick={handleVoiceProfile}
-                disabled={voiceLoading}
-                className="mt-2 bg-brand-600 hover:bg-brand-500 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors disabled:opacity-50 flex items-center gap-2"
-              >
-                {voiceLoading ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    Analyzing...
-                  </>
-                ) : (
-                  'Analyze my voice'
-                )}
-              </button>
+              <VoiceProfileSetup onComplete={handleProfileComplete} />
+              {voiceProfile && (
+                <button
+                  onClick={() => setShowVoiceSetup(false)}
+                  className="mt-4 text-white/30 hover:text-white/50 text-xs transition-colors"
+                >
+                  Cancel
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -196,7 +190,7 @@ export default function ConversationPage() {
                 <input
                   type="text"
                   value={matchName}
-                  onChange={(e) => setMatchName(e.target.value)}
+                  onChange={e => setMatchName(e.target.value)}
                   placeholder="Their name"
                   className="bg-transparent text-white text-sm placeholder:text-white/20 focus:outline-none w-full"
                 />
@@ -206,13 +200,11 @@ export default function ConversationPage() {
               <label className="text-white/60 text-xs block mb-1.5">Platform</label>
               <select
                 value={platform}
-                onChange={(e) => setPlatform(e.target.value)}
+                onChange={e => setPlatform(e.target.value)}
                 className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-brand-500/50 appearance-none"
               >
-                {platforms.map((p) => (
-                  <option key={p} value={p} className="bg-black">
-                    {p}
-                  </option>
+                {platforms.map(p => (
+                  <option key={p} value={p} className="bg-black">{p}</option>
                 ))}
               </select>
             </div>
@@ -221,7 +213,7 @@ export default function ConversationPage() {
           <label className="text-white/60 text-xs block mb-1.5">Paste the conversation so far</label>
           <textarea
             value={conversationContext}
-            onChange={(e) => setConversationContext(e.target.value)}
+            onChange={e => setConversationContext(e.target.value)}
             placeholder={"Them: Hey! I saw you like hiking too\nYou: Yeah I love it! Did the Half Dome trail last summer\nThem: No way that's on my bucket list. Any tips?"}
             rows={6}
             className="w-full bg-white/5 border border-white/10 rounded-lg p-3 text-white text-sm placeholder:text-white/20 focus:outline-none focus:border-brand-500/50 resize-none mb-4"
@@ -247,13 +239,10 @@ export default function ConversationPage() {
         {suggestions.length > 0 && (
           <div className="space-y-3">
             <h2 className="text-white/60 text-xs font-semibold uppercase tracking-wider">
-              Reply Suggestions
+              Reply Suggestions — in your voice
             </h2>
             {suggestions.map((s, index) => (
-              <div
-                key={index}
-                className="bg-white/5 border border-white/10 rounded-xl p-4 group"
-              >
+              <div key={index} className="bg-white/5 border border-white/10 rounded-xl p-4 group">
                 <div className="flex items-center justify-between mb-2">
                   <span
                     className={`text-[10px] font-medium uppercase tracking-wider px-2 py-0.5 rounded-full border ${
