@@ -2,8 +2,14 @@ import type Stripe from 'stripe'
 import { NextRequest, NextResponse } from 'next/server'
 import { stripe } from '@/lib/stripe'
 import { createClient } from '@/lib/supabase/server'
+import { randomUUID } from 'crypto'
 
 const ADDON_PRICES: Record<string, { name: string; amount: number }> = {
+  'profile-doctor': { name: 'Profile Doctor', amount: 1500 },
+  'super-opener': { name: 'Super Opener 10-pack', amount: 2700 },
+  'turbo-session': { name: 'Turbo Session', amount: 900 },
+  'voice-calibration': { name: 'Voice Calibration', amount: 9700 },
+  // Legacy underscore keys for backwards compat
   profile_doctor: { name: 'Profile Doctor', amount: 1500 },
   super_opener_10: { name: 'Super Opener 10-pack', amount: 2700 },
   turbo_session: { name: 'Turbo Session', amount: 900 },
@@ -25,6 +31,13 @@ export async function POST(request: NextRequest) {
     if (!plan || !['base', 'elite'].includes(plan)) {
       return NextResponse.json({ error: 'Invalid plan' }, { status: 400 })
     }
+
+    // Check for existing Stripe customer
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('stripe_customer_id')
+      .eq('id', user.id)
+      .single()
 
     const lookupKey = plan === 'base' ? 'base_monthly' : 'elite_monthly'
 
@@ -56,13 +69,24 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const session = await stripe.checkout.sessions.create({
+    const sessionParams: Stripe.Checkout.SessionCreateParams = {
       mode: 'subscription',
       line_items: lineItems,
       success_url: `${process.env.NEXT_PUBLIC_SITE_URL}/home?success=true`,
       cancel_url: `${process.env.NEXT_PUBLIC_SITE_URL}/pricing`,
-      client_reference_id: user.id,
       metadata: { plan, user_id: user.id },
+    }
+
+    // Reuse existing Stripe customer or pre-fill email for new ones
+    if (profile?.stripe_customer_id) {
+      sessionParams.customer = profile.stripe_customer_id
+    } else {
+      sessionParams.client_reference_id = user.id
+      sessionParams.customer_email = user.email!
+    }
+
+    const session = await stripe.checkout.sessions.create(sessionParams, {
+      idempotencyKey: `checkout_${user.id}_${plan}_${randomUUID()}`,
     })
 
     return NextResponse.json({ url: session.url })
