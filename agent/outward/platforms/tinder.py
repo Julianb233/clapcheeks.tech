@@ -21,6 +21,11 @@ TINDER_API = "https://api.gotinder.com"
 TOKEN_FILE = Path.home() / ".outward" / "tinder_token.txt"
 
 
+class TinderAuthError(Exception):
+    """Raised when Tinder token is invalid and cannot be refreshed."""
+    pass
+
+
 class TinderClient:
     """Tinder automation client.
 
@@ -42,6 +47,12 @@ class TinderClient:
                     "AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148"
                 ),
             })
+        if self._token:
+            if not self.check_token_validity():
+                logger.warning(
+                    "Tinder token invalid — run: outward setup --refresh-tinder"
+                )
+                self._token = None
 
     # ── Token management ──────────────────────────────────────────────────
 
@@ -55,6 +66,16 @@ class TinderClient:
         TOKEN_FILE.parent.mkdir(parents=True, exist_ok=True)
         TOKEN_FILE.write_text(token)
         logger.info("Tinder token saved.")
+
+    def check_token_validity(self) -> bool:
+        """Check if the current token is valid with a lightweight API call."""
+        if not self._token:
+            return False
+        try:
+            resp = self._session.get(f"{TINDER_API}/v2/profile", timeout=10)
+            return resp.status_code == 200
+        except Exception:
+            return False
 
     def refresh_token_via_driver(self) -> bool:
         """Use the active driver (Browserbase or iPhone) to get a fresh auth token."""
@@ -88,8 +109,14 @@ class TinderClient:
                 timeout=15,
             )
             if resp.status_code == 401:
-                logger.warning("Tinder token expired — need refresh.")
-                return []
+                logger.warning("Tinder token expired — attempting refresh.")
+                if self.refresh_token_via_driver():
+                    # Retry once
+                    resp = self._session.get(f"{TINDER_API}/v2/recs/core", params={"locale": "en"}, timeout=15)
+                    if resp.status_code != 200:
+                        return []
+                else:
+                    return []
             resp.raise_for_status()
             data = resp.json()
             return data.get("data", {}).get("results", [])
@@ -107,10 +134,24 @@ class TinderClient:
                 f"{TINDER_API}/like/{user_id}",
                 timeout=10,
             )
+            if resp.status_code == 429:
+                logger.warning("Tinder daily like limit hit by server (429) — stopping session.")
+                # Fill the counter so can_swipe returns False for rest of session
+                from outward.session.rate_limiter import DAILY_LIMITS
+                record_swipe("tinder", "right")
+                return False
+            if resp.status_code == 401:
+                logger.warning("Tinder token expired mid-session — attempting refresh.")
+                refreshed = self.refresh_token_via_driver()
+                if not refreshed:
+                    raise TinderAuthError("Token expired and refresh failed.")
+                return False  # Skip this profile, continue session
             success = resp.status_code == 200
             if success:
                 record_swipe("tinder", "right")
             return success
+        except TinderAuthError:
+            raise
         except Exception as exc:
             logger.error("Tinder like failed: %s", exc)
             return False
@@ -164,6 +205,43 @@ class TinderClient:
             logger.error("send_message failed: %s", exc)
             return False
 
+    def check_new_matches(self) -> list[dict]:
+        """Return matches that have no messages yet (need an opener)."""
+        matches = self.get_matches(count=50)
+        new = []
+        for m in matches:
+            msgs = m.get("messages", [])
+            if not msgs:
+                new.append({
+                    "match_id": m.get("id"),
+                    "name": m.get("person", {}).get("name", ""),
+                    "photos": len(m.get("person", {}).get("photos", [])),
+                })
+        return new
+
+    def get_conversation(self, match_id: str, limit: int = 20) -> list[dict]:
+        """Fetch message history for a match, normalized to {role, content} format."""
+        if not self._token:
+            return []
+        try:
+            resp = self._session.get(
+                f"{TINDER_API}/v2/matches/{match_id}/messages",
+                params={"count": limit},
+                timeout=15,
+            )
+            resp.raise_for_status()
+            msgs = resp.json().get("data", {}).get("messages", [])
+            return [
+                {
+                    "role": "assistant" if m.get("from_id") == "me" else "user",
+                    "content": m.get("message", ""),
+                }
+                for m in reversed(msgs)
+            ]
+        except Exception as exc:
+            logger.error("get_conversation failed: %s", exc)
+            return []
+
     # ── Swipe session ─────────────────────────────────────────────────────
 
     def run_swipe_session(
@@ -182,7 +260,7 @@ class TinderClient:
         """
         import random
 
-        results = {"liked": 0, "passed": 0, "errors": 0, "stopped_reason": None}
+        results = {"liked": 0, "passed": 0, "errors": 0, "stopped_reason": None, "new_matches": []}
 
         profiles = self.get_recommendations()
         if not profiles:
@@ -215,6 +293,12 @@ class TinderClient:
                 results["passed"] += 1
 
             sleep_jitter("swipe")
+
+        # Check for new matches after swiping
+        try:
+            results["new_matches"] = self.check_new_matches()
+        except Exception:
+            results["new_matches"] = []
 
         return results
 

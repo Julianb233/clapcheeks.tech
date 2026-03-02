@@ -71,6 +71,33 @@ class SessionManager:
             api_key = self.config.get("browserbase_api_key", "")
             return MacCloudDriver(platform=platform, api_key=api_key)
 
+    def get_driver_with_retry(self, max_retries: int = 3):
+        """Get driver with retry logic and Appium watchdog."""
+        import time
+        last_error = None
+        for attempt in range(1, max_retries + 1):
+            try:
+                return self.get_driver()
+            except Exception as exc:
+                last_error = exc
+                logger.warning(
+                    "Driver connection failed (attempt %d/%d): %s",
+                    attempt, max_retries, exc,
+                )
+                if attempt < max_retries:
+                    # Try restarting Appium if it looks like a connection error
+                    if "Connection refused" in str(exc) or "not running" in str(exc).lower():
+                        logger.info("Attempting to restart Appium...")
+                        try:
+                            from outward.setup.wda import start_appium_server
+                            start_appium_server()
+                        except Exception as e:
+                            logger.warning("Could not restart Appium: %s", e)
+                    time.sleep(30)
+        raise RuntimeError(
+            f"Could not establish device connection after {max_retries} attempts: {last_error}"
+        )
+
     def __enter__(self):
         self.start()
         return self

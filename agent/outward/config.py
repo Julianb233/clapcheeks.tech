@@ -26,3 +26,27 @@ def save(config: dict) -> None:
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     with open(CONFIG_FILE, "w") as f:
         yaml.dump(config, f)
+
+def save_agent_token(token: str) -> None:
+    """Save agent token securely (keychain if available, file fallback)."""
+    try:
+        import keyring
+        keyring.set_password("outward", "agent_token", token)
+        return
+    except Exception:
+        pass
+    # Fallback: save to config file
+    config = load()
+    config["agent_token"] = token
+    save(config)
+
+def get_agent_token() -> str | None:
+    """Load agent token from keychain or config file."""
+    try:
+        import keyring
+        token = keyring.get_password("outward", "agent_token")
+        if token:
+            return token
+    except Exception:
+        pass
+    return load().get("agent_token")
