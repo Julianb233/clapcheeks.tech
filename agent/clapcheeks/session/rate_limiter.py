@@ -11,6 +11,19 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
+
+class RateLimitExceeded(Exception):
+    """Raised when daily swipe cap is reached for a platform."""
+
+    def __init__(self, platform: str, current: int, limit: int) -> None:
+        self.platform = platform
+        self.current = current
+        self.limit = limit
+
+    def __str__(self) -> str:
+        return f"Daily limit reached for {self.platform}: {self.current}/{self.limit} swipes"
+
+
 DAILY_LIMITS = {
     "tinder": {"right": 50, "left": 300, "messages": 30},
     "bumble": {"right": 60, "left": 250, "messages": 25},
@@ -68,6 +81,27 @@ def can_swipe(platform: str, direction: str = "right") -> bool:
     current = state.get("counts", {}).get(key, 0)
     limit = DAILY_LIMITS.get(platform, {}).get(direction, 50)
     return current < limit
+
+
+# Aggregate daily caps for check_limit (total swipes regardless of direction)
+_AGGREGATE_CAPS = {"tinder": 100, "bumble": 75, "hinge": 50}
+
+
+def check_limit(platform: str, action: str = "swipe") -> bool:
+    """Check if platform is under its daily aggregate swipe cap.
+
+    Raises RateLimitExceeded if the cap has been reached.
+    Returns True if under the limit.
+    """
+    cap = _AGGREGATE_CAPS.get(platform, 50)
+    state = _load_state()
+    counts = state.get("counts", {})
+    right = counts.get(f"{platform}_right", 0)
+    left = counts.get(f"{platform}_left", 0)
+    total = right + left
+    if total >= cap:
+        raise RateLimitExceeded(platform, total, cap)
+    return True
 
 
 def record_swipe(platform: str, direction: str = "right") -> None:
