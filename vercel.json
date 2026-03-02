@@ -12,6 +12,10 @@
   },
   "crons": [
     {
+      "path": "/api/reports/cron",
+      "schedule": "0 8 * * 0"
+    },
+    {
       "path": "/api/reports/weekly",
       "schedule": "0 9 * * 1"
     }
