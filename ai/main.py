@@ -1,54 +1,56 @@
 """Clapcheeks AI Service — coaching, reply suggestions, date planning.
 
-Uses Kimi (Moonshot AI) via OpenAI-compatible API.
+Uses Anthropic Claude API.
 """
 import json
 import os
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from dotenv import load_dotenv
-from openai import OpenAI
+import anthropic
 
 load_dotenv()
 
 app = FastAPI(title="Clapcheeks AI", version="0.3.0")
 
-KIMI_MODEL = os.environ.get("KIMI_MODEL", "moonshot-v1-8k")
+MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-haiku-4-5-20251001")
 
-_client: OpenAI | None = None
+_client: anthropic.Anthropic | None = None
 
 
-def get_client() -> OpenAI:
+def get_client() -> anthropic.Anthropic:
     global _client
     if _client is None:
-        key = os.environ.get("KIMI_API_KEY", "")
+        key = os.environ.get("ANTHROPIC_API_KEY", "")
         if not key:
-            raise HTTPException(status_code=503, detail="KIMI_API_KEY not configured")
-        _client = OpenAI(api_key=key, base_url="https://api.moonshot.cn/v1")
+            raise HTTPException(status_code=503, detail="ANTHROPIC_API_KEY not configured")
+        _client = anthropic.Anthropic(api_key=key)
     return _client
 
 
 def chat(system: str, user: str, max_tokens: int = 500) -> str:
-    resp = get_client().chat.completions.create(
-        model=KIMI_MODEL,
+    resp = get_client().messages.create(
+        model=MODEL,
         max_tokens=max_tokens,
-        messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
+        system=system,
+        messages=[{"role": "user", "content": user}],
     )
-    return resp.choices[0].message.content.strip()
+    return resp.content[0].text.strip()
 
 
 def chat_with_history(system: str, messages: list[dict], max_tokens: int = 200) -> str:
-    resp = get_client().chat.completions.create(
-        model=KIMI_MODEL,
+    resp = get_client().messages.create(
+        model=MODEL,
         max_tokens=max_tokens,
-        messages=[{"role": "system", "content": system}] + messages,
+        system=system,
+        messages=messages,
     )
-    return resp.choices[0].message.content.strip()
+    return resp.content[0].text.strip()
 
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "provider": "kimi", "model": KIMI_MODEL, "configured": bool(os.environ.get("KIMI_API_KEY"))}
+    return {"status": "ok", "provider": "anthropic", "model": MODEL, "configured": bool(os.environ.get("ANTHROPIC_API_KEY"))}
 
 
 class PhotoScoreRequest(BaseModel):
@@ -58,12 +60,11 @@ class PhotoScoreRequest(BaseModel):
 
 @app.post("/photos/score")
 async def score_photo_endpoint(req: PhotoScoreRequest):
-    """Score a dating profile photo using Kimi vision or PIL heuristics."""
+    """Score a dating profile photo using PIL heuristics."""
     import base64
     import tempfile
     from pathlib import Path
 
-    # Decode image to a temp file
     try:
         img_bytes = base64.b64decode(req.image_base64)
     except Exception:
@@ -75,7 +76,7 @@ async def score_photo_endpoint(req: PhotoScoreRequest):
         tmp_path = tmp.name
 
     try:
-        from clapcheeks.photos.scorer import score_photo, PhotoScore
+        from clapcheeks.photos.scorer import score_photo
         result = score_photo(tmp_path)
         return {
             "filename": req.filename,
@@ -127,7 +128,7 @@ Give exactly 3 specific, data-driven coaching tips. Return ONLY a JSON array of 
         if not isinstance(tips, list):
             raise ValueError
     except Exception:
-        tips = [l.strip("- •").strip() for l in text.split("\n") if l.strip()][:3]
+        tips = [line.strip("- •").strip() for line in text.split("\n") if line.strip()][:3]
 
     return {"tips": tips[:3], "conversion_rate": date_rate, "cost_per_date": cost_per_date, "match_rate": match_rate}
 
