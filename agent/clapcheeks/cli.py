@@ -24,7 +24,12 @@ def main() -> None:
     Automates Tinder, Bumble, and Hinge using your iPhone or cloud browser.
     All personal data stays on your device.
 
-    Get started: clapcheeks setup
+    \b
+    Get started in 4 steps:
+      1. curl -fsSL https://clapcheeks.tech/install.sh | bash
+      2. clapcheeks login
+      3. clapcheeks connect
+      4. clapcheeks swipe
     """
     pass
 
