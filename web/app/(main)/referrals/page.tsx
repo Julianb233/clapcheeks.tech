@@ -97,15 +97,15 @@ export default function ReferralsPage() {
     <div className="pt-16 pb-20 px-6">
       <div className="max-w-3xl mx-auto">
         {/* Header */}
-        <div className="text-center mb-12">
+        <div className="text-center mb-12 animate-slide-up">
           <div className="inline-flex items-center gap-2 bg-brand-900/40 border border-brand-700/40 rounded-full px-4 py-1.5 mb-5">
             <Gift className="w-3.5 h-3.5 text-brand-300" />
             <span className="text-brand-300 text-xs font-medium">Referral Program</span>
           </div>
-          <h1 className="text-3xl sm:text-4xl font-bold text-white mb-3">
+          <h1 className="text-3xl sm:text-4xl font-bold gradient-text mb-3">
             Share Clapcheeks, Get a Free Month
           </h1>
-          <p className="text-white/45 text-lg max-w-lg mx-auto">
+          <p className="text-white/45 text-lg max-w-lg mx-auto animate-fade-in delay-150">
             Refer friends. When they sign up and subscribe, you get 1 free month.
           </p>
         </div>

@@ -120,9 +120,12 @@ export default function ConversationPage() {
       </div>
 
       <div className="relative max-w-3xl mx-auto">
-        <div className="flex items-center gap-3 mb-8">
-          <MessageSquare className="w-6 h-6 text-brand-400" />
-          <h1 className="text-2xl font-bold text-white">Conversation AI</h1>
+        <div className="mb-8 animate-slide-up">
+          <div className="flex items-center gap-3 mb-2">
+            <MessageSquare className="w-6 h-6 text-brand-400" />
+            <h1 className="text-2xl font-bold gradient-text">Conversation AI</h1>
+          </div>
+          <p className="text-white/30 text-sm animate-fade-in delay-150">AI-powered reply suggestions in your voice</p>
         </div>
 
         {/* Voice Profile Card */}

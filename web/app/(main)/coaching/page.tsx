@@ -136,10 +136,12 @@ export default function CoachingPage() {
     <div className="min-h-screen bg-black px-4 md:px-6 py-6 md:py-8">
       <div className="max-w-4xl mx-auto">
         {/* Header */}
-        <div className="flex flex-wrap items-center gap-2 mb-8">
-          <Sparkles className="w-6 h-6 text-purple-400" />
-          <h1 className="text-xl md:text-2xl font-bold text-white">AI Coach</h1>
-          <span className="text-white/30 text-xs sm:text-sm ml-2">Personalized insights from your dating data</span>
+        <div className="mb-8 animate-slide-up">
+          <div className="flex flex-wrap items-center gap-2 mb-2">
+            <Sparkles className="w-6 h-6 text-purple-400" />
+            <h1 className="text-xl md:text-2xl font-bold gradient-text">AI Coach</h1>
+          </div>
+          <p className="text-white/30 text-xs sm:text-sm animate-fade-in delay-150">Personalized insights from your dating data</p>
         </div>
 
         {/* Performance Score */}

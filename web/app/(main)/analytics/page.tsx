@@ -27,7 +27,7 @@ export default function AnalyticsPage() {
     <div className="min-h-screen bg-black px-4 md:px-6 py-6 md:py-8">
       <div className="max-w-5xl mx-auto">
         {/* Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8 animate-slide-up">
           <div>
             <Link
               href="/dashboard"
@@ -35,7 +35,7 @@ export default function AnalyticsPage() {
             >
               &larr; Back to Dashboard
             </Link>
-            <h1 className="text-2xl md:text-3xl font-bold bg-gradient-to-r from-pink-500 via-purple-500 to-pink-400 bg-clip-text text-transparent">
+            <h1 className="text-2xl md:text-3xl font-bold gradient-text">
               Analytics
             </h1>
           </div>

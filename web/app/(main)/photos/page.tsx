@@ -232,9 +232,9 @@ export default function PhotosPage() {
     <div className="min-h-screen bg-[#0a0a0f] px-6 py-8">
       <div className="max-w-5xl mx-auto">
         {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-white mb-2">Photo Optimizer</h1>
-          <p className="text-white/40 text-sm">
+        <div className="mb-8 animate-slide-up">
+          <h1 className="text-3xl font-bold gradient-text mb-2">Photo Optimizer</h1>
+          <p className="text-white/40 text-sm animate-fade-in delay-150">
             Upload your dating profile photos to get AI-powered scores and ranking recommendations.
           </p>
         </div>
