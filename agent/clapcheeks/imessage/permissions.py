@@ -28,7 +28,7 @@ def prompt_fda_instructions() -> None:
     console.print()
     console.print(Panel(
         "[bold red]Full Disk Access Required[/bold red]\n\n"
-        "Outward needs to read your iMessage database (chat.db).\n"
+        "Clapcheeks needs to read your iMessage database (chat.db).\n"
         "macOS requires Full Disk Access permission for this.\n\n"
         "[bold]How to enable:[/bold]\n\n"
         "  1. Open [cyan]System Settings[/cyan]\n"
@@ -40,7 +40,7 @@ def prompt_fda_instructions() -> None:
         "     - Warp, Alacritty, or whichever terminal you use\n\n"
         "  4. [bold yellow]Restart your terminal[/bold yellow] after granting access\n\n"
         "[dim]Path: System Settings > Privacy & Security > Full Disk Access[/dim]",
-        title="[bold magenta]Outward[/bold magenta]",
+        title="[bold magenta]Clapcheeks[/bold magenta]",
         border_style="red",
     ))
     console.print()

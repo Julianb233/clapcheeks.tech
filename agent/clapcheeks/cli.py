@@ -1,4 +1,4 @@
-"""Outward local agent CLI — AI-powered dating co-pilot."""
+"""Clapcheeks local agent CLI — AI-powered dating co-pilot."""
 from __future__ import annotations
 
 import click
@@ -17,9 +17,9 @@ console = Console()
 
 
 @click.group()
-@click.version_option(__version__, prog_name="outward")
+@click.version_option(__version__, prog_name="clapcheeks")
 def main() -> None:
-    """Outward — AI Dating Co-Pilot (local agent)
+    """Clapcheeks — AI Dating Co-Pilot (local agent)
 
     Automates Tinder, Bumble, and Hinge using your iPhone or cloud browser.
     All personal data stays on your device.
@@ -27,8 +27,8 @@ def main() -> None:
     \b
     Get started in 4 steps:
       1. curl -fsSL https://clapcheeks.tech/install.sh | bash
-      2. outward login
-      3. outward connect
+      2. clapcheeks login
+      3. clapcheeks connect
       4. clapcheeks swipe
     """
     pass
@@ -39,7 +39,7 @@ main.add_command(spend)
 
 @main.command()
 def login() -> None:
-    """Authenticate with your Outward account (device flow).
+    """Authenticate with your Clapcheeks account (device flow).
 
     Opens your browser to clapcheeks.tech/activate and displays a pairing
     code. Log in on the web, and your CLI is connected automatically.
@@ -59,9 +59,9 @@ def login() -> None:
     if token:
         save_agent_token(token)
         console.print("[bold green]Logged in successfully.[/bold green]")
-        console.print("[dim]Next step: [cyan]outward connect[/cyan] to link your dating apps.[/dim]")
+        console.print("[dim]Next step: [cyan]clapcheeks connect[/cyan] to link your dating apps.[/dim]")
     else:
-        console.print("[red]Login timed out.[/red] Try again with [cyan]outward login[/cyan].")
+        console.print("[red]Login timed out.[/red] Try again with [cyan]clapcheeks login[/cyan].")
         raise SystemExit(1)
 
 
@@ -80,7 +80,7 @@ def status() -> None:
 
     console.print()
     console.print(Panel(
-        f"[bold magenta]Outward[/bold magenta] [dim]v{__version__}[/dim]",
+        f"[bold magenta]Clapcheeks[/bold magenta] [dim]v{__version__}[/dim]",
         border_style="magenta",
         padding=(0, 2),
     ))
@@ -313,7 +313,7 @@ def converse(platform: str, dry_run: bool) -> None:
         config['dry_run'] = True
         console.print('[yellow]DRY RUN mode — messages will not be sent[/yellow]')
 
-    console.print(f'\n[bold magenta]Outward[/bold magenta] conversation manager — [bold]{platform}[/bold]')
+    console.print(f'\n[bold magenta]Clapcheeks[/bold magenta] conversation manager — [bold]{platform}[/bold]')
 
     with SessionManager(config) as session:
         with console.status(f'[bold green]Setting up {platform} connection...[/bold green]'):
@@ -426,7 +426,7 @@ def watch(contacts: str | None, interval: float, style_refresh: bool, dry_run: b
 
     console.print(Panel(
         f"[bold]Your style:[/bold] {style['tone_description']}",
-        title="[magenta]Outward[/magenta]",
+        title="[magenta]Clapcheeks[/magenta]",
         border_style="magenta",
     ))
 
@@ -458,7 +458,7 @@ def browser() -> None:
 def install() -> None:
     """Install browser dependencies for Playwright automation.
 
-    Outward uses your system Chrome by default (no download needed).
+    Clapcheeks uses your system Chrome by default (no download needed).
     This command installs bundled Chromium as a fallback only.
     """
     import subprocess
@@ -614,7 +614,7 @@ def date_suggest(platform: str, match_name: str, location: str, prefs: str) -> N
 
 @main.command(name='upcoming-dates')
 def upcoming_dates() -> None:
-    """Show upcoming dates booked via Outward."""
+    """Show upcoming dates booked via Clapcheeks."""
     from clapcheeks.calendar.client import get_upcoming_dates
 
     events = get_upcoming_dates(days=30)

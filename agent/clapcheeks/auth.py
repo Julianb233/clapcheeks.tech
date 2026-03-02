@@ -99,7 +99,7 @@ def device_login(api_url: str = DEFAULT_API_URL) -> str | None:
     """
     code_data = request_device_code(api_url)
     if not code_data:
-        console.print("[red]Could not reach the Outward API.[/red]")
+        console.print("[red]Could not reach the Clapcheeks API.[/red]")
         console.print(f"[dim]Tried: {api_url}{DEVICE_AUTH_ENDPOINT}[/dim]")
         return None
 

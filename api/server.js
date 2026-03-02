@@ -16,14 +16,14 @@ export const supabase = createClient(
   process.env.SUPABASE_SERVICE_KEY,
 )
 
-// Middleware to validate agent token (Bearer token from outward_agent_tokens)
+// Middleware to validate agent token (Bearer token from clapcheeks_agent_tokens)
 export async function validateAgentToken(req, res, next) {
   const auth = req.headers.authorization || ''
   const token = auth.startsWith('Bearer ') ? auth.slice(7) : null
   if (!token) return res.status(401).json({ error: 'Missing agent token' })
 
   const { data, error } = await supabase
-    .from('outward_agent_tokens')
+    .from('clapcheeks_agent_tokens')
     .select('user_id')
     .eq('token', token)
     .single()
@@ -45,4 +45,4 @@ app.use('/stripe', stripeRouter)
 
 app.get('/health', (req, res) => res.json({ status: 'ok', version: '0.1.0' }))
 
-app.listen(PORT, () => console.log(`Outward API running on port ${PORT}`))
+app.listen(PORT, () => console.log(`Clapcheeks API running on port ${PORT}`))

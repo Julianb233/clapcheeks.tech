@@ -1,12 +1,56 @@
 import { createClient } from '@/lib/supabase/server'
 
-export type PlanLevel = 'base' | 'elite'
+export type PlanLevel = 'free' | 'starter' | 'pro' | 'elite'
+
+export interface PlanLimits {
+  platforms: string[]
+  dailySwipesPerPlatform: number
+  maxPlatforms: number
+  conversationAI: boolean
+  calendarBooking: boolean
+  nlpPersonalization: boolean
+}
+
+export const PLAN_LIMITS: Record<PlanLevel, PlanLimits> = {
+  free: {
+    platforms: ['tinder'],
+    dailySwipesPerPlatform: 50,
+    maxPlatforms: 1,
+    conversationAI: false,
+    calendarBooking: false,
+    nlpPersonalization: false,
+  },
+  starter: {
+    platforms: ['tinder', 'bumble', 'hinge'],
+    dailySwipesPerPlatform: 100,
+    maxPlatforms: 3,
+    conversationAI: true,
+    calendarBooking: false,
+    nlpPersonalization: false,
+  },
+  pro: {
+    platforms: ['tinder', 'bumble', 'hinge', 'grindr', 'badoo', 'happn', 'okcupid'],
+    dailySwipesPerPlatform: 150,
+    maxPlatforms: 7,
+    conversationAI: true,
+    calendarBooking: true,
+    nlpPersonalization: true,
+  },
+  elite: {
+    platforms: ['tinder', 'bumble', 'hinge', 'grindr', 'badoo', 'happn', 'okcupid', 'pof', 'feeld', 'cmb'],
+    dailySwipesPerPlatform: 300,
+    maxPlatforms: 10,
+    conversationAI: true,
+    calendarBooking: true,
+    nlpPersonalization: true,
+  },
+}
 
 export interface PlanInfo {
   plan: PlanLevel
   subscriptionStatus: string
   isActive: boolean
-  isElite: boolean
+  limits: PlanLimits
 }
 
 export async function getPlanInfo(userId?: string): Promise<PlanInfo | null> {
@@ -21,38 +65,21 @@ export async function getPlanInfo(userId?: string): Promise<PlanInfo | null> {
 
   const { data: profile } = await supabase
     .from('profiles')
-    .select('plan, subscription_status')
+    .select('subscription_tier, subscription_status')
     .eq('id', uid)
     .single()
 
   if (!profile) return null
 
+  const plan = (profile.subscription_tier || 'free') as PlanLevel
   return {
-    plan: (profile.plan || 'base') as PlanLevel,
+    plan,
     subscriptionStatus: profile.subscription_status || 'inactive',
     isActive: profile.subscription_status === 'active',
-    isElite: profile.plan === 'elite' && profile.subscription_status === 'active',
+    limits: getPlanLimits(plan),
   }
 }
 
-export async function isElite(userId?: string): Promise<boolean> {
-  const info = await getPlanInfo(userId)
-  return info?.isElite ?? false
-}
-
-export async function requireElite(): Promise<Response | null> {
-  const info = await getPlanInfo()
-  if (!info || !info.isActive) {
-    return new Response(JSON.stringify({ error: 'Subscription required' }), {
-      status: 403,
-      headers: { 'Content-Type': 'application/json' },
-    })
-  }
-  if (!info.isElite) {
-    return new Response(JSON.stringify({ error: 'Elite plan required', upgrade: true }), {
-      status: 403,
-      headers: { 'Content-Type': 'application/json' },
-    })
-  }
-  return null
+export function getPlanLimits(plan: PlanLevel): PlanLimits {
+  return PLAN_LIMITS[plan] ?? PLAN_LIMITS.free
 }

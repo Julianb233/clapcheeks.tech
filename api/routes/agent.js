@@ -1,6 +1,7 @@
 import { Router } from 'express'
 import { randomUUID } from 'crypto'
 import { supabase, validateAgentToken } from '../server.js'
+import { TIER_LIMITS } from '../middleware/tier-check.js'
 
 export const router = Router()
 
@@ -27,7 +28,7 @@ router.post('/register', requireAuth, async (req, res) => {
   res.json({ agent_token: token, message: 'Device registered' })
 })
 
-// GET /agent/config — return agent configuration
+// GET /agent/config — return agent configuration based on user's tier
 router.get('/config', validateAgentToken, async (req, res) => {
   const { data: profile } = await supabase
     .from('profiles')
@@ -36,13 +37,21 @@ router.get('/config', validateAgentToken, async (req, res) => {
     .single()
 
   const tier = profile?.subscription_tier || 'free'
-  const limits = {
-    free: { swipe_limit_daily: 100, apps_enabled: ['tinder'] },
-    starter: { swipe_limit_daily: 300, apps_enabled: ['tinder', 'bumble'] },
-    pro: { swipe_limit_daily: 600, apps_enabled: ['tinder', 'bumble', 'hinge'] },
-    elite: { swipe_limit_daily: 1000, apps_enabled: ['tinder', 'bumble', 'hinge'] },
+  const limits = TIER_LIMITS[tier] || TIER_LIMITS.free
+
+  const featuresByTier = {
+    free:    { conversation_ai: false, calendar_booking: false, nlp_personalization: false },
+    starter: { conversation_ai: true,  calendar_booking: false, nlp_personalization: false },
+    pro:     { conversation_ai: true,  calendar_booking: true,  nlp_personalization: true },
+    elite:   { conversation_ai: true,  calendar_booking: true,  nlp_personalization: true },
   }
-  res.json({ ...limits[tier], tier })
+
+  res.json({
+    tier,
+    allowed_platforms: limits.platforms,
+    max_swipes_per_platform: limits.maxSwipesPerPlatform,
+    features: featuresByTier[tier] || featuresByTier.free,
+  })
 })
 
 // POST /agent/heartbeat — update last_seen_at

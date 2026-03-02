@@ -1,4 +1,4 @@
-"""Interactive first-time setup wizard for Outward."""
+"""Interactive first-time setup wizard for Clapcheeks."""
 from __future__ import annotations
 
 import os
@@ -34,7 +34,7 @@ def run_setup() -> None:
     """Interactive setup wizard."""
     console.print()
     console.print(Panel(
-        "[bold magenta]Outward[/bold magenta] — Setup Wizard\n"
+        "[bold magenta]Clapcheeks[/bold magenta] — Setup Wizard\n"
         "[dim]Configure your AI dating co-pilot[/dim]",
         border_style="magenta",
         padding=(1, 2),
@@ -77,7 +77,7 @@ def run_setup() -> None:
     console.print("\n[bold]Step 4: Calendar Integration[/bold] [dim](enables date scheduling)[/dim]")
 
     if _is_macos():
-        console.print("[green]✓ macOS detected — Outward can read Calendar.app directly[/green]")
+        console.print("[green]✓ macOS detected — Clapcheeks can read Calendar.app directly[/green]")
         console.print("[dim]No credentials needed. macOS will ask for Calendar permission on first use.[/dim]")
         console.print("[dim]Make sure System Settings → Privacy → Calendars allows Terminal access.[/dim]")
         config["calendar_provider"] = "macos"
@@ -95,7 +95,7 @@ def run_setup() -> None:
                 console.print("[green]✓ Google Calendar configured[/green]")
 
     # Step 5: Dashboard account (optional)
-    console.print("\n[bold]Step 5: Outward Account[/bold] [dim](optional — enables dashboard sync)[/dim]")
+    console.print("\n[bold]Step 5: Clapcheeks Account[/bold] [dim](optional — enables dashboard sync)[/dim]")
     console.print("[dim]Sign up at https://clapcheeks.tech[/dim]")
     agent_token = click.prompt("Agent token (from dashboard → Settings)", default="", hide_input=True)
     if agent_token:

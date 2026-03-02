@@ -78,7 +78,7 @@ def _load_supabase_env() -> tuple[str | None, str | None]:
 
 
 def push_metrics_supabase(rows: list[dict]) -> int:
-    """Upsert rows into outward_analytics_daily via supabase-py. Returns count upserted."""
+    """Upsert rows into clapcheeks_analytics_daily via supabase-py. Returns count upserted."""
     from supabase import create_client
 
     url, key = _load_supabase_env()
@@ -86,7 +86,7 @@ def push_metrics_supabase(rows: list[dict]) -> int:
         raise RuntimeError("SUPABASE_URL or SUPABASE_SERVICE_KEY not set")
 
     client = create_client(url, key)
-    result = client.table("outward_analytics_daily").upsert(rows).execute()
+    result = client.table("clapcheeks_analytics_daily").upsert(rows).execute()
     return len(result.data) if result.data else 0
 
 

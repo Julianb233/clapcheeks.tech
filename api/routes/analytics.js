@@ -1,10 +1,11 @@
 import { Router } from 'express'
 import { supabase, validateAgentToken } from '../server.js'
+import { requireTierAccess, TIER_LIMITS } from '../middleware/tier-check.js'
 
 export const router = Router()
 
 // POST /analytics/sync — agent reports session results
-router.post('/sync', validateAgentToken, async (req, res) => {
+router.post('/sync', validateAgentToken, requireTierAccess, async (req, res) => {
   const { platform, date, swipes_right, swipes_left, matches, messages_sent, dates_booked, conversations_started, money_spent } = req.body
   if (!platform) return res.status(400).json({ error: 'platform required' })
 
@@ -27,6 +28,24 @@ router.post('/sync', validateAgentToken, async (req, res) => {
 
   if (error) return res.status(500).json({ error: error.message })
   res.json({ synced: true })
+})
+
+// GET /analytics/tier — return current tier + limits for this agent token
+router.get('/tier', validateAgentToken, async (req, res) => {
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('subscription_tier')
+    .eq('id', req.userId)
+    .single()
+
+  const tier = profile?.subscription_tier || 'free'
+  const limits = TIER_LIMITS[tier] || TIER_LIMITS.free
+
+  res.json({
+    tier,
+    allowed_platforms: limits.platforms,
+    max_swipes_per_platform: limits.maxSwipesPerPlatform,
+  })
 })
 
 // GET /analytics/summary — return 30-day aggregated stats

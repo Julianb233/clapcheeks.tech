@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from outward.profile import Profile, load_profile, save_profile, profile_exists, PROFILE_PATH, PROFILE_DIR
+from clapcheeks.profile import Profile, load_profile, save_profile, profile_exists, PROFILE_PATH, PROFILE_DIR
 
 
 @pytest.fixture(autouse=True)
@@ -12,8 +12,8 @@ def _isolate_profile(tmp_path, monkeypatch):
     """Redirect profile storage to a temp directory for every test."""
     test_dir = tmp_path / ".clapcheeks"
     test_file = test_dir / "profile.json"
-    monkeypatch.setattr("outward.profile.PROFILE_DIR", test_dir)
-    monkeypatch.setattr("outward.profile.PROFILE_PATH", test_file)
+    monkeypatch.setattr("clapcheeks.profile.PROFILE_DIR", test_dir)
+    monkeypatch.setattr("clapcheeks.profile.PROFILE_PATH", test_file)
 
 
 def test_save_then_load_roundtrip():
@@ -37,7 +37,7 @@ def test_load_returns_defaults_when_missing():
 
 
 def test_load_returns_defaults_when_corrupt(tmp_path):
-    from outward import profile as mod
+    from clapcheeks import profile as mod
     mod.PROFILE_DIR.mkdir(parents=True, exist_ok=True)
     mod.PROFILE_PATH.write_text("NOT VALID JSON {{{")
     p = load_profile()
