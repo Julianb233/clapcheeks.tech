@@ -94,7 +94,7 @@ def status() -> None:
 @click.option("--platform", type=click.Choice(["tinder", "bumble", "hinge", "all"]),
               default="all", show_default=True)
 @click.option("--swipes", default=30, show_default=True, help="Max swipes per platform per session.")
-@click.option("--like-ratio", default=0.5, show_default=True, help="Fraction of profiles to like.")
+@click.option("--like-ratio", default=0.25, show_default=True, help="Fraction of profiles to like (lower = better algorithm score).")
 def swipe(mode: str | None, platform: str, swipes: int, like_ratio: float) -> None:
     """Run an automated swipe session."""
     config = load_config()
