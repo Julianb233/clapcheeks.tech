@@ -4,7 +4,7 @@ import { redirect } from 'next/navigation'
 import BillingClient from './billing-client'
 
 export const metadata: Metadata = {
-  title: 'Billing — Clapcheeks',
+  title: 'Billing — Outward',
   description: 'Manage your subscription, view invoices, and update payment method.',
 }
 

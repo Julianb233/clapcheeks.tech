@@ -3,8 +3,8 @@ import Link from 'next/link'
 import { Download, Mail, ArrowLeft } from 'lucide-react'
 
 export const metadata: Metadata = {
-  title: 'Press & Media — Clapcheeks',
-  description: 'Press kit, brand assets, and media resources for Clapcheeks.',
+  title: 'Press & Media — Outward',
+  description: 'Press kit, brand assets, and media resources for Outward.',
 }
 
 export default function PressPage() {
@@ -22,7 +22,7 @@ export default function PressPage() {
         <div className="max-w-5xl mx-auto">
           <Link href="/" className="flex items-center gap-2 text-white/40 hover:text-white/70 text-sm transition-colors w-fit">
             <ArrowLeft className="w-4 h-4" />
-            Back to Clapcheeks
+            Back to Outward
           </Link>
         </div>
       </div>
@@ -32,7 +32,7 @@ export default function PressPage() {
         <div className="text-center mb-16">
           <h1 className="text-4xl sm:text-5xl font-bold text-white mb-4">Press & Media</h1>
           <p className="text-white/45 text-lg max-w-xl mx-auto">
-            Everything you need to write about Clapcheeks. Download brand assets, get product info, and reach out to our team.
+            Everything you need to write about Outward. Download brand assets, get product info, and reach out to our team.
           </p>
         </div>
 
@@ -90,7 +90,7 @@ export default function PressPage() {
               <span className="text-white/40 text-sm">Inter (Google Fonts)</span>
             </div>
             <div className="space-y-3">
-              <p className="text-3xl text-white font-bold">Clapcheeks — AI Dating Co-Pilot</p>
+              <p className="text-3xl text-white font-bold">Outward — AI Dating Co-Pilot</p>
               <p className="text-lg text-white/60">The quick brown fox jumps over the lazy dog</p>
               <p className="text-sm text-white/40">ABCDEFGHIJKLMNOPQRSTUVWXYZ abcdefghijklmnopqrstuvwxyz 0123456789</p>
             </div>
@@ -117,11 +117,11 @@ export default function PressPage() {
 
         {/* Company Info */}
         <section className="mb-16">
-          <h2 className="text-2xl font-bold text-white mb-6">About Clapcheeks</h2>
+          <h2 className="text-2xl font-bold text-white mb-6">About Outward</h2>
           <div className="bg-white/[0.03] border border-white/8 rounded-xl p-6 space-y-4">
             <div>
               <p className="text-white/40 text-xs uppercase tracking-wider mb-1">One-liner</p>
-              <p className="text-white">Clapcheeks is a privacy-first AI dating co-pilot that runs locally on your Mac, automating swipes, conversations, and date booking across Tinder, Bumble, and Hinge.</p>
+              <p className="text-white">Outward is a privacy-first AI dating co-pilot that runs locally on your Mac, automating swipes, conversations, and date booking across Tinder, Bumble, and Hinge.</p>
             </div>
             <div className="grid sm:grid-cols-3 gap-4 pt-2">
               <div>

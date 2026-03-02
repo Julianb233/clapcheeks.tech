@@ -49,7 +49,7 @@ export default function LoginForm() {
         {/* Logo */}
         <div className="flex items-center justify-center gap-2 mb-10">
           <Link href="/" className="flex items-center gap-2 group">
-            <span className="text-2xl font-bold gradient-text">Clapcheeks</span>
+            <span className="text-2xl font-bold gradient-text">Outward</span>
             <span className="text-xs text-white/30 font-mono bg-white/5 px-2 py-0.5 rounded">
               beta
             </span>
@@ -59,7 +59,7 @@ export default function LoginForm() {
         {/* Card */}
         <div className="bg-white/[0.03] border border-white/10 rounded-2xl p-8 glow-border">
           <h1 className="text-2xl font-bold text-white mb-1">Welcome back</h1>
-          <p className="text-white/40 text-sm mb-8">Sign in to your Clapcheeks account</p>
+          <p className="text-white/40 text-sm mb-8">Sign in to your Outward account</p>
 
           {/* Error */}
           {(error || urlError) && (

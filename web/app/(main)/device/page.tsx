@@ -2,9 +2,9 @@ import Link from 'next/link'
 import { Check, ChevronRight, Smartphone, Zap, Mail, Terminal, Shield } from 'lucide-react'
 
 export const metadata = {
-  title: 'Dedicated Device Add-On — Clapcheeks',
+  title: 'Dedicated Device Add-On — Outward',
   description:
-    'Plug in a $99 Android phone and let Clapcheeks swipe 24/7. No laptop required. Matches waiting when you wake up.',
+    'Plug in a $99 Android phone and let Outward swipe 24/7. No laptop required. Matches waiting when you wake up.',
 }
 
 // ── Hero ──────────────────────────────────────────────────────────────────────
@@ -54,7 +54,7 @@ function Hero() {
         {/* Subheadline */}
         <p className="text-lg sm:text-xl text-white/55 leading-relaxed max-w-2xl mx-auto mb-10">
           Plug in a{' '}
-          <span className="text-white/80">$99 Android phone</span>. Let Clapcheeks run your
+          <span className="text-white/80">$99 Android phone</span>. Let Outward run your
           dating apps around the clock &mdash; even when your{' '}
           <span className="text-white/80">laptop is closed</span>.
         </p>
@@ -101,7 +101,7 @@ function Hero() {
           <div className="flex flex-col items-center gap-2">
             <div className="w-16 h-28 sm:w-20 sm:h-36 bg-white/[0.04] border border-brand-700/30 rounded-2xl flex flex-col items-center justify-center gap-2 shadow-xl shadow-brand-900/30">
               <Zap size={24} className="text-brand-400" />
-              <div className="text-[10px] text-white/30 font-mono">Clapcheeks</div>
+              <div className="text-[10px] text-white/30 font-mono">Outward</div>
               <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
             </div>
             <span className="text-xs text-white/30">AI engine</span>
@@ -151,7 +151,7 @@ const steps = [
   },
   {
     number: '03',
-    title: 'Clapcheeks runs 24/7',
+    title: 'Outward runs 24/7',
     description:
       'Swipes while you sleep. Sends opening messages when you\'re in meetings. Keeps conversations moving when you\'re living your life. Matches waiting when you wake up.',
     detail: 'Human-like timing and session patterns. No suspicious bot behavior.',
@@ -401,7 +401,7 @@ function IMessageNote() {
             <div>
               <h3 className="text-base font-bold text-white mb-2">Already have a Mac?</h3>
               <p className="text-sm text-white/50 leading-relaxed">
-                The standard Clapcheeks plan includes{' '}
+                The standard Outward plan includes{' '}
                 <span className="text-white/70">iMessage AI</span> &mdash; reads your conversations
                 and suggests replies in your voice. The Device add-on layers{' '}
                 <span className="text-white/70">24/7 autonomous swiping on top</span>, so you get
@@ -555,7 +555,7 @@ function Pricing() {
 const faqs = [
   {
     q: "Won't dating apps ban me?",
-    a: "Clapcheeks uses human-like timing — randomized delays between swipes, natural session lengths, and breaks that mirror real user behavior. We've tuned this carefully. There's no batch swiping or suspicious patterns that trigger ban detection.",
+    a: "Outward uses human-like timing — randomized delays between swipes, natural session lengths, and breaks that mirror real user behavior. We've tuned this carefully. There's no batch swiping or suspicious patterns that trigger ban detection.",
   },
   {
     q: 'Do I need to leave my laptop on?',

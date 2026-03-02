@@ -3,8 +3,8 @@ import Link from 'next/link'
 import { ArrowLeft } from 'lucide-react'
 
 export const metadata: Metadata = {
-  title: 'Privacy Policy — Clapcheeks',
-  description: 'How Clapcheeks handles your data. Short version: your data stays on your Mac.',
+  title: 'Privacy Policy — Outward',
+  description: 'How Outward handles your data. Short version: your data stays on your Mac.',
 }
 
 export default function PrivacyPage() {
@@ -14,7 +14,7 @@ export default function PrivacyPage() {
         <div className="max-w-3xl mx-auto">
           <Link href="/" className="flex items-center gap-2 text-white/40 hover:text-white/70 text-sm transition-colors w-fit">
             <ArrowLeft className="w-4 h-4" />
-            Back to Clapcheeks
+            Back to Outward
           </Link>
         </div>
       </div>
@@ -27,7 +27,7 @@ export default function PrivacyPage() {
           <section>
             <h2 className="text-xl font-semibold text-white mb-3">Overview</h2>
             <p>
-              Clapcheeks is built with privacy at its core. The local agent runs entirely on your Mac. Your dating app messages, match data, photos, and personal conversations never leave your device. We only collect what is strictly necessary to operate the service.
+              Outward is built with privacy at its core. The local agent runs entirely on your Mac. Your dating app messages, match data, photos, and personal conversations never leave your device. We only collect what is strictly necessary to operate the service.
             </p>
           </section>
 
