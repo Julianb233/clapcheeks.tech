@@ -1,23 +1,6 @@
 {
   "framework": "nextjs",
-  "rootDirectory": "web",
   "buildCommand": "next build",
   "outputDirectory": ".next",
-  "installCommand": "npm install",
-  "env": {
-    "NEXT_PUBLIC_SUPABASE_URL": "@supabase-url",
-    "NEXT_PUBLIC_SUPABASE_ANON_KEY": "@supabase-anon-key",
-    "NEXT_PUBLIC_API_URL": "@api-url",
-    "NEXT_PUBLIC_AI_URL": "@ai-url"
-  },
-  "crons": [
-    {
-      "path": "/api/reports/cron",
-      "schedule": "0 8 * * 0"
-    },
-    {
-      "path": "/api/reports/weekly",
-      "schedule": "0 9 * * 1"
-    }
-  ]
+  "installCommand": "npm install"
 }
