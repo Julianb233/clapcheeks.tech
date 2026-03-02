@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import logging
+import os
 import time
+import threading
 
 import requests
 
@@ -21,6 +23,8 @@ class ConversationManager:
         self._client = platform_client
         self._platform = platform_name
         self._ai_url = config.get("ai_service_url", "http://localhost:8000")
+        self._api_url = config.get("api_url", os.environ.get("CLAPCHEEKS_API_URL", "http://localhost:3001"))
+        self._agent_token = config.get("agent_token", os.environ.get("CLAPCHEEKS_AGENT_TOKEN", ""))
         self._style = self._load_style()
         self._dry_run = config.get("dry_run", False)
 
@@ -77,6 +81,40 @@ class ConversationManager:
         if count >= 2:
             return "replied"
         return "opened"
+
+    def _log_opener(self, match_name: str, platform: str, opener_text: str) -> None:
+        """Fire-and-forget POST to /intelligence/opener."""
+        def _post():
+            try:
+                requests.post(
+                    f"{self._api_url}/intelligence/opener",
+                    json={"platform": platform, "opener_text": opener_text, "match_name": match_name},
+                    headers={"Authorization": f"Bearer {self._agent_token}"},
+                    timeout=5,
+                )
+            except Exception as exc:
+                logger.debug("Failed to log opener: %s", exc)
+        threading.Thread(target=_post, daemon=True).start()
+
+    def _log_progression(self, match_id: str, platform: str, from_stage: str, to_stage: str, messages_sent: int = 0) -> None:
+        """Fire-and-forget POST to /intelligence/progression."""
+        def _post():
+            try:
+                requests.post(
+                    f"{self._api_url}/intelligence/progression",
+                    json={
+                        "platform": platform,
+                        "match_id": match_id,
+                        "from_stage": from_stage,
+                        "to_stage": to_stage,
+                        "messages_sent": messages_sent,
+                    },
+                    headers={"Authorization": f"Bearer {self._agent_token}"},
+                    timeout=5,
+                )
+            except Exception as exc:
+                logger.debug("Failed to log progression: %s", exc)
+        threading.Thread(target=_post, daemon=True).start()
 
     def generate_reply_for_conversation(self, conversation_history: list[dict], platform: str) -> str:
         """Generate a reply using the local AI fallback chain."""
@@ -141,7 +179,10 @@ class ConversationManager:
             logger.info("[DRY RUN] Would send to %s: %s", name, opener)
             return True
         try:
-            return self._client.send_message(match_id, opener)
+            sent = self._client.send_message(match_id, opener)
+            if sent:
+                self._log_opener(name, self._platform, opener)
+            return sent
         except Exception as exc:
             logger.error("send_opener failed: %s", exc)
             return False
@@ -173,15 +214,22 @@ class ConversationManager:
                 for m in messages[-10:]
             ]
 
+            # Detect stage transitions
+            prev_state = get_conversation(match_id)
+            prev_stage = prev_state.get("stage", "opened") if prev_state else "opened"
+            curr_stage = self._conversation_stage(conversation)
+            if curr_stage != prev_stage:
+                self._log_progression(match_id, self._platform, prev_stage, curr_stage, messages_sent=len(messages))
+
             # Check if we should propose a date
-            state = get_conversation(match_id)
+            state = prev_state or {}
             if not state.get("date_asked") and should_ask_for_date(len(messages), last_ts):
                 profile = match.get("person", {})
                 reply = generate_date_ask(match_name=name, platform=self._platform, profile_data=profile)
                 update_conversation(match_id, date_asked=True)
                 results["dates_proposed"] += 1
             else:
-                stage = self._conversation_stage(conversation)
+                stage = curr_stage
                 if stage == "date_ready":
                     reply = self.suggest_date_message(match_name=name, conversation=conversation)
                 else:

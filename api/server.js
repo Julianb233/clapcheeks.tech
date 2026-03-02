@@ -8,6 +8,7 @@ import { router as analyticsRouter } from './routes/analytics.js'
 import { router as agentRouter } from './routes/agent.js'
 import { router as stripeRouter } from './routes/stripe.js'
 import { router as referralRouter } from './routes/referral.js'
+import { router as intelligenceRouter } from './routes/intelligence.js'
 
 const app = express()
 const PORT = process.env.PORT || 3001
@@ -44,6 +45,7 @@ app.use('/analytics', analyticsRouter)
 app.use('/agent', agentRouter)
 app.use('/stripe', stripeRouter)
 app.use('/referral', referralRouter)
+app.use('/intelligence', intelligenceRouter)
 
 app.get('/health', (req, res) => res.json({ status: 'ok', version: '0.1.0' }))
 
