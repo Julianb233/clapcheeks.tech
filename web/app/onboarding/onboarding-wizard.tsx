@@ -60,7 +60,7 @@ const TERMINAL_LINES = [
   { text: '✓ API key validated', delay: 4600 },
   { text: '✓ Device connected', delay: 5200 },
   { text: '✓ Platforms detected: tinder, bumble, hinge', delay: 5800 },
-  { text: '🚀 Setup complete! Run `clapcheeks start` to begin.', delay: 6400 },
+  { text: '🚀 Setup complete! Run `clapcheeks swipe` to begin.', delay: 6400 },
 ]
 
 interface OnboardingWizardProps {
