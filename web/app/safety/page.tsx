@@ -45,7 +45,7 @@ export default async function PrivacyPage() {
                 <div className="flex-1">
                   <h3 className="font-semibold text-gray-800 mb-2">Your data stays on your Mac</h3>
                   <p className="text-sm text-gray-700">
-                    All messages, match profiles, and conversation history are processed locally by the Outward agent.
+                    All messages, match profiles, and conversation history are processed locally by the Clapcheeks agent.
                     Only anonymized metrics (swipe counts, match rates, spending totals) are synced to the cloud.
                   </p>
                 </div>

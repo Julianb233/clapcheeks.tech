@@ -49,7 +49,7 @@ export default async function ConversationsPage() {
               <MessageSquare className="w-12 h-12 text-gray-400 mx-auto mb-4" />
               <p className="text-lg text-gray-600">No conversations synced yet</p>
               <p className="text-sm text-gray-500 mt-2">
-                Make sure your Outward agent is running on your Mac. Conversations will appear here once synced.
+                Make sure your Clapcheeks agent is running on your Mac. Conversations will appear here once synced.
               </p>
             </CardContent>
           </Card>

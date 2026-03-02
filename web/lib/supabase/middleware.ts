@@ -44,6 +44,12 @@ export async function updateSession(request: NextRequest) {
     "/privacy",
     "/terms",
     "/pricing",
+    "/api/stripe/webhook",
+    "/api/affiliate/apply",
+    "/api/referral/track",
+    "/api/reports/cron",
+    "/api/reports/weekly",
+    "/api/referral/convert",
   ]
   const isPublicRoute = publicRoutes.some((route) => request.nextUrl.pathname.startsWith(route))
 

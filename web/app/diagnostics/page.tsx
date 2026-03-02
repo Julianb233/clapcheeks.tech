@@ -105,9 +105,9 @@ export default async function DiagnosticsPage() {
           <CardContent className="space-y-4">
             <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
               <p className="text-sm text-yellow-800">
-                <strong>Agent not detected.</strong> Make sure the Outward agent is running on your Mac.
+                <strong>Agent not detected.</strong> Make sure the Clapcheeks agent is running on your Mac.
               </p>
-              <code className="mt-2 block text-xs font-mono text-yellow-700">outward status</code>
+              <code className="mt-2 block text-xs font-mono text-yellow-700">clapcheeks status</code>
             </div>
             <div className="space-y-3">
               {platforms.map((p) => (

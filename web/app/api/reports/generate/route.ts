@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { generateReportData } from '@/lib/reports/generate-report-data'
 import { renderReportPdf } from '@/lib/reports/generate-pdf'
 import { sendReportEmail } from '@/lib/reports/send-report-email'
@@ -96,7 +97,8 @@ export async function POST(request: NextRequest) {
     const emailEnabled = prefs?.email_enabled !== false // default true
 
     if (emailEnabled) {
-      const { data: { user: targetUser } } = await supabase.auth.admin.getUserById(targetUserId)
+      const supabaseAdmin = createAdminClient()
+      const { data: { user: targetUser } } = await supabaseAdmin.auth.admin.getUserById(targetUserId)
       if (targetUser?.email) {
         try {
           await sendReportEmail({

@@ -40,7 +40,7 @@ export default function CompleteProfilePage() {
         setShowCamera(true)
       }
     } catch (err) {
-      setError("No se pudo acceder a la cámara. Por favor, sube una foto desde archivo.")
+      setError("Could not access camera. Please upload a photo from file.")
     }
   }
 
@@ -91,7 +91,7 @@ export default function CompleteProfilePage() {
     setError(null)
 
     if (!photoFile) {
-      setError("La foto de perfil es obligatoria")
+      setError("Profile photo is required")
       setIsLoading(false)
       return
     }
@@ -126,7 +126,7 @@ export default function CompleteProfilePage() {
 
       router.push("/home")
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Error al completar el perfil")
+      setError(err instanceof Error ? err.message : "Error completing profile")
     } finally {
       setIsLoading(false)
     }
@@ -141,25 +141,24 @@ export default function CompleteProfilePage() {
               <Shield className="w-8 h-8 text-white" />
             </div>
             <CardTitle className="text-3xl font-bold bg-gradient-to-r from-pink-500 to-purple-600 bg-clip-text text-transparent">
-              Completa tu Perfil
+              Complete Your Profile
             </CardTitle>
             <CardDescription className="text-base">
-              Por seguridad, necesitamos verificar tu identidad antes de continuar
+              For security, we need to verify your identity before continuing
             </CardDescription>
           </CardHeader>
           <CardContent>
             <Alert className="mb-6 border-purple-200 bg-purple-50">
               <AlertCircle className="h-4 w-4 text-purple-600" />
               <AlertDescription className="text-purple-900">
-                Todos los campos son obligatorios. Tu información está protegida y solo será visible para ti y en caso
-                de emergencia.
+                All fields are required. Your information is protected and only visible to you and in case of emergency.
               </AlertDescription>
             </Alert>
 
             <form onSubmit={handleSubmit} className="space-y-6">
               {/* Photo Section */}
               <div className="space-y-4">
-                <Label className="text-base font-semibold">Foto de Perfil *</Label>
+                <Label className="text-base font-semibold">Profile Photo *</Label>
                 <div className="flex flex-col items-center gap-4">
                   {photoPreview ? (
                     <div className="relative">
@@ -178,7 +177,7 @@ export default function CompleteProfilePage() {
                           setPhotoFile(null)
                         }}
                       >
-                        Cambiar foto
+                        Change photo
                       </Button>
                     </div>
                   ) : (
@@ -191,7 +190,7 @@ export default function CompleteProfilePage() {
                         disabled={showCamera}
                       >
                         <Camera className="w-4 h-4" />
-                        Tomar Foto
+                        Take Photo
                       </Button>
                       <Button
                         type="button"
@@ -200,7 +199,7 @@ export default function CompleteProfilePage() {
                         onClick={() => fileInputRef.current?.click()}
                       >
                         <Upload className="w-4 h-4" />
-                        Subir Archivo
+                        Upload File
                       </Button>
                       <input
                         ref={fileInputRef}
@@ -222,10 +221,10 @@ export default function CompleteProfilePage() {
                       <canvas ref={canvasRef} className="hidden" />
                       <div className="flex gap-2">
                         <Button type="button" onClick={capturePhoto} className="flex-1">
-                          Capturar
+                          Capture
                         </Button>
                         <Button type="button" variant="outline" onClick={stopCamera} className="flex-1 bg-transparent">
-                          Cancelar
+                          Cancel
                         </Button>
                       </div>
                     </div>
@@ -236,11 +235,11 @@ export default function CompleteProfilePage() {
               {/* Personal Information */}
               <div className="grid gap-4">
                 <div className="grid gap-2">
-                  <Label htmlFor="phone">Teléfono *</Label>
+                  <Label htmlFor="phone">Phone *</Label>
                   <Input
                     id="phone"
                     type="tel"
-                    placeholder="+56 9 1234 5678"
+                    placeholder="+1 555 123 4567"
                     required
                     value={formData.phone}
                     onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
@@ -248,10 +247,10 @@ export default function CompleteProfilePage() {
                 </div>
 
                 <div className="grid gap-2">
-                  <Label htmlFor="address">Dirección *</Label>
+                  <Label htmlFor="address">Address *</Label>
                   <Textarea
                     id="address"
-                    placeholder="Calle, número, comuna, ciudad"
+                    placeholder="Street, number, city, state"
                     required
                     value={formData.address}
                     onChange={(e) => setFormData({ ...formData, address: e.target.value })}
@@ -260,7 +259,7 @@ export default function CompleteProfilePage() {
                 </div>
 
                 <div className="grid gap-2">
-                  <Label htmlFor="dateOfBirth">Fecha de Nacimiento *</Label>
+                  <Label htmlFor="dateOfBirth">Date of Birth *</Label>
                   <Input
                     id="dateOfBirth"
                     type="date"
@@ -273,14 +272,14 @@ export default function CompleteProfilePage() {
 
               {/* Emergency Contact */}
               <div className="space-y-4 pt-4 border-t">
-                <h3 className="font-semibold text-lg">Contacto de Emergencia</h3>
+                <h3 className="font-semibold text-lg">Emergency Contact</h3>
                 <div className="grid gap-4">
                   <div className="grid gap-2">
-                    <Label htmlFor="emergencyName">Nombre Completo *</Label>
+                    <Label htmlFor="emergencyName">Full Name *</Label>
                     <Input
                       id="emergencyName"
                       type="text"
-                      placeholder="Nombre del contacto de emergencia"
+                      placeholder="Emergency contact name"
                       required
                       value={formData.emergencyContactName}
                       onChange={(e) => setFormData({ ...formData, emergencyContactName: e.target.value })}
@@ -288,11 +287,11 @@ export default function CompleteProfilePage() {
                   </div>
 
                   <div className="grid gap-2">
-                    <Label htmlFor="emergencyPhone">Teléfono *</Label>
+                    <Label htmlFor="emergencyPhone">Phone *</Label>
                     <Input
                       id="emergencyPhone"
                       type="tel"
-                      placeholder="+56 9 1234 5678"
+                      placeholder="+1 555 123 4567"
                       required
                       value={formData.emergencyContactPhone}
                       onChange={(e) => setFormData({ ...formData, emergencyContactPhone: e.target.value })}
@@ -313,12 +312,12 @@ export default function CompleteProfilePage() {
                 className="w-full h-12 bg-gradient-to-r from-pink-500 to-purple-600 hover:from-pink-600 hover:to-purple-700 text-lg"
                 disabled={isLoading}
               >
-                {isLoading ? "Guardando..." : "Completar Perfil"}
+                {isLoading ? "Saving..." : "Complete Profile"}
               </Button>
 
               <div className="text-center text-sm text-gray-600 pt-4">
                 <p>
-                  Para verificación de identidad adicional, recomendamos usar{" "}
+                  For additional identity verification, we recommend using{" "}
                   <a
                     href="https://www.veriff.com"
                     target="_blank"
@@ -327,7 +326,7 @@ export default function CompleteProfilePage() {
                   >
                     Veriff
                   </a>{" "}
-                  o{" "}
+                  or{" "}
                   <a
                     href="https://onfido.com"
                     target="_blank"

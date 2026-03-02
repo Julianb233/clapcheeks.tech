@@ -9,7 +9,7 @@ const supabaseAdmin = createClient(
 export async function POST(request: NextRequest) {
   const { ref_code } = await request.json()
 
-  if (!ref_code || typeof ref_code !== 'string') {
+  if (!ref_code || typeof ref_code !== 'string' || ref_code.length > 20) {
     return NextResponse.json({ error: 'Invalid referral code' }, { status: 400 })
   }
 

@@ -81,7 +81,7 @@ export default function AffiliateApplyPage() {
             <span className="text-brand-300 text-xs font-medium">Affiliate Program</span>
           </div>
           <h1 className="text-4xl sm:text-5xl font-bold text-white mb-4">
-            Become an Clapcheeks Affiliate
+            Become a Clapcheeks Affiliate
           </h1>
           <p className="text-white/45 text-xl max-w-xl mx-auto">
             Earn 25% recurring commission on every subscriber you refer
