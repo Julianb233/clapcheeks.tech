@@ -645,9 +645,7 @@ export type Database = {
           id: string
           referrer_id: string
           referred_id: string | null
-          referee_id: string | null
           referral_code: string | null
-          ref_code: string | null
           status: string
           converted_at: string | null
           credited_at: string | null
@@ -658,9 +656,7 @@ export type Database = {
           id?: string
           referrer_id: string
           referred_id?: string | null
-          referee_id?: string | null
           referral_code?: string | null
-          ref_code?: string | null
           status?: string
           converted_at?: string | null
           credited_at?: string | null
@@ -671,9 +667,7 @@ export type Database = {
           id?: string
           referrer_id?: string
           referred_id?: string | null
-          referee_id?: string | null
           referral_code?: string | null
-          ref_code?: string | null
           status?: string
           converted_at?: string | null
           credited_at?: string | null
