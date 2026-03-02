@@ -1,5 +1,3 @@
-import { createClient } from '@/lib/supabase/server'
-
 export type PlanLevel = 'free' | 'starter' | 'pro' | 'elite'
 
 export interface PlanLimits {
@@ -51,33 +49,6 @@ export interface PlanInfo {
   subscriptionStatus: string
   isActive: boolean
   limits: PlanLimits
-}
-
-export async function getPlanInfo(userId?: string): Promise<PlanInfo | null> {
-  const supabase = await createClient()
-
-  let uid = userId
-  if (!uid) {
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return null
-    uid = user.id
-  }
-
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('subscription_tier, subscription_status')
-    .eq('id', uid)
-    .single()
-
-  if (!profile) return null
-
-  const plan = (profile.subscription_tier || 'free') as PlanLevel
-  return {
-    plan,
-    subscriptionStatus: profile.subscription_status || 'inactive',
-    isActive: profile.subscription_status === 'active',
-    limits: getPlanLimits(plan),
-  }
 }
 
 export function getPlanLimits(plan: PlanLevel): PlanLimits {
