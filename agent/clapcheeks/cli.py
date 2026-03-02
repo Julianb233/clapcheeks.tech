@@ -369,6 +369,108 @@ def install() -> None:
         raise SystemExit(1)
 
 
+@main.command(name='date-suggest')
+@click.option('--platform', default='tinder', type=click.Choice(['tinder', 'bumble', 'hinge']), help='Platform.')
+@click.option('--match-name', required=True, help='Name of your match.')
+@click.option('--location', default='', help='Your city or neighborhood.')
+@click.option('--prefs', default='casual, fun', help='Date preferences (e.g. "coffee, outdoors").')
+def date_suggest(platform: str, match_name: str, location: str, prefs: str) -> None:
+    """Get AI date suggestions based on your calendar availability."""
+    from clapcheeks.config import load as load_config
+    from clapcheeks.calendar.client import get_free_slots, book_date
+
+    config = load_config()
+    ai_url = config.get('ai_service_url', 'http://localhost:8000')
+
+    with console.status('[bold green]Checking your calendar...[/bold green]'):
+        free_slots = get_free_slots(days=7)
+
+    if not free_slots:
+        console.print('[yellow]No Google Calendar connected — showing generic suggestions[/yellow]')
+        console.print('[dim]Run: clapcheeks setup — to configure Google Calendar[/dim]\n')
+
+    with console.status('[bold green]Generating date suggestions with Kimi...[/bold green]'):
+        import requests as _req
+        try:
+            resp = _req.post(
+                f'{ai_url}/date/suggest',
+                json={
+                    'match_name': match_name,
+                    'platform': platform,
+                    'conversation': [],
+                    'free_slots': free_slots,
+                    'user_location': location or None,
+                    'preferences': prefs,
+                },
+                timeout=15,
+            )
+            result = resp.json()
+        except Exception as e:
+            console.print(f'[bold red]Error:[/bold red] AI service not running. Start with: cd ai && uvicorn main:app')
+            raise SystemExit(1)
+
+    console.print()
+    console.print(Panel(
+        f"[bold white]{result.get('message', '')}[/bold white]",
+        title=f"[magenta]Suggested message to {match_name}[/magenta]",
+        border_style="magenta",
+    ))
+
+    if result.get('venue_suggestions'):
+        console.print('\n[bold]Venue ideas:[/bold]')
+        for v in result['venue_suggestions']:
+            console.print(f'  [cyan]•[/cyan] {v}')
+
+    if free_slots:
+        console.print('\n[bold]Your free slots:[/bold]')
+        for slot in free_slots[:5]:
+            tag = ' [dim](weekend)[/dim]' if slot.get('is_weekend') else ''
+            console.print(f"  [green]•[/green] {slot['label']} ({slot['duration_hours']}h free){tag}")
+
+    console.print()
+    if free_slots and click.confirm('Book the recommended slot on your Google Calendar?', default=False):
+        rec_label = result.get('recommended_slot', '')
+        slot = next((s for s in free_slots if s['label'] == rec_label), free_slots[0])
+        venue = result.get('venue_suggestions', [''])[0]
+        booked = book_date(match_name=match_name, start_iso=slot['start'], location=venue)
+        if booked:
+            console.print(f"[bold green]✓ Date booked![/bold green] [dim]{booked.get('htmlLink', '')}[/dim]")
+        else:
+            console.print('[yellow]Could not book — check: clapcheeks setup (Google Calendar)[/yellow]')
+
+
+@main.command(name='upcoming-dates')
+def upcoming_dates() -> None:
+    """Show upcoming dates booked via Clap Cheeks."""
+    from clapcheeks.calendar.client import get_upcoming_dates
+
+    events = get_upcoming_dates(days=30)
+
+    if not events:
+        console.print('[yellow]No upcoming dates found.[/yellow]')
+        console.print('[dim]Book one with: clapcheeks date-suggest --match-name "Sarah"[/dim]')
+        return
+
+    table = Table(title='Upcoming Dates', show_header=True, header_style='bold magenta')
+    table.add_column('Date', style='cyan', no_wrap=True)
+    table.add_column('Who', style='bold white')
+    table.add_column('Location', style='dim')
+
+    for event in events:
+        start = event.get('start', {}).get('dateTime', '')
+        try:
+            from datetime import datetime, timezone
+            dt = datetime.fromisoformat(start.replace('Z', '+00:00'))
+            date_str = dt.strftime('%a %b %-d, %-I:%M%p')
+        except Exception:
+            date_str = start[:16]
+        name = event.get('summary', '').replace('Date with ', '')
+        loc = event.get('location', '') or '—'
+        table.add_row(date_str, name, loc)
+
+    console.print(table)
+
+
 class _nullctx:
     """No-op context manager for drivers that don't support 'with'."""
     def __init__(self, val): self.val = val

@@ -63,26 +63,25 @@ def generate_opener(
     except Exception as exc:
         logger.warning("Ollama opener failed: %s", exc)
 
-    # Attempt 2: Claude API fallback (if key available)
-    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    # Attempt 2: Kimi API fallback (if key available)
+    api_key = os.environ.get("KIMI_API_KEY")
     if api_key:
         try:
-            import anthropic
-
-            client = anthropic.Anthropic()
-            response = client.messages.create(
-                model="claude-haiku-4-5-20251001",
+            from openai import OpenAI
+            client = OpenAI(api_key=api_key, base_url="https://api.moonshot.cn/v1")
+            kimi_model = os.environ.get("KIMI_MODEL", "moonshot-v1-8k")
+            response = client.chat.completions.create(
+                model=kimi_model,
                 max_tokens=100,
-                system=SYSTEM_PROMPT,
-                messages=[{"role": "user", "content": user_msg}],
+                messages=messages,
             )
-            text = response.content[0].text.strip()
+            text = response.choices[0].message.content.strip()
             if text:
                 return text
         except ImportError:
-            logger.debug("anthropic package not installed.")
+            logger.debug("openai package not installed.")
         except Exception as exc:
-            logger.warning("Claude API opener failed: %s", exc)
+            logger.warning("Kimi API opener failed: %s", exc)
 
     # Fallback — never crash, always return something usable
     logger.info("Using fallback opener for %s.", match_name)

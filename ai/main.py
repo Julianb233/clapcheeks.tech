@@ -1,30 +1,54 @@
-"""Outward AI Service — coaching, reply suggestions, and analytics insights."""
+"""Clap Cheeks AI Service — coaching, reply suggestions, date planning.
+
+Uses Kimi (Moonshot AI) via OpenAI-compatible API.
+"""
+import json
 import os
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from dotenv import load_dotenv
-import anthropic
+from openai import OpenAI
 
 load_dotenv()
 
-app = FastAPI(title="Outward AI", version="0.1.0")
+app = FastAPI(title="Clap Cheeks AI", version="0.2.0")
 
-_client: anthropic.Anthropic | None = None
+KIMI_MODEL = os.environ.get("KIMI_MODEL", "moonshot-v1-8k")
 
-def get_client() -> anthropic.Anthropic:
+_client: OpenAI | None = None
+
+
+def get_client() -> OpenAI:
     global _client
     if _client is None:
-        key = os.environ.get("ANTHROPIC_API_KEY", "")
+        key = os.environ.get("KIMI_API_KEY", "")
         if not key:
-            raise HTTPException(status_code=503, detail="ANTHROPIC_API_KEY not configured")
-        _client = anthropic.Anthropic(api_key=key)
+            raise HTTPException(status_code=503, detail="KIMI_API_KEY not configured")
+        _client = OpenAI(api_key=key, base_url="https://api.moonshot.cn/v1")
     return _client
+
+
+def chat(system: str, user: str, max_tokens: int = 500) -> str:
+    resp = get_client().chat.completions.create(
+        model=KIMI_MODEL,
+        max_tokens=max_tokens,
+        messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
+    )
+    return resp.choices[0].message.content.strip()
+
+
+def chat_with_history(system: str, messages: list[dict], max_tokens: int = 200) -> str:
+    resp = get_client().chat.completions.create(
+        model=KIMI_MODEL,
+        max_tokens=max_tokens,
+        messages=[{"role": "system", "content": system}] + messages,
+    )
+    return resp.choices[0].message.content.strip()
 
 
 @app.get("/health")
 def health():
-    key_set = bool(os.environ.get("ANTHROPIC_API_KEY"))
-    return {"status": "ok", "claude_configured": key_set}
+    return {"status": "ok", "provider": "kimi", "model": KIMI_MODEL, "configured": bool(os.environ.get("KIMI_API_KEY"))}
 
 
 class CoachingRequest(BaseModel):
@@ -39,90 +63,107 @@ class CoachingRequest(BaseModel):
 
 @app.post("/coaching/analyze")
 async def analyze_and_coach(req: CoachingRequest):
-    """Generate personalized AI coaching tips based on user's dating analytics."""
-    client = get_client()
-
     match_rate = round(req.matches / max(req.swipes, 1) * 100, 1)
     conv_rate = round(req.conversations / max(req.matches, 1) * 100, 1)
     date_rate = round(req.dates / max(req.conversations, 1) * 100, 1)
     cost_per_date = round(req.money_spent / max(req.dates, 1), 2) if req.dates > 0 else 0
 
-    prompt = f"""You are a dating coach AI. Analyze these stats and give exactly 3 specific, actionable tips.
+    prompt = f"""Dating stats:
+- Swipes: {req.swipes}, Matches: {req.matches} ({match_rate}% rate)
+- Conversations: {req.conversations} ({conv_rate}% of matches)
+- Dates: {req.dates} ({date_rate}% conv-to-date rate)
+- Spent: ${req.money_spent:.2f} (${cost_per_date:.2f}/date), Best app: {req.top_app}
 
-Stats:
-- Total swipes: {req.swipes}
-- Matches: {req.matches} ({match_rate}% match rate)
-- Conversations started: {req.conversations} ({conv_rate}% of matches)
-- Dates booked: {req.dates} ({date_rate}% conversation-to-date rate)
-- Money spent: ${req.money_spent:.2f} (${cost_per_date:.2f} per date)
-- Best performing app: {req.top_app}
+Give exactly 3 specific, data-driven coaching tips. Return ONLY a JSON array of 3 strings."""
 
-Give 3 specific coaching tips. Be direct, honest, and data-driven. Format as a JSON array of strings. Return ONLY the JSON array, no other text."""
-
-    response = client.messages.create(
-        model="claude-haiku-4-5-20251001",
-        max_tokens=400,
-        messages=[{"role": "user", "content": prompt}]
-    )
-
-    import json
+    text = chat(system="You are a data-driven dating coach. Return only valid JSON arrays.", user=prompt, max_tokens=400)
     try:
-        tips = json.loads(response.content[0].text)
+        clean = text.strip().strip("```json").strip("```").strip()
+        tips = json.loads(clean)
+        if not isinstance(tips, list):
+            raise ValueError
     except Exception:
-        # Fallback: split by newline if JSON parse fails
-        tips = [line.strip("- ").strip() for line in response.content[0].text.split("\n") if line.strip()][:3]
+        tips = [l.strip("- •").strip() for l in text.split("\n") if l.strip()][:3]
 
-    return {
-        "tips": tips,
-        "conversion_rate": date_rate,
-        "cost_per_date": cost_per_date,
-        "match_rate": match_rate,
-    }
+    return {"tips": tips[:3], "conversion_rate": date_rate, "cost_per_date": cost_per_date, "match_rate": match_rate}
 
 
 class ReplyRequest(BaseModel):
-    platform: str  # tinder | bumble | hinge | imessage
+    platform: str
     conversation: list[dict]
     style_description: str
     contact_name: str | None = None
+    calendar_context: str | None = None
 
 
 @app.post("/reply/suggest")
 async def suggest_reply(req: ReplyRequest):
-    """Suggest a reply to a dating app conversation in the user's voice."""
-    client = get_client()
-
     name = req.contact_name or "them"
-    platform_context = {
-        "tinder": "Tinder match",
-        "bumble": "Bumble match",
-        "hinge": "Hinge match",
-        "imessage": "text conversation",
-    }.get(req.platform, "dating app match")
+    platform_label = {"tinder": "Tinder", "bumble": "Bumble", "hinge": "Hinge", "imessage": "iMessage"}.get(req.platform, req.platform)
 
-    system = f"""You are helping craft a reply to a {platform_context} named {name}.
-Writing style to match: {req.style_description or 'casual, genuine, conversational'}
-Keep replies short (1-2 sentences). Be natural and engaging, not overly eager.
-Respond with ONLY the reply text — no quotes, no explanation, no preamble."""
+    system_parts = [
+        f"You are helping craft a reply to a {platform_label} match named {name}.",
+        f"Style: {req.style_description or 'casual, genuine, conversational'}",
+        "Keep it short (1-2 sentences). Be natural, not desperate.",
+    ]
+    if req.calendar_context:
+        system_parts.append(f"Calendar availability: {req.calendar_context}. Naturally weave in a date suggestion if appropriate.")
+    system_parts.append("Reply with ONLY the message text — no quotes, no preamble.")
+    system = "\n".join(system_parts)
 
-    # Convert conversation to Claude message format
     messages = []
     for msg in req.conversation:
         role = msg.get("role", "user")
-        content = msg.get("content", "")
         if role not in ("user", "assistant"):
             role = "user"
-        messages.append({"role": role, "content": content})
+        messages.append({"role": role, "content": msg.get("content", "")})
 
-    # If no conversation, generate an opener
     if not messages:
-        messages = [{"role": "user", "content": f"Write an opening message to {name} on {platform_context}. Be specific and genuine."}]
+        messages = [{"role": "user", "content": f"Write a genuine opening message to {name} on {platform_label}."}]
 
-    response = client.messages.create(
-        model="claude-haiku-4-5-20251001",
-        max_tokens=150,
-        system=system,
-        messages=messages,
-    )
+    return {"suggestion": chat_with_history(system=system, messages=messages, max_tokens=150)}
 
-    return {"suggestion": response.content[0].text.strip()}
+
+class DateSuggestRequest(BaseModel):
+    match_name: str
+    platform: str
+    conversation: list[dict]
+    free_slots: list[dict]
+    user_location: str | None = None
+    preferences: str | None = None
+
+
+@app.post("/date/suggest")
+async def suggest_date(req: DateSuggestRequest):
+    slots_text = "\n".join(f"  - {s.get('label', s.get('start', ''))}" for s in req.free_slots[:5])
+    location = req.user_location or "your city"
+    prefs = req.preferences or "casual, fun, not too formal"
+    conv_summary = "\n".join(f"  {m['role']}: {m['content']}" for m in req.conversation[-4:]) if req.conversation else "  (no messages yet)"
+
+    prompt = f"""Plan a date with {req.match_name} from {req.platform}.
+
+Recent conversation:
+{conv_summary}
+
+Your available times:
+{slots_text or '  (check your calendar)'}
+
+Location: {location} | Preferences: {prefs}
+
+Return JSON with:
+{{"message": "natural message suggesting one specific time+place", "venue_suggestions": ["venue1", "venue2", "venue3"], "recommended_slot": "best slot label", "date_type": "coffee|drinks|dinner|activity"}}
+
+Return ONLY valid JSON."""
+
+    text = chat(system="You help plan first dates. Be specific and casual. Return only valid JSON.", user=prompt, max_tokens=400)
+    try:
+        clean = text.strip().strip("```json").strip("```").strip()
+        result = json.loads(clean)
+    except Exception:
+        result = {
+            "message": f"Hey {req.match_name}, want to grab coffee this week? I'm free {req.free_slots[0].get('label', 'soon') if req.free_slots else 'sometime'}",
+            "venue_suggestions": ["coffee shop", "wine bar", "park walk"],
+            "recommended_slot": req.free_slots[0].get("label", "") if req.free_slots else "",
+            "date_type": "coffee",
+        }
+    return result
