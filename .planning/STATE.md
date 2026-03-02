@@ -2,12 +2,12 @@
 
 ## Current Position
 
-- Phase: 14 of 15 (Hinge Automation)
+- Phase: 15 of 15 (Automation Controller)
 - Plan: 01 of 01
-- Status: Phase complete
-- Last activity: 2026-03-02 - Completed 14-01-PLAN.md
+- Status: Phase complete — Milestone 3 complete
+- Last activity: 2026-03-02 - Completed 15-01-PLAN.md
 
-Progress: █████████████░░ (M3: 4/5 phases)
+Progress: ████████████████ (M3: 5/5 phases)
 
 ## Decisions
 
@@ -25,6 +25,7 @@ Progress: █████████████░░ (M3: 4/5 phases)
 | playwright-over-api | Rewrote Hinge from REST API to Playwright browser automation | Matches Tinder/Bumble pattern, no token management needed | 14 |
 | ai-comment-quality-gate | Regenerate AI comment if 3+ emojis, quotes, or >2 sentences | Natural-sounding comments avoid spam detection | 14 |
 | hinge-50-limit | 50/day enforced via rate_limiter integration | Hinge's actual daily free like cap | 14 |
+| aggregate-caps | Added aggregate daily caps (100/75/50) alongside per-direction limits | Plan specifies total caps; per-direction limits remain for finer control | 15 |
 
 ## Blockers / Concerns
 
@@ -32,6 +33,6 @@ Progress: █████████████░░ (M3: 4/5 phases)
 
 ## Session Continuity
 
-- Last session: 2026-03-02T06:35:00Z
-- Stopped at: Completed 14-01-PLAN.md
+- Last session: 2026-03-02T06:36:00Z
+- Stopped at: Completed 15-01-PLAN.md (Milestone 3 complete)
 - Resume file: None
