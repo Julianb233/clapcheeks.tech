@@ -448,6 +448,39 @@ def watch(contacts: str | None, interval: float, style_refresh: bool, dry_run: b
         reader.close()
 
 
+@main.command(name="queue-poll")
+@click.option("--interval", default=30, show_default=True, help="Polling interval in seconds.")
+@click.option("--dry-run", is_flag=True, default=False, help="Log sends without actually sending.")
+def queue_poll(interval: int, dry_run: bool) -> None:
+    """Poll Supabase for web-initiated replies and send via iMessage.
+
+    Checks clapcheeks_queued_replies every --interval seconds for rows
+    with status='queued', sends each via osascript, and marks them sent/failed.
+    """
+    import logging
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        datefmt="%H:%M:%S",
+    )
+
+    from clapcheeks.imessage.queue_poller import run_poller
+
+    if dry_run:
+        console.print("[yellow]DRY RUN — messages will not be sent[/yellow]")
+
+    console.print(
+        f"[bold green]Queue poller started[/bold green] "
+        f"(interval={interval}s)  Press Ctrl+C to stop."
+    )
+
+    try:
+        run_poller(interval=interval, dry_run=dry_run)
+    except KeyboardInterrupt:
+        console.print("\n[dim]Queue poller stopped.[/dim]")
+
+
 @main.group()
 def browser() -> None:
     """Manage local browser for dating app automation."""
