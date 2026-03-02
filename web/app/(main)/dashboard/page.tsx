@@ -293,6 +293,12 @@ export default async function Dashboard() {
               Conversation AI
             </Link>
             <Link
+              href="/coaching"
+              className="text-white/40 hover:text-white/70 text-xs bg-white/5 hover:bg-white/10 border border-white/10 px-3 py-1.5 rounded-lg transition-all"
+            >
+              AI Coach
+            </Link>
+            <Link
               href="/billing"
               className="text-white/40 hover:text-white/70 text-xs bg-white/5 hover:bg-white/10 border border-white/10 px-3 py-1.5 rounded-lg transition-all"
             >
