@@ -30,6 +30,8 @@ Progress: ███████████████████████�
 | separate-analytics-page | Dedicated /analytics page with client-side date range state | Full-screen analytics view separate from dashboard overview | 16 |
 | reply-style-rename | Renamed tones from playful/direct/flirty to witty/warm/direct with reasoning | Better differentiation, reasoning helps users understand suggestions | 18 |
 | claude-preferred-fallback | Python reply module uses Claude API as preferred fallback over Kimi | Higher quality replies for conversation context vs openers | 18 |
+| light-email-theme | Light theme email (white bg) for email client compatibility | Dark backgrounds render poorly in Outlook/Gmail | 19 |
+| profiles-email-fetch | Batch fetch emails from profiles table instead of admin.getUserById loop | Single query vs N queries; better performance | 19 |
 
 ## Blockers / Concerns
 
