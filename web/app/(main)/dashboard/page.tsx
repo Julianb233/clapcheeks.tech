@@ -230,28 +230,49 @@ export default async function Dashboard() {
     ],
   }
 
+  // Chart data for Recharts components
+  const chartData = {
+    totals: { swipes_right: totals.swipes_right, matches: totals.matches, messages_sent: totals.messages, dates_booked: totals.dates, conversations: convoTotals.conversations_started },
+    todaySwipes,
+    matchRate,
+    rizzScore,
+    rizzTrend,
+    platforms: byPlatform,
+    timeSeries,
+    funnel: [
+      { stage: 'Swipes', value: totals.swipes_right },
+      { stage: 'Matches', value: totals.matches },
+      { stage: 'Conversations', value: convoTotals.conversations_started },
+      { stage: 'Dates', value: totals.dates },
+    ],
+    spending: {
+      totalSpent,
+      costPerMatch: totals.matches > 0 ? totalSpent / totals.matches : 0,
+      costPerDate: totals.dates > 0 ? totalSpent / totals.dates : 0,
+      byCategory: spendByCategory,
+    },
+    trends: {
+      swipes: trend(thisWeek.swipes, lastWeek.swipes),
+      matches: trend(thisWeek.matches, lastWeek.matches),
+      dates: trend(thisWeek.dates, lastWeek.dates),
+    },
+  }
+
   const stats = [
-    { label: 'Swipes Today', value: hasAgent ? String(todaySwipes) : '—' },
-    { label: 'Total Matches', value: hasAgent ? String(totals.matches) : '—' },
-    { label: 'Dates Booked', value: hasAgent ? String(totals.dates) : '—' },
-    { label: 'Match Rate', value: hasAgent ? `${matchRate}%` : '—' },
+    { label: 'Swipes Today', value: hasAgent ? String(todaySwipes) : '--', trend: undefined },
+    { label: 'Total Matches', value: hasAgent ? String(totals.matches) : '--', trend: hasAgent ? chartData.trends.matches : undefined },
+    { label: 'Dates Booked', value: hasAgent ? String(totals.dates) : '--', trend: hasAgent ? chartData.trends.dates : undefined },
+    { label: 'Match Rate', value: hasAgent ? `${matchRate.toFixed(1)}%` : '--', trend: undefined },
+    { label: 'Rizz Score', value: hasAgent ? String(rizzScore) : '--', trend: hasAgent ? rizzTrend : undefined },
   ]
 
   return (
     <div className="min-h-screen bg-black px-6 py-8">
-      {/* Background glow */}
-      <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <div
-          className="orb w-96 h-96 bg-brand-600"
-          style={{ top: '10%', left: '50%', transform: 'translateX(-50%)' }}
-        />
-      </div>
-
-      <div className="relative max-w-4xl mx-auto">
+      <div className="relative max-w-5xl mx-auto">
         {/* Header */}
         <div className="flex items-center justify-between mb-8">
           <div className="flex items-center gap-3">
-            <span className="text-2xl font-bold gradient-text">Outward</span>
+            <span className="text-2xl font-bold bg-gradient-to-r from-pink-500 via-purple-500 to-pink-400 bg-clip-text text-transparent">Outward</span>
             <span className="text-xs text-white/30 font-mono bg-white/5 px-2 py-0.5 rounded">beta</span>
             <PlanBadge plan={userPlan} subscriptionStatus={userSubStatus} />
           </div>
@@ -291,17 +312,17 @@ export default async function Dashboard() {
                 ? 'bg-green-900/30 border-green-700/40'
                 : hasAgent
                 ? 'bg-yellow-900/20 border-yellow-700/30'
-                : 'bg-brand-900/40 border-brand-700/40'
+                : 'bg-purple-900/40 border-purple-700/40'
             }`}
           >
             <div
               className={`w-1.5 h-1.5 rounded-full ${
-                agentOnline ? 'bg-green-400 animate-pulse' : hasAgent ? 'bg-yellow-400' : 'bg-brand-400 animate-pulse'
+                agentOnline ? 'bg-green-400 animate-pulse' : hasAgent ? 'bg-yellow-400' : 'bg-purple-400 animate-pulse'
               }`}
             />
             <span
               className={`text-xs font-medium ${
-                agentOnline ? 'text-green-300' : hasAgent ? 'text-yellow-300' : 'text-brand-300'
+                agentOnline ? 'text-green-300' : hasAgent ? 'text-yellow-300' : 'text-purple-300'
               }`}
             >
               {agentOnline ? 'Agent connected' : hasAgent ? 'Agent offline' : 'Local agent not detected'}
@@ -319,16 +340,10 @@ export default async function Dashboard() {
           {hasAgent ? 'Last 30 days of activity' : 'Install the agent to start tracking your dating activity'}
         </p>
 
-        {/* Stats grid */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-8">
-          {stats.map(({ label, value }) => (
-            <div
-              key={label}
-              className="bg-white/5 border border-white/10 rounded-xl p-4 text-center"
-            >
-              <div className="text-2xl font-bold text-white mb-1">{value}</div>
-              <div className="text-white/40 text-xs">{label}</div>
-            </div>
+        {/* Stats row -- 5 cards with trend arrows */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3 mb-8">
+          {stats.map(({ label, value, trend: t }) => (
+            <TrendCard key={label} label={label} value={value} trend={t} />
           ))}
         </div>
 
@@ -336,6 +351,34 @@ export default async function Dashboard() {
         <div className="mb-8">
           <DashboardLive initialData={initialLiveData} hasAgent={hasAgent} />
         </div>
+
+        {/* Recharts analytics -- Rizz Score, trends, platform breakdown, funnel, spending */}
+        {hasAgent && rows.length > 0 && (
+          <div className="mb-8">
+            <DashboardCharts initialData={chartData} />
+          </div>
+        )}
+
+        {/* Empty state -- Install CTA */}
+        {!hasAgent && (
+          <div className="bg-white/[0.03] border border-white/[0.08] rounded-xl p-8 text-center mb-8">
+            <div className="w-16 h-16 bg-purple-500/10 border border-purple-500/20 rounded-2xl flex items-center justify-center mx-auto mb-4">
+              <svg className="w-8 h-8 text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+              </svg>
+            </div>
+            <h2 className="text-white font-semibold text-lg mb-2">Install the Outward agent</h2>
+            <p className="text-white/40 text-sm mb-6 max-w-md mx-auto">
+              Run this command on your Mac to connect your dating apps and start tracking swipes, matches, and dates automatically.
+            </p>
+            <div className="bg-black/50 border border-white/10 rounded-xl px-6 py-4 max-w-lg mx-auto text-left">
+              <p className="text-white/30 text-xs font-mono mb-2"># Install Outward on your Mac</p>
+              <pre className="text-sm font-mono text-purple-400">
+                curl -fsSL https://clapcheeks.tech/install.sh | bash
+              </pre>
+            </div>
+          </div>
+        )}
 
         {/* Elite Features */}
         <div className="space-y-4 mb-8">
@@ -380,21 +423,6 @@ export default async function Dashboard() {
           </div>
         )}
 
-        {/* Install CTA — only show if no agent */}
-        {!hasAgent && (
-          <div className="bg-white/3 border border-white/8 rounded-xl p-6">
-            <h2 className="text-white font-semibold mb-2">Install the Outward agent</h2>
-            <p className="text-white/40 text-sm mb-4">
-              Run this command on your Mac to connect your dating apps.
-            </p>
-            <div className="code-block px-5 py-4 text-left">
-              <p className="text-white/30 text-xs font-mono mb-2"># Install Outward on your Mac</p>
-              <pre className="text-sm font-mono text-brand-400">
-                curl -fsSL https://clapcheeks.tech/install.sh | bash
-              </pre>
-            </div>
-          </div>
-        )}
       </div>
     </div>
   )
