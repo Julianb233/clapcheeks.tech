@@ -12,7 +12,7 @@ const ADDON_PRICES: Record<string, { name: string; amount: number }> = {
 
 export async function POST(request: NextRequest) {
   try {
-    const supabase = createClient()
+    const supabase = await createClient()
     const { data: { user } } = await supabase.auth.getUser()
 
     if (!user) {
