@@ -47,14 +47,15 @@ export async function checkLimit(
   const supabase = await createClient()
   const today = new Date().toISOString().split('T')[0]
 
+  const dbField = `${field}_used`
   const { data } = await supabase
     .from('clapcheeks_usage_daily')
-    .select(field)
+    .select(dbField)
     .eq('user_id', userId)
     .eq('date', today)
     .single()
 
-  const used = (data as Record<string, number> | null)?.[field] ?? 0
+  const used = (data as Record<string, number> | null)?.[dbField] ?? 0
 
   return {
     allowed: used < limit,
@@ -70,7 +71,7 @@ export async function incrementUsage(
   const supabase = await createClient()
   const { error } = await supabase.rpc('increment_usage', {
     p_user_id: userId,
-    p_field: field,
+    p_field: `${field}_used`,
     p_amount: 1,
   })
 

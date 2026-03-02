@@ -232,3 +232,20 @@ No admin or super_admin role-based policies exist. Admin pages use `supabase.fro
 5. **Fix broken table references:** `dates` and `conversations` tables don't exist anywhere. The pages referencing them will error.
 
 6. **Unify profile subscription columns:** Both `plan` and `subscription_tier` exist on profiles, used by different parts of the app. Should consolidate to one.
+
+---
+
+## Phase 2 Fixes (Migration 012)
+
+Based on cross-referencing with backend-dev findings:
+
+### Fixed in Migration 012:
+1. **Created `increment_referral_credits` RPC function** - Called by `api/referral/convert/route.ts` but never defined. Now increments both `referral_credits` and `free_months_earned` on profiles.
+2. **Consolidated `clapcheeks_referrals` columns** - Ensured both `referred_id` and `referee_id` columns exist (different parts of the app use different names).
+3. **Ensured all profile columns exist** - Added `plan`, `subscription_status`, `stripe_subscription_id`, `profile_completed`, `onboarding_completed`, `selected_mode`, `selected_platforms`, `rizz_score`, `total_matches`, `dates_booked`, `total_spend` via `ADD COLUMN IF NOT EXISTS`.
+4. **Promoted all script-only tables to migrations** - All 14 tables from `web/scripts/` now have `CREATE TABLE IF NOT EXISTS` in migration 012 with full RLS policies.
+
+### Fixed in App Code:
+1. **`usage.ts` column name mismatch** - `checkLimit()` was selecting `swipes` but the DB column is `swipes_used`. Fixed to use `${field}_used` pattern matching `getUsageSummary()`.
+2. **`usage.ts` RPC field name** - `incrementUsage()` was passing `swipes` to `increment_usage()` but the function validates against `swipes_used`. Fixed to append `_used` suffix.
+3. **Updated `web/lib/supabase/types.ts`** - Complete rewrite with all 22 tables, correct column types, RPC function signatures, and convenience type aliases. Fixed `subscriptions` -> `clapcheeks_subscriptions` table name.
