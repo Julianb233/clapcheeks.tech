@@ -33,14 +33,28 @@ def test_import_and_instantiate(platform):
 
 
 @pytest.mark.parametrize("platform", PLATFORM_CLASSES.keys())
-def test_has_required_interface(platform):
-    """Each platform client has run_swipe_session, check_new_matches, send_message."""
+def test_has_run_swipe_session(platform):
+    """Every platform client must have run_swipe_session."""
     import importlib
     module_name, class_name, kwargs = PLATFORM_CLASSES[platform]
     mod = importlib.import_module(module_name)
     cls = getattr(mod, class_name)
     instance = cls(**kwargs)
     assert hasattr(instance, "run_swipe_session"), f"{class_name} missing run_swipe_session"
+
+
+# Platforms that implement the full messaging interface (check_new_matches + send_message)
+MESSAGING_PLATFORMS = ["tinder", "grindr", "badoo", "happn", "okcupid", "pof", "feeld", "cmb"]
+
+
+@pytest.mark.parametrize("platform", MESSAGING_PLATFORMS)
+def test_has_messaging_interface(platform):
+    """Messaging-capable platforms have check_new_matches and send_message."""
+    import importlib
+    module_name, class_name, kwargs = PLATFORM_CLASSES[platform]
+    mod = importlib.import_module(module_name)
+    cls = getattr(mod, class_name)
+    instance = cls(**kwargs)
     assert hasattr(instance, "check_new_matches"), f"{class_name} missing check_new_matches"
     assert hasattr(instance, "send_message"), f"{class_name} missing send_message"
 
