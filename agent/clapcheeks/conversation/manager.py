@@ -7,6 +7,7 @@ import time
 import requests
 
 from clapcheeks.ai.date_ask import should_ask_for_date, generate_date_ask, generate_reengagement
+from clapcheeks.ai.reply import generate_reply
 from clapcheeks.conversation.state import get_conversation, update_conversation, get_stale_conversations
 from clapcheeks.session.rate_limiter import sleep_jitter
 
@@ -77,6 +78,10 @@ class ConversationManager:
             return "replied"
         return "opened"
 
+    def generate_reply_for_conversation(self, conversation_history: list[dict], platform: str) -> str:
+        """Generate a reply using the local AI fallback chain."""
+        return generate_reply(conversation_history, platform)
+
     def suggest_reply(self, conversation: list[dict], contact_name: str | None = None, calendar_context: str | None = None) -> str | None:
         try:
             # Analyze match's style
@@ -102,8 +107,12 @@ class ConversationManager:
             resp.raise_for_status()
             return resp.json().get("suggestion", "").strip()
         except Exception as exc:
-            logger.warning("AI service call failed: %s", exc)
-            return None
+            logger.warning("AI service call failed: %s — trying local fallback", exc)
+            try:
+                return generate_reply(conversation, self._platform)
+            except Exception as fallback_exc:
+                logger.warning("Local fallback also failed: %s", fallback_exc)
+                return None
 
     def suggest_date_message(self, match_name: str, conversation: list[dict]) -> str | None:
         free_slots = self._get_free_slots()
