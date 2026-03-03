@@ -2,18 +2,18 @@
 
 **Last Updated:** 2026-03-03
 **Current Milestone:** v0.7 Production Hardening
-**Current Phase:** Phase 27 — DB Schema Fixes (COMPLETE)
+**Current Phase:** Phase 30 — Agent Reliability (COMPLETE)
 
 ---
 
 ## Current Position
 
 - Milestone: 7 of 7 (Production Hardening)
-- Phase: 27 of 31 (DB Schema Fixes — COMPLETE)
+- Phase: 30 of 31 (Agent Reliability — COMPLETE)
 - Plan: 3 of 3 in phase (all complete)
-- Status: Phase 27 complete — ready for Phase 28
+- Status: Phase 30 complete
 
-Progress: ███████████████████████████░░░░ (M1-M6 complete, M7 Phase 27 done)
+Progress: ██████████████████████████████░ (M1-M6 complete, M7 Phases 27, 30, 31 done)
 
 ---
 
@@ -43,7 +43,7 @@ Progress: ███████████████████████�
 | 27 | DB Schema Fixes | DB-01 through DB-08 | COMPLETE |
 | 28 | Security & API Hardening | SEC-01 through SEC-07 | Not Started |
 | 29 | Billing Completion | BILL-01 through BILL-06 | Not Started |
-| 30 | Agent Reliability | AGENT-01 through AGENT-05 | Not Started |
+| 30 | Agent Reliability | AGENT-01 through AGENT-05 | COMPLETE |
 | 31 | Frontend Polish | FE-01 through FE-05 | COMPLETE |
 
 ---
@@ -74,6 +74,9 @@ Progress: ███████████████████████�
 | milestone-not-hotfix | Structure fixes as a milestone with phases | Maintains GSD workflow discipline, enables parallel execution |
 | analytics-consolidation | Drop old clapcheeks_analytics_daily, rename analytics_daily | Two tables existed with different schemas; consolidated into one using richer migration 009 schema |
 | profiles-rls-restrict | Restrict profiles to own-row reads only | scripts/001 had USING(true) policy — security vulnerability |
+| agent-degraded-via-supabase | Push degraded status to clapcheeks_agent_tokens table | Dashboard polls agent token row for degraded_platform/reason |
+| queue-exponential-backoff | Replace fixed retry with exponential backoff (5s-5min) | Prevents hammering Supabase during outages, MAX_RETRIES 50 |
+| fda-runtime-recheck | Re-check FDA every 5 min in background thread | Auto-re-enables iMessage when user grants permission back |
 
 ---
 
@@ -90,9 +93,9 @@ Progress: ███████████████████████�
 ## Session Continuity
 
 Last session: 2026-03-03
-Stopped at: Completed Phase 31 (Frontend Polish) — all 3 plans
+Stopped at: Completed Phase 30 (Agent Reliability) — all 3 plans
 Resume file: None
 
 ---
 
-*State updated: 2026-03-03 — Phase 31 Frontend Polish complete (3/3 plans, FE-01 through FE-05 resolved)*
+*State updated: 2026-03-03 — Phase 30 Agent Reliability complete (3/3 plans, AGENT-01 through AGENT-05 resolved)*
