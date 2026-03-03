@@ -50,18 +50,18 @@ export default function LoginForm() {
         {/* Logo */}
         <div className="flex items-center justify-center gap-2 mb-10">
           <Link href="/" className="flex items-center gap-2 group">
-            <span className="text-2xl font-bold gradient-text">Clapcheeks</span>
-            <span className="text-xs text-white/30 font-mono bg-white/5 px-2 py-0.5 rounded">
+            <span className="font-display text-3xl gold-text uppercase tracking-wide">Clapcheeks</span>
+            <span className="font-body text-xs text-white/30 font-mono bg-white/5 px-2 py-0.5 rounded border border-white/10">
               beta
             </span>
           </Link>
         </div>
-        <div className="w-16 h-0.5 bg-gradient-to-r from-transparent via-brand-500 to-transparent mx-auto mb-8" />
+        <div className="w-16 h-0.5 bg-gradient-to-r from-transparent via-yellow-500 to-transparent mx-auto mb-8" />
 
         {/* Card */}
-        <div className="bg-white/[0.03] border border-white/[0.12] rounded-2xl p-8 glow-border shadow-2xl shadow-brand-900/20">
-          <h1 className="text-2xl font-bold text-white mb-1">Welcome back</h1>
-          <p className="text-white/40 text-sm mb-8">Sign in to your Clapcheeks account</p>
+        <div className="rounded-2xl p-8 shadow-2xl" style={{ background: 'rgba(0,0,0,0.7)', border: '1px solid rgba(201,164,39,0.2)', boxShadow: '0 0 60px rgba(201,164,39,0.05)' }}>
+          <h1 className="font-display text-3xl text-white uppercase mb-1">Welcome Back</h1>
+          <p className="font-body text-white/40 text-sm mb-8">Sign in to your Clapcheeks account</p>
 
           {/* Error */}
           {(error || urlError) && (
@@ -75,7 +75,7 @@ export default function LoginForm() {
             type="button"
             onClick={handleGoogleLogin}
             disabled={googleLoading || isLoading}
-            className="w-full flex items-center justify-center gap-3 bg-white/5 hover:bg-white/10 border border-white/10 hover:border-white/20 text-white font-medium py-3 rounded-xl transition-all duration-200 mb-6 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="font-body w-full flex items-center justify-center gap-3 bg-white/5 hover:bg-white/10 border border-white/10 hover:border-yellow-500/30 text-white font-medium py-3 rounded-xl transition-all duration-200 mb-6 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {googleLoading ? (
               <span className="w-5 h-5 border-2 border-white/20 border-t-white rounded-full animate-spin" />
@@ -127,7 +127,7 @@ export default function LoginForm() {
             <button
               type="submit"
               disabled={isLoading || googleLoading}
-              className="w-full bg-brand-600 hover:bg-brand-500 text-white font-medium py-3 rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-lg shadow-brand-900/40 hover:animate-glow"
+              className="btn-gold font-body w-full py-3 rounded-xl disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm"
             >
               {isLoading ? (
                 <span className="w-5 h-5 border-2 border-white/20 border-t-white rounded-full animate-spin" />

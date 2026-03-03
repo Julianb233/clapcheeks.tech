@@ -55,55 +55,62 @@ const privacyPoints = [
 export default function Privacy() {
   return (
     <section id="privacy" className="py-28 px-6 relative overflow-hidden">
-
       <div className="max-w-7xl mx-auto relative">
         <div className="grid lg:grid-cols-2 gap-16 items-center">
           {/* Left: copy */}
           <div>
-            <div className="inline-flex items-center gap-2 bg-emerald-900/30 border border-emerald-700/40 rounded-full px-4 py-1.5 mb-6">
-              <div className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-              <span className="text-emerald-300 text-xs font-medium">Privacy-first design</span>
+            <div className="flex items-center gap-3 mb-6">
+              <div className="h-px w-8 bg-emerald-500" />
+              <span className="text-emerald-400 text-xs font-body font-bold tracking-widest uppercase">
+                Privacy-first design
+              </span>
             </div>
 
-            <h2 className="text-3xl sm:text-4xl lg:text-5xl font-bold text-white mb-6 leading-tight">
-              Your private life{' '}
-              <span className="gradient-text">stays private</span>
+            <h2 className="font-display text-5xl sm:text-6xl lg:text-7xl text-white uppercase leading-none mb-5">
+              YOUR DATA.
+              <br />
+              <span className="gold-text">YOUR MAC.</span>
+              <br />
+              FULL STOP.
             </h2>
 
-            <p className="text-white/50 text-lg leading-relaxed mb-8">
+            <p className="font-body text-white/50 text-lg leading-relaxed mb-8">
               Dating is intimate. We built Clapcheeks from day one assuming we should never see your
               data. Not because of regulation — because it&apos;s the right thing to do.
             </p>
 
-            {/* Big privacy statement */}
-            <div className="bg-white/[0.025] border border-white/8 rounded-2xl p-6 mb-8">
+            {/* Privacy statement */}
+            <div
+              className="rounded-2xl p-6 mb-8"
+              style={{
+                background: 'rgba(0,0,0,0.5)',
+                border: '1px solid rgba(201,164,39,0.2)',
+              }}
+            >
               <div className="flex items-start gap-4">
-                <div className="w-10 h-10 rounded-xl bg-emerald-900/50 border border-emerald-700/40 flex items-center justify-center shrink-0 mt-0.5">
+                <div
+                  className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 mt-0.5"
+                  style={{ background: 'rgba(201,164,39,0.1)', border: '1px solid rgba(201,164,39,0.3)' }}
+                >
                   <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-                    <path
-                      d="M9 2L3 5V9.5C3 12.8 5.7 15.9 9 16.5C12.3 15.9 15 12.8 15 9.5V5L9 2Z"
-                      stroke="#34d399"
-                      strokeWidth="1.5"
-                      strokeLinejoin="round"
-                    />
-                    <path d="M6 9L8 11L12 7" stroke="#34d399" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                    <path d="M9 2L3 5V9.5C3 12.8 5.7 15.9 9 16.5C12.3 15.9 15 12.8 15 9.5V5L9 2Z" stroke="#C9A427" strokeWidth="1.5" strokeLinejoin="round" />
+                    <path d="M6 9L8 11L12 7" stroke="#C9A427" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
                   </svg>
                 </div>
                 <div>
-                  <p className="text-white/80 text-sm leading-relaxed italic">
+                  <p className="font-body text-white/80 text-sm leading-relaxed italic">
                     &ldquo;Your messages, matches, and conversations never leave your device. Clapcheeks runs
-                    entirely on your Mac. The only data synced to our servers is anonymized metrics
-                    (swipe counts, conversion rates) to power your dashboard. We will never read
-                    your messages.&rdquo;
+                    entirely on your Mac. The only data synced to our servers is anonymized metrics.
+                    We will never read your messages.&rdquo;
                   </p>
-                  <p className="text-white/30 text-xs mt-2">— Clapcheeks Privacy Commitment</p>
+                  <p className="font-body text-white/30 text-xs mt-2">— Clapcheeks Privacy Commitment</p>
                 </div>
               </div>
             </div>
 
             <a
               href="/privacy"
-              className="inline-flex items-center gap-1.5 text-sm text-brand-400 hover:text-brand-300 transition-colors"
+              className="font-body inline-flex items-center gap-1.5 text-sm text-yellow-400 hover:text-yellow-300 transition-colors font-semibold"
             >
               Read our full privacy policy
               <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
@@ -117,13 +124,16 @@ export default function Privacy() {
             {privacyPoints.map((point) => (
               <div
                 key={point.title}
-                className="feature-card bg-white/[0.02] border border-white/8 rounded-2xl p-5 group"
+                className="feature-card alpha-card rounded-2xl p-5 group"
               >
-                <div className="w-9 h-9 rounded-xl bg-brand-900/50 border border-brand-800/50 flex items-center justify-center text-brand-400 mb-4 group-hover:bg-brand-800/50 transition-colors">
+                <div
+                  className="w-9 h-9 rounded-xl flex items-center justify-center text-yellow-400 mb-4 transition-colors group-hover:text-yellow-300"
+                  style={{ background: 'rgba(201,164,39,0.08)', border: '1px solid rgba(201,164,39,0.2)' }}
+                >
                   {point.icon}
                 </div>
-                <h4 className="text-sm font-semibold text-white mb-2">{point.title}</h4>
-                <p className="text-xs text-white/40 leading-relaxed">{point.description}</p>
+                <h4 className="font-display text-xl text-white mb-2 uppercase tracking-wide">{point.title}</h4>
+                <p className="font-body text-xs text-white/40 leading-relaxed">{point.description}</p>
               </div>
             ))}
           </div>

@@ -1,10 +1,22 @@
 import type { Metadata } from 'next'
-import { Geist, Geist_Mono } from 'next/font/google'
+import { Bebas_Neue, DM_Sans, Geist_Mono } from 'next/font/google'
 import { Analytics } from '@vercel/analytics/next'
 import './globals.css'
 import './landing.css'
 
-const _geist = Geist({ subsets: ['latin'] })
+const bebasNeue = Bebas_Neue({
+  weight: '400',
+  subsets: ['latin'],
+  variable: '--font-bebas',
+  display: 'swap',
+})
+
+const dmSans = DM_Sans({
+  subsets: ['latin'],
+  variable: '--font-dm-sans',
+  display: 'swap',
+})
+
 const _geistMono = Geist_Mono({ subsets: ['latin'] })
 
 export const metadata: Metadata = {
@@ -57,8 +69,8 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className="dark scroll-smooth">
-      <body className="font-sans antialiased bg-black text-white">
+    <html lang="en" className={`dark scroll-smooth ${bebasNeue.variable} ${dmSans.variable}`}>
+      <body className="font-body antialiased bg-black text-white">
         {children}
         <Analytics />
       </body>

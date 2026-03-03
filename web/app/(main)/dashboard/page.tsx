@@ -273,8 +273,8 @@ export default async function Dashboard() {
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8">
           <div className="flex items-center gap-3">
-            <span className="text-xl sm:text-2xl font-bold bg-gradient-to-r from-pink-500 via-purple-500 to-pink-400 bg-clip-text text-transparent">Clapcheeks</span>
-            <span className="text-xs text-white/30 font-mono bg-white/5 px-2 py-0.5 rounded">beta</span>
+            <span className="font-display text-2xl sm:text-3xl tracking-wide gold-text uppercase">Clapcheeks</span>
+            <span className="font-body text-xs text-white/30 font-mono bg-white/5 px-2 py-0.5 rounded border border-white/10">beta</span>
             <PlanBadge plan={userPlan} subscriptionStatus={userSubStatus} />
           </div>
           <div className="flex items-center gap-2 flex-wrap">
@@ -334,11 +334,11 @@ export default async function Dashboard() {
           <AgentStatusBadge initialDevice={device} />
         </div>
 
-        <h1 className="text-2xl md:text-3xl font-bold text-white mb-2">
-          Hey {displayName}
+        <h1 className="font-display text-4xl md:text-5xl text-white uppercase leading-none mb-2">
+          HEY {displayName.toUpperCase()}
         </h1>
-        <p className="text-white/40 text-sm mb-8">
-          {hasAgent ? 'Last 30 days of activity' : 'Install the agent to start tracking your dating activity'}
+        <p className="font-body text-white/40 text-sm mb-8">
+          {hasAgent ? 'Last 30 days of activity — your agent is closing.' : 'Install the agent to start dominating your dating life.'}
         </p>
 
         {/* Stats row -- 5 cards with trend arrows */}
@@ -417,7 +417,7 @@ export default async function Dashboard() {
 
         {/* Elite Features */}
         <div className="space-y-4 mb-8">
-          <h2 className="text-white/60 text-xs font-semibold uppercase tracking-wider">
+          <h2 className="font-display text-2xl text-white uppercase tracking-wide gold-text">
             Elite Features
           </h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

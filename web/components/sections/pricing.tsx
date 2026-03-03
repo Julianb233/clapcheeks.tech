@@ -66,14 +66,20 @@ export default function Pricing() {
       <div className="max-w-7xl mx-auto relative">
         {/* Header */}
         <div className="text-center mb-16">
-          <div className="inline-flex items-center gap-2 bg-brand-900/40 border border-brand-700/40 rounded-full px-4 py-1.5 mb-5">
-            <span className="text-brand-300 text-xs font-medium">Simple pricing</span>
+          <div className="flex items-center justify-center gap-3 mb-5">
+            <div className="h-px w-8 bg-yellow-500" />
+            <span className="text-yellow-500 text-xs font-body font-bold tracking-widest uppercase">
+              Simple pricing
+            </span>
+            <div className="h-px w-8 bg-yellow-500" />
           </div>
-          <h2 className="text-3xl sm:text-4xl lg:text-5xl font-bold text-white mb-5">
-            Simple, Transparent Pricing
+          <h2 className="font-display text-5xl sm:text-6xl lg:text-7xl text-white uppercase leading-none mb-5">
+            PICK YOUR
+            <br />
+            <span className="gold-text">WEAPON.</span>
           </h2>
-          <p className="text-white/45 text-lg max-w-lg mx-auto leading-relaxed">
-            Start free. Upgrade when you&apos;re ready.
+          <p className="font-body text-white/45 text-lg max-w-lg mx-auto leading-relaxed">
+            Start free. Upgrade when you&apos;re ready to dominate.
           </p>
         </div>
 
@@ -84,8 +90,8 @@ export default function Pricing() {
               key={plan.name}
               className={`relative flex flex-col rounded-2xl p-6 transition-all duration-300 ${
                 plan.popular
-                  ? 'bg-brand-900/30 border-2 border-[#D4AF37]/60 md:scale-105 md:-my-2 shadow-lg shadow-[#D4AF37]/10'
-                  : 'bg-white/[0.02] border border-white/8 hover:border-white/15'
+                  ? 'bg-black/60 border-2 border-[#C9A427]/60 md:scale-105 md:-my-2 shadow-lg shadow-[#C9A427]/10'
+                  : 'bg-black/40 border border-white/8 hover:border-yellow-500/25'
               }`}
             >
               {/* Popular badge */}
@@ -100,17 +106,17 @@ export default function Pricing() {
               {/* Plan header */}
               <div className="mb-6 pt-2">
                 <h3
-                  className={`text-base font-bold mb-1 ${
+                  className={`font-display text-2xl uppercase tracking-wide mb-1 ${
                     plan.popular ? 'text-[#D4AF37]' : 'text-white/70'
                   }`}
                 >
                   {plan.name}
                 </h3>
                 <div className="flex items-baseline gap-1 mb-2">
-                  <span className="text-4xl font-extrabold text-white">{plan.price}</span>
-                  <span className="text-white/35 text-sm">{plan.period}</span>
+                  <span className="font-display text-5xl text-white leading-none">{plan.price}</span>
+                  <span className="font-body text-white/35 text-sm">{plan.period}</span>
                 </div>
-                <p className="text-xs text-white/35">{plan.tagline}</p>
+                <p className="font-body text-xs text-white/35">{plan.tagline}</p>
               </div>
 
               {/* Divider */}
@@ -138,7 +144,7 @@ export default function Pricing() {
                         className={plan.popular ? 'text-[#D4AF37]' : 'text-white/40'}
                       />
                     </div>
-                    <span className="text-sm text-white/55 leading-snug">{feature}</span>
+                    <span className="font-body text-sm text-white/55 leading-snug">{feature}</span>
                   </li>
                 ))}
               </ul>
@@ -146,10 +152,10 @@ export default function Pricing() {
               {/* CTA */}
               <Link
                 href={plan.ctaHref}
-                className={`block text-center font-semibold text-sm py-3 rounded-xl transition-all duration-200 active:scale-[0.98] ${
+                className={`block text-center font-body font-bold text-sm py-3 rounded-xl transition-all duration-200 active:scale-[0.98] uppercase tracking-wider ${
                   plan.popular
-                    ? 'bg-gradient-to-r from-[#D4AF37] to-[#F5D76E] hover:from-[#C4A030] hover:to-[#E5C75E] text-black shadow-lg shadow-[#D4AF37]/30'
-                    : 'bg-white/6 hover:bg-white/10 border border-white/10 hover:border-white/20 text-white'
+                    ? 'bg-gradient-to-r from-[#C9A427] to-[#E8C547] hover:from-[#B89020] hover:to-[#D4B040] text-black shadow-lg shadow-[#C9A427]/30'
+                    : 'bg-white/6 hover:bg-white/10 border border-white/10 hover:border-yellow-500/30 text-white hover:text-yellow-400'
                 }`}
               >
                 {plan.cta}
@@ -160,12 +166,12 @@ export default function Pricing() {
 
         {/* Free tier note */}
         <div className="text-center mt-10">
-          <p className="text-sm text-white/40 mb-2">
+          <p className="font-body text-sm text-white/40 mb-2">
             Start free — Tinder only, 50 swipes/day, no credit card required.
           </p>
           <Link
             href="/auth/sign-up"
-            className="text-brand-400 hover:text-brand-300 text-sm font-semibold transition-colors"
+            className="font-body text-yellow-400 hover:text-yellow-300 text-sm font-bold transition-colors uppercase tracking-wider"
           >
             Sign up free &rarr;
           </Link>
@@ -173,7 +179,7 @@ export default function Pricing() {
 
         {/* Bottom note */}
         <div className="text-center mt-6">
-          <p className="text-xs text-white/25">
+          <p className="font-body text-xs text-white/25">
             All prices in USD &middot; Cancel anytime &middot; 7-day free trial on all plans
           </p>
         </div>
