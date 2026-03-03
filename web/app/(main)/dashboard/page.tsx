@@ -9,6 +9,7 @@ import EliteOnly from '@/components/elite-only'
 import CoachingSection from './components/coaching-section'
 import DashboardLive from './components/dashboard-live'
 import AgentStatusBadge from './components/agent-status-badge'
+import IMessageTestPanel from './components/imessage-test-panel'
 import { getLatestCoaching } from '@/lib/coaching/generate'
 import { TrendCard } from './components/trend-card'
 import { DashboardCharts } from './components/dashboard-charts'
@@ -457,6 +458,11 @@ export default async function Dashboard() {
             <CoachingSection initialSession={coachingSession} />
           </div>
         )}
+
+        {/* iMessage Test Panel */}
+        <div className="mb-8">
+          <IMessageTestPanel />
+        </div>
 
       </div>
     </div>

@@ -14,6 +14,20 @@ interface Stats {
   heatmap: { day: number; hour: number; total: number; replied: number }[]
 }
 
+// Derive a human-readable "communication persona" from match reply patterns
+function getPersona(replyRate: number): { label: string; color: string; desc: string } {
+  if (replyRate >= 0.6) return { label: 'Engaged Texter', color: 'text-green-400', desc: 'Replies quickly and often — high interest signal.' }
+  if (replyRate >= 0.35) return { label: 'Selective Responder', color: 'text-amber-400', desc: 'Responds selectively — quality over frequency.' }
+  return { label: 'Slow Burn', color: 'text-blue-400', desc: 'Takes time to warm up — patience pays off.' }
+}
+
+// Infer what communication style works best from A/B data
+function getBestStyle(styles: { style: string; reply_rate: number }[]): string {
+  if (!styles.length) return 'No data yet'
+  const best = [...styles].sort((a, b) => b.reply_rate - a.reply_rate)[0]
+  return best.style.charAt(0).toUpperCase() + best.style.slice(1)
+}
+
 interface ABResult {
   styles: { style: string; sent: number; reply_rate: number }[]
   winner: string | null
@@ -228,6 +242,88 @@ export default function IntelligencePage() {
           ) : (
             <p className="text-white/30 text-xs">
               No A/B test data yet. Tag your openers with different styles to compare performance.
+            </p>
+          )}
+        </div>
+
+        {/* Section: Match Communication Style */}
+        <div className="bg-white/[0.03] border border-white/[0.08] rounded-xl p-6 mb-6">
+          <h2 className="text-white font-semibold text-sm uppercase tracking-wider mb-1">
+            How Your Matches Communicate
+          </h2>
+          <p className="text-white/30 text-xs mb-5">
+            Based on reply patterns, timing, and which opener styles get responses — this is how your matches behave.
+          </p>
+
+          {stats ? (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {/* Communication persona */}
+              <div className="bg-white/[0.03] rounded-xl p-4">
+                <div className="text-white/40 text-[10px] uppercase tracking-wider mb-2">Overall Persona</div>
+                {(() => {
+                  const p = getPersona(stats.opener_reply_rate)
+                  return (
+                    <>
+                      <div className={`text-lg font-bold mb-1 ${p.color}`}>{p.label}</div>
+                      <div className="text-white/40 text-xs leading-relaxed">{p.desc}</div>
+                    </>
+                  )
+                })()}
+              </div>
+
+              {/* Best response style */}
+              <div className="bg-white/[0.03] rounded-xl p-4">
+                <div className="text-white/40 text-[10px] uppercase tracking-wider mb-2">They Respond Best To</div>
+                <div className="text-lg font-bold text-white mb-1">
+                  {abTest ? getBestStyle(abTest.styles) : 'Warm'}
+                </div>
+                <div className="text-white/40 text-xs leading-relaxed">
+                  {abTest?.winner
+                    ? `"${abTest.winner}" openers get the most replies across your matches.`
+                    : 'Run the A/B test longer to see which style wins.'}
+                </div>
+              </div>
+
+              {/* Response timing */}
+              <div className="bg-white/[0.03] rounded-xl p-4">
+                <div className="text-white/40 text-[10px] uppercase tracking-wider mb-2">Best Time to Message</div>
+                <div className="text-lg font-bold text-white mb-1">
+                  {stats.best_send_time
+                    ? `${stats.best_send_time.day} ${stats.best_send_time.hour}:00`
+                    : 'Eve / Weekends'}
+                </div>
+                <div className="text-white/40 text-xs leading-relaxed">
+                  {stats.best_send_time
+                    ? 'Highest reply rate based on when you send.'
+                    : 'Need more data — send more messages to calibrate.'}
+                </div>
+              </div>
+
+              {/* Conversion breakdown */}
+              <div className="bg-white/[0.03] rounded-xl p-4 md:col-span-3">
+                <div className="text-white/40 text-[10px] uppercase tracking-wider mb-3">Conversion Rates</div>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  {(() => {
+                    const f = stats.stage_funnel
+                    const rates = [
+                      { label: 'Open → Reply',     value: f.opened  > 0 ? ((f.replied    / f.opened)  * 100).toFixed(0) + '%' : '—' },
+                      { label: 'Reply → Date-Ready', value: f.replied > 0 ? ((f.date_ready / f.replied) * 100).toFixed(0) + '%' : '—' },
+                      { label: 'Date-Ready → Booked', value: f.date_ready > 0 ? ((f.booked / f.date_ready) * 100).toFixed(0) + '%' : '—' },
+                      { label: 'Open → Date',      value: f.opened  > 0 ? ((f.booked     / f.opened)  * 100).toFixed(0) + '%' : '—' },
+                    ]
+                    return rates.map(r => (
+                      <div key={r.label} className="text-center">
+                        <div className="text-2xl font-bold text-white">{r.value}</div>
+                        <div className="text-white/35 text-[10px] mt-0.5">{r.label}</div>
+                      </div>
+                    ))
+                  })()}
+                </div>
+              </div>
+            </div>
+          ) : (
+            <p className="text-white/30 text-xs">
+              No data yet. Once your agent is running and messages are flowing, communication patterns will appear here.
             </p>
           )}
         </div>
