@@ -24,6 +24,14 @@ if (process.env.NODE_ENV === 'production') {
     console.error('Server cannot start without these variables set.')
     process.exit(1)
   }
+
+  // Guard against test Stripe keys in production
+  const stripeKey = process.env.STRIPE_SECRET_KEY || ''
+  if (stripeKey.startsWith('sk_test_')) {
+    console.error('[FATAL] STRIPE_SECRET_KEY is a test key but NODE_ENV=production')
+    console.error('Use live Stripe keys in production. Refusing to start.')
+    process.exit(1)
+  }
 } else {
   if (!process.env.STRIPE_WEBHOOK_SECRET) {
     console.warn('[WARN] STRIPE_WEBHOOK_SECRET not set — webhook verification disabled')

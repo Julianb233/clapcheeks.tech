@@ -38,7 +38,8 @@ export default function BillingClient({ plan, subscriptionStatus, hasStripeCusto
   const [billing, setBilling] = useState<BillingData | null>(null)
   const [loading, setLoading] = useState(true)
   const [portalLoading, setPortalLoading] = useState(false)
-  const [cancelConfirm, setCancelConfirm] = useState(false)
+  const [retryLoading, setRetryLoading] = useState(false)
+  const [retryResult, setRetryResult] = useState<{ ok: boolean; message: string } | null>(null)
 
   useEffect(() => {
     if (!hasStripeCustomer) {
@@ -78,6 +79,24 @@ export default function BillingClient({ plan, subscriptionStatus, hasStripeCusto
       }
     } catch {
       // ignore
+    }
+  }
+
+  async function handleRetryPayment() {
+    setRetryLoading(true)
+    setRetryResult(null)
+    try {
+      const res = await fetch('/api/billing/retry', { method: 'POST' })
+      const data = await res.json()
+      if (res.ok) {
+        setRetryResult({ ok: true, message: 'Payment retry initiated. Your subscription will be updated shortly.' })
+      } else {
+        setRetryResult({ ok: false, message: data.error || 'Failed to retry payment' })
+      }
+    } catch {
+      setRetryResult({ ok: false, message: 'Network error. Please try again.' })
+    } finally {
+      setRetryLoading(false)
     }
   }
 
@@ -140,6 +159,36 @@ export default function BillingClient({ plan, subscriptionStatus, hasStripeCusto
 
   return (
     <div className="space-y-6">
+      {/* Payment Failed Banner */}
+      {subscriptionStatus === 'past_due' && (
+        <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-4">
+          <div className="text-red-400 font-semibold text-sm mb-1">Payment Failed</div>
+          <p className="text-white/50 text-xs mb-3">
+            Your last payment didn&apos;t go through. Please update your payment method or retry.
+          </p>
+          {retryResult && (
+            <p className={`text-xs mb-2 ${retryResult.ok ? 'text-green-400' : 'text-red-400'}`}>
+              {retryResult.message}
+            </p>
+          )}
+          <div className="flex items-center gap-3">
+            <button
+              onClick={handleRetryPayment}
+              disabled={retryLoading}
+              className="text-sm bg-red-500/20 hover:bg-red-500/30 text-red-300 px-4 py-2 rounded-lg transition-colors disabled:opacity-50"
+            >
+              {retryLoading ? 'Retrying...' : 'Retry Payment'}
+            </button>
+            <button
+              onClick={openPortal}
+              className="text-xs text-white/40 hover:text-white/60 transition-colors"
+            >
+              Update payment method
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Current Plan Card */}
       <div className="bg-white/5 border border-white/10 rounded-xl p-6">
         <div className="flex items-center justify-between mb-4">
@@ -247,39 +296,19 @@ export default function BillingClient({ plan, subscriptionStatus, hasStripeCusto
       {!billing?.cancelAtPeriodEnd && (
         <div className="bg-white/[0.02] border border-white/5 rounded-xl p-6">
           <h2 className="text-white/60 text-xs font-semibold uppercase tracking-wider mb-3">Cancel Subscription</h2>
-          {!cancelConfirm ? (
-            <div>
-              <p className="text-white/30 text-sm mb-3">
-                Cancel your subscription. You&apos;ll keep access until the end of your billing period.
-              </p>
-              <button
-                onClick={() => setCancelConfirm(true)}
-                className="text-red-400/60 hover:text-red-400 text-xs border border-red-500/20 hover:border-red-500/40 px-4 py-2 rounded-xl transition-all"
-              >
-                Cancel subscription
-              </button>
-            </div>
-          ) : (
-            <div>
-              <p className="text-white/50 text-sm mb-4">
-                Are you sure? Your plan will remain active until the end of the current billing period.
-              </p>
-              <div className="flex items-center gap-3">
-                <button
-                  onClick={openPortal}
-                  className="text-red-400 text-xs bg-red-900/20 hover:bg-red-900/40 border border-red-500/30 px-4 py-2 rounded-xl transition-all"
-                >
-                  Yes, cancel
-                </button>
-                <button
-                  onClick={() => setCancelConfirm(false)}
-                  className="text-white/40 text-xs bg-white/5 hover:bg-white/10 border border-white/10 px-4 py-2 rounded-xl transition-all"
-                >
-                  Keep subscription
-                </button>
-              </div>
-            </div>
-          )}
+          <p className="text-white/30 text-sm mb-3">
+            To modify or cancel your subscription, manage it through Stripe.
+          </p>
+          <button
+            onClick={openPortal}
+            disabled={portalLoading}
+            className="text-white/50 hover:text-white/70 text-xs bg-white/5 hover:bg-white/10 border border-white/10 px-4 py-2 rounded-xl transition-all"
+          >
+            {portalLoading ? 'Loading...' : 'Manage in Stripe \u2192'}
+          </button>
+          <p className="text-white/20 text-[10px] mt-2">
+            You&apos;ll be redirected to Stripe to modify or cancel your subscription.
+          </p>
         </div>
       )}
 
