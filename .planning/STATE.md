@@ -2,18 +2,18 @@
 
 **Last Updated:** 2026-03-03
 **Current Milestone:** v0.7 Production Hardening
-**Current Phase:** Phase 30 — Agent Reliability (COMPLETE)
+**Current Phase:** Phase 29 — Billing Completion (COMPLETE)
 
 ---
 
 ## Current Position
 
 - Milestone: 7 of 7 (Production Hardening)
-- Phase: 30 of 31 (Agent Reliability — COMPLETE)
+- Phase: 29 of 31 (Billing Completion — COMPLETE)
 - Plan: 3 of 3 in phase (all complete)
-- Status: Phase 30 complete
+- Status: All M7 phases complete
 
-Progress: ██████████████████████████████░ (M1-M6 complete, M7 Phases 27, 30, 31 done)
+Progress: ████████████████████████████████ (M1-M6 complete, M7 all phases done)
 
 ---
 
@@ -42,7 +42,7 @@ Progress: ███████████████████████�
 |-------|------|-------------|--------|
 | 27 | DB Schema Fixes | DB-01 through DB-08 | COMPLETE |
 | 28 | Security & API Hardening | SEC-01 through SEC-07 | COMPLETE |
-| 29 | Billing Completion | BILL-01 through BILL-06 | Not Started |
+| 29 | Billing Completion | BILL-01 through BILL-06 | COMPLETE |
 | 30 | Agent Reliability | AGENT-01 through AGENT-05 | COMPLETE |
 | 31 | Frontend Polish | FE-01 through FE-05 | COMPLETE |
 
@@ -53,16 +53,15 @@ Progress: ███████████████████████�
 1. ~~**DB-01 CRITICAL:** `clapcheeks_agent_tokens` table missing~~ RESOLVED (24b0b40)
 2. ~~**DB-02 CRITICAL:** `analytics_daily` vs `clapcheeks_analytics_daily` name mismatch~~ RESOLVED (07d7e80)
 3. ~~**SEC-02 CRITICAL:** No server-side plan gating — free users access Elite features~~ RESOLVED (69b62f1)
-4. **BILL-01 CRITICAL:** Failed payments don't revoke access — revenue leak
-5. **BILL-02 CRITICAL:** Trial periods not implemented in webhook handler
+4. ~~**BILL-01 CRITICAL:** Failed payments don't revoke access — revenue leak~~ RESOLVED (ea631f1)
+5. ~~**BILL-02 CRITICAL:** Trial periods not implemented in webhook handler~~ RESOLVED (ea631f1)
 
 ---
 
 ## Next Actions
 
-1. **Execute Phase 28** — Security & API Hardening
-2. **Execute Phase 29** — Billing Completion
-3. Work through phases 30-31
+1. All M7 phases (27-31) are complete
+2. Final integration testing and deployment
 
 ---
 
@@ -80,6 +79,9 @@ Progress: ███████████████████████�
 | agent-degraded-via-supabase | Push degraded status to clapcheeks_agent_tokens table | Dashboard polls agent token row for degraded_platform/reason |
 | queue-exponential-backoff | Replace fixed retry with exponential backoff (5s-5min) | Prevents hammering Supabase during outages, MAX_RETRIES 50 |
 | fda-runtime-recheck | Re-check FDA every 5 min in background thread | Auto-re-enables iMessage when user grants permission back |
+| subscription-tier-canonical | Consolidate plan/subscription_tier to subscription_tier only | Two fields stored same data; all code now uses subscription_tier exclusively |
+| grace-period-7day | 7-day grace period on payment failure before access revocation | access_expires_at column tracks when past_due users lose access |
+| stripe-key-guard | Fatal exit if sk_test_ key used in production | Prevents accidental test-mode billing in prod for both Express and Next.js |
 
 ---
 
@@ -96,9 +98,9 @@ Progress: ███████████████████████�
 ## Session Continuity
 
 Last session: 2026-03-03
-Stopped at: Completed Phase 30 (Agent Reliability) — all 3 plans
+Stopped at: Completed Phase 29 (Billing Completion) — all 3 plans
 Resume file: None
 
 ---
 
-*State updated: 2026-03-03 — Phase 30 Agent Reliability complete (3/3 plans, AGENT-01 through AGENT-05 resolved)*
+*State updated: 2026-03-03 — Phase 29 Billing Completion complete (3/3 plans, BILL-01 through BILL-06 resolved)*
