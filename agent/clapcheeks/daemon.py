@@ -117,6 +117,41 @@ _last_reengagement: dict[str, float] = {}
 # Helpers
 # ---------------------------------------------------------------------------
 
+REQUIRED_ENV_VARS = [
+    "SUPABASE_URL",
+    "SUPABASE_SERVICE_KEY",
+    "DEVICE_ID",
+]
+
+OPTIONAL_ENV_VARS = [
+    ("KIMI_API_KEY", "AI opener generation will be disabled"),
+    ("ANTHROPIC_API_KEY", "Claude AI features will be disabled"),
+    ("OPENAI_API_KEY", "OpenAI features will be disabled"),
+]
+
+
+def validate_env() -> None:
+    """Validate environment variables before starting workers."""
+    log.info("[STARTUP] Validating environment...")
+
+    # Check required vars -- hard fail
+    missing_required = [v for v in REQUIRED_ENV_VARS if not os.environ.get(v)]
+    if missing_required:
+        log.error("[FATAL] Missing required env vars: %s", ", ".join(missing_required))
+        print(f"[FATAL] Missing required env vars: {', '.join(missing_required)}")
+        print("Run `clapcheeks setup` to configure your environment.")
+        sys.exit(1)
+
+    # Check optional vars -- warn only
+    for var, consequence in OPTIONAL_ENV_VARS:
+        if not os.environ.get(var):
+            log.warning("[WARN] %s not set — %s", var, consequence)
+        else:
+            log.info("[OK]   %s is set", var)
+
+    log.info("[STARTUP] Environment validation passed")
+
+
 def _setup_logging() -> None:
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     logging.basicConfig(
@@ -297,6 +332,8 @@ def run_daemon() -> None:
     _setup_logging()
     signal.signal(signal.SIGTERM, _handle_sigterm)
     signal.signal(signal.SIGINT, _handle_sigterm)
+
+    validate_env()
 
     token = get_agent_token()
     if not token:

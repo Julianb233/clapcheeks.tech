@@ -2,15 +2,22 @@
 
 Queue file: ~/.clapcheeks/sync_queue.json
 Each entry has platform, date, metric fields, and a retry_count.
-Max 10 retries per entry. Deduplicates by (platform, date).
+Max 50 retries per entry with exponential backoff. Deduplicates by (platform, date).
 """
 from __future__ import annotations
 
 import json
+import logging
+import random
+import time
 from pathlib import Path
 
 QUEUE_FILE = Path.home() / ".clapcheeks" / "sync_queue.json"
-MAX_RETRIES = 10
+MAX_RETRIES = 50
+INITIAL_BACKOFF = 5       # seconds
+MAX_BACKOFF = 300         # 5 minutes max wait
+
+log = logging.getLogger(__name__)
 
 
 def _load_queue() -> list[dict]:
@@ -50,10 +57,10 @@ def queue_sync(payload: dict) -> None:
 
 
 def flush_queue(config: dict) -> int:
-    """Try to POST each queued item. Remove successes, keep failures.
+    """Try to POST each queued item with exponential backoff on failures.
 
     Returns count of successfully flushed items.
-    Skips items with retry_count > MAX_RETRIES.
+    Items exceeding MAX_RETRIES are dropped with a warning pushed to dashboard.
     """
     import requests
 
@@ -67,14 +74,23 @@ def flush_queue(config: dict) -> int:
 
     remaining = []
     flushed = 0
+    dropped = 0
 
     for item in queue:
-        if item.get("retry_count", 0) > MAX_RETRIES:
-            remaining.append(item)
+        retry_count = item.get("retry_count", 0)
+
+        if retry_count >= MAX_RETRIES:
+            log.error(
+                "[QUEUE] Dropping item after %d retries: %s/%s",
+                MAX_RETRIES,
+                item.get("platform", "?"),
+                item.get("date", "?"),
+            )
+            dropped += 1
             continue
 
-        # Build clean payload without retry_count
-        payload = {k: v for k, v in item.items() if k != "retry_count"}
+        # Build clean payload without retry metadata
+        payload = {k: v for k, v in item.items() if k not in ("retry_count", "last_backoff")}
 
         try:
             resp = requests.post(
@@ -85,15 +101,55 @@ def flush_queue(config: dict) -> int:
             )
             if resp.status_code == 200:
                 flushed += 1
+                if retry_count > 0:
+                    log.info("[QUEUE] Item recovered after %d retries", retry_count)
             else:
-                item["retry_count"] = item.get("retry_count", 0) + 1
+                item["retry_count"] = retry_count + 1
+                # Calculate backoff for logging
+                current_backoff = min(INITIAL_BACKOFF * (2 ** retry_count), MAX_BACKOFF)
+                jitter = random.uniform(0, current_backoff * 0.1)
+                item["last_backoff"] = current_backoff + jitter
+                log.warning(
+                    "[QUEUE] Flush failed (attempt %d/%d, HTTP %d). Next backoff: %.1fs",
+                    retry_count + 1, MAX_RETRIES, resp.status_code, item["last_backoff"],
+                )
                 remaining.append(item)
-        except Exception:
-            item["retry_count"] = item.get("retry_count", 0) + 1
+        except Exception as exc:
+            item["retry_count"] = retry_count + 1
+            current_backoff = min(INITIAL_BACKOFF * (2 ** retry_count), MAX_BACKOFF)
+            jitter = random.uniform(0, current_backoff * 0.1)
+            item["last_backoff"] = current_backoff + jitter
+            log.warning(
+                "[QUEUE] Flush failed (attempt %d/%d): %s. Next backoff: %.1fs",
+                retry_count + 1, MAX_RETRIES, exc, item["last_backoff"],
+            )
             remaining.append(item)
+
+    if dropped > 0:
+        _push_dropped_messages_warning(dropped)
 
     _save_queue(remaining)
     return flushed
+
+
+def _push_dropped_messages_warning(count: int) -> None:
+    """Notify Supabase that messages were dropped due to persistent failures."""
+    try:
+        import os
+        from clapcheeks.sync import _load_supabase_env
+        from supabase import create_client
+
+        url, key = _load_supabase_env()
+        if not url or not key:
+            return
+
+        client = create_client(url, key)
+        client.table("clapcheeks_agent_tokens").update({
+            "status": "degraded",
+            "degraded_reason": f"Message queue dropped {count} item(s) — persistent send failures",
+        }).eq("device_id", os.environ.get("DEVICE_ID", "default")).execute()
+    except Exception:
+        pass  # Don't let notification failure cascade
 
 
 def get_queue_size() -> int:
