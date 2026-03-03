@@ -73,13 +73,33 @@ export async function POST(request: NextRequest) {
       const lookupKey = subscription.items.data[0]?.price?.lookup_key || ''
       const planFromKey = lookupKey.split('_')[0] || 'base'
       const validPlans = ['base', 'starter', 'pro', 'elite']
-      const plan = validPlans.includes(planFromKey) ? planFromKey : 'base'
+      const tier = validPlans.includes(planFromKey) ? planFromKey : 'base'
+
+      // For trialing subscriptions, grant pro-level access during trial
+      const effectiveTier = subscription.status === 'trialing' ? 'pro' : tier
 
       await supabaseAdmin.from('profiles').update({
         subscription_status: subscription.status,
-        plan,
-        subscription_tier: plan,
+        plan: effectiveTier,
+        subscription_tier: effectiveTier,
+        trial_end: subscription.trial_end
+          ? new Date(subscription.trial_end * 1000).toISOString()
+          : null,
       }).eq('stripe_customer_id', customerId)
+      break
+    }
+
+    case 'customer.subscription.trial_will_end': {
+      const subscription = event.data.object as Stripe.Subscription
+      const customerId = subscription.customer as string
+
+      const { data: trialProfile } = await supabaseAdmin
+        .from('profiles')
+        .select('email')
+        .eq('stripe_customer_id', customerId)
+        .single()
+
+      console.log(`[BILLING] Trial ending soon for ${trialProfile?.email || customerId} — ends ${subscription.trial_end ? new Date(subscription.trial_end * 1000).toISOString() : 'unknown'}`)
       break
     }
 
@@ -87,9 +107,11 @@ export async function POST(request: NextRequest) {
       const subscription = event.data.object as Stripe.Subscription
       const customerId = subscription.customer as string
       await supabaseAdmin.from('profiles').update({
-        subscription_status: 'inactive',
-        plan: 'base',
+        subscription_status: 'canceled',
+        plan: 'free',
         subscription_tier: 'free',
+        access_expires_at: null,
+        trial_end: null,
       }).eq('stripe_customer_id', customerId)
       break
     }
@@ -98,9 +120,24 @@ export async function POST(request: NextRequest) {
       const invoice = event.data.object as Stripe.Invoice
       const customerId = invoice.customer as string
 
-      await supabaseAdmin.from('profiles').update({
-        subscription_status: 'past_due',
-      }).eq('stripe_customer_id', customerId)
+      // Set 7-day grace period — access expires in 7 days
+      const graceExpiry = new Date()
+      graceExpiry.setDate(graceExpiry.getDate() + 7)
+
+      const { data: failedProfile } = await supabaseAdmin
+        .from('profiles')
+        .select('id, email')
+        .eq('stripe_customer_id', customerId)
+        .single()
+
+      if (failedProfile) {
+        await supabaseAdmin.from('profiles').update({
+          subscription_status: 'past_due',
+          access_expires_at: graceExpiry.toISOString(),
+        }).eq('id', failedProfile.id)
+
+        console.log(`[BILLING] Payment failed for ${failedProfile.email} — access expires ${graceExpiry.toISOString()}`)
+      }
       break
     }
 
@@ -108,9 +145,10 @@ export async function POST(request: NextRequest) {
       const invoice = event.data.object as Stripe.Invoice
       const customerId = invoice.customer as string
 
-      // Clear past_due status on successful payment
+      // Clear past_due status and grace period on successful payment
       await supabaseAdmin.from('profiles').update({
         subscription_status: 'active',
+        access_expires_at: null,
       }).eq('stripe_customer_id', customerId)
       break
     }
