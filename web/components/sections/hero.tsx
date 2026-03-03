@@ -7,31 +7,94 @@ import { gsap } from 'gsap'
 
 const INSTALL_CMD = 'curl -fsSL https://clapcheeks.tech/install.sh | bash'
 
-// Male power-pose silhouette SVG
-function MaleSilhouette() {
+// Feminine silhouette — hourglass figure, hand-on-hip pose
+function FemaleSilhouette() {
   return (
     <svg
-      viewBox="0 0 280 520"
+      viewBox="0 0 220 520"
       fill="currentColor"
       className="w-full h-full"
       aria-hidden="true"
     >
-      {/* Head */}
-      <ellipse cx="140" cy="48" rx="38" ry="44" />
-      {/* Neck */}
-      <rect x="124" y="88" width="32" height="22" rx="4" />
-      {/* Trapezoid torso — wide alpha shoulders */}
-      <path d="M30 125 Q55 108 90 105 L140 112 L190 105 Q225 108 250 125 L235 280 L45 280 Z" />
-      {/* Left arm raised slightly out */}
-      <path d="M50 155 C30 175 12 240 8 295 Q5 318 18 325 L34 328 Q50 332 52 312 L72 220 Z" />
-      {/* Right arm raised slightly out */}
-      <path d="M230 155 C250 175 268 240 272 295 Q275 318 262 325 L246 328 Q230 332 228 312 L208 220 Z" />
-      {/* Lower torso */}
-      <path d="M58 275 L72 395 L208 395 L222 275 Z" />
-      {/* Left leg */}
-      <path d="M72 390 L52 510 L104 510 L140 420 Z" />
+      {/* Hair — flowing wave */}
+      <path d="M82 10 C68 4 56 12 52 26 C48 40 54 58 62 68 C58 62 56 48 60 36 C64 24 74 18 84 20 Z" />
+      <path d="M138 10 C152 4 164 12 168 26 C172 40 166 58 158 68 C162 62 164 48 160 36 C156 24 146 18 136 20 Z" />
+      <path d="M72 8 C60 2 52 14 54 28 C56 38 62 46 58 54 C54 46 52 32 56 20 C60 10 68 6 76 10 Z" />
+      {/* Head — slightly smaller, feminine */}
+      <ellipse cx="110" cy="44" rx="30" ry="36" />
+      {/* Neck — long and slender */}
+      <path d="M98 78 C96 86 96 94 98 100 L122 100 C124 94 124 86 122 78 C118 82 112 84 110 84 C108 84 102 82 98 78 Z" />
+      {/* Full body — single flowing hourglass path */}
+      {/* Shoulders narrow → bust → dramatic waist → flared hips → thighs */}
+      <path d="
+        M72 108
+        C58 112 46 122 44 136
+        C42 150 50 162 62 170
+        C70 176 80 180 84 190
+        C88 200 86 212 80 224
+        C70 238 56 250 54 266
+        C52 282 62 296 76 302
+        C90 308 104 310 110 310
+        C116 310 130 308 144 302
+        C158 296 168 282 166 266
+        C164 250 150 238 140 224
+        C134 212 132 200 136 190
+        C140 180 150 176 158 170
+        C170 162 178 150 176 136
+        C174 122 162 112 148 108
+        C136 104 122 102 110 103
+        C98 102 84 104 72 108
+        Z
+      " />
+      {/* Left arm — resting at side */}
+      <path d="
+        M58 130
+        C44 142 36 162 34 182
+        C32 200 36 218 42 228
+        L52 224
+        C48 214 46 198 48 182
+        C50 166 58 148 68 138
+        Z
+      " />
+      {/* Right arm — raised, hand on hip */}
+      <path d="
+        M162 130
+        C172 142 178 158 178 176
+        C178 190 174 202 168 210
+        C164 216 156 220 152 218
+        L158 212
+        C162 206 166 196 166 182
+        C166 168 162 152 154 140
+        Z
+      " />
+      {/* Left leg — long, shapely */}
+      <path d="
+        M68 306
+        C60 322 54 344 52 366
+        C50 386 52 404 56 416
+        C58 424 62 428 66 430
+        L86 430
+        C88 428 90 424 90 418
+        C90 406 88 388 90 370
+        C92 352 96 332 100 316
+        Z
+      " />
       {/* Right leg */}
-      <path d="M208 390 L228 510 L176 510 L140 420 Z" />
+      <path d="
+        M152 306
+        C160 322 166 344 168 366
+        C170 386 168 404 164 416
+        C162 424 158 428 154 430
+        L134 430
+        C132 428 130 424 130 418
+        C130 406 132 388 130 370
+        C128 352 124 332 120 316
+        Z
+      " />
+      {/* Left heel — pointed stiletto */}
+      <path d="M52 428 L86 428 L86 436 L70 436 L70 440 L66 440 L66 452 L62 452 L62 438 L52 438 Z" />
+      {/* Right heel */}
+      <path d="M134 428 L168 428 L168 438 L158 438 L158 452 L154 452 L154 440 L150 440 L150 436 L134 436 Z" />
     </svg>
   )
 }
@@ -312,13 +375,13 @@ export default function Hero() {
               ref={silhouetteRef}
               className="relative z-10"
               style={{
-                width: '260px',
+                width: '220px',
                 height: '480px',
-                color: 'rgba(201,164,39,0.9)',
+                color: 'rgba(201,164,39,0.85)',
                 filter: 'drop-shadow(0 0 40px rgba(201,164,39,0.35)) drop-shadow(0 0 80px rgba(201,164,39,0.12))',
               }}
             >
-              <MaleSilhouette />
+              <FemaleSilhouette />
             </div>
 
             {/* Floating stat badges */}
