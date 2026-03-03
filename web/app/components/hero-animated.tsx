@@ -7,95 +7,79 @@ import gsap from "gsap"
 function SilhouetteSVG({ className }: { className?: string }) {
   return (
     <svg
-      viewBox="0 0 400 900"
+      viewBox="0 0 280 640"
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
       className={className}
     >
       <defs>
-        <linearGradient id="silhouetteGrad" x1="0" y1="0" x2="1" y2="1">
+        <linearGradient id="silhouetteGrad" x1="0" y1="0" x2="0" y2="1">
           <stop offset="0%" stopColor="#8B5CF6" />
+          <stop offset="55%" stopColor="#A855F7" />
           <stop offset="100%" stopColor="#D4AF37" />
         </linearGradient>
-        <filter id="glow">
-          <feGaussianBlur stdDeviation="12" result="coloredBlur" />
+        <filter id="glow" x="-30%" y="-5%" width="160%" height="112%">
+          <feGaussianBlur stdDeviation="9" result="coloredBlur" />
           <feMerge>
             <feMergeNode in="coloredBlur" />
             <feMergeNode in="SourceGraphic" />
           </feMerge>
         </filter>
       </defs>
+
+      {/* Head */}
+      <circle
+        cx="140"
+        cy="38"
+        r="42"
+        fill="url(#silhouetteGrad)"
+        filter="url(#glow)"
+      />
+
+      {/*
+        Body — a single symmetrical bezier path tracing the right side
+        top-to-bottom then the mirrored left side bottom-to-top.
+        All left-side x values = 280 − right-side x values.
+        Key widths at centre ±px:
+          neck      ±15   (30px)
+          shoulders ±65  (130px)
+          bust      ±59  (118px)
+          waist     ±41   (82px)
+          hips      ±63  (126px)
+          ankles    ±17   (34px)
+      */}
       <path
-        d="M200 40
-           C210 40 220 35 225 30 C230 25 232 20 230 15
-           C228 10 222 8 215 10 C210 5 205 2 200 2
-           C195 2 190 5 185 10 C178 8 172 10 170 15
-           C168 20 170 25 175 30 C180 35 190 40 200 40Z
-           M200 40
-           C195 45 188 55 185 65
-           C182 75 178 90 176 100
-           C173 95 165 92 155 95
-           C145 98 132 108 128 115
-           C124 122 126 130 132 132
-           C138 134 148 128 158 120
-           C163 116 168 112 172 108
-           C170 120 168 138 166 155
-           C164 170 160 188 158 200
-           C155 202 148 208 142 218
-           C136 228 132 242 135 252
-           C137 258 142 260 146 258
-           C150 254 152 246 155 238
-           C158 228 164 220 170 212
-           C172 208 174 205 176 202
-           C178 222 182 248 186 270
-           C188 285 190 305 192 320
-           C193 340 194 360 195 380
-           C195 400 196 425 196 445
-           C196 470 195 500 194 530
-           C193 555 192 575 190 600
-           C189 620 188 640 186 660
-           C185 675 184 690 182 710
-           C180 730 178 748 175 765
-           C173 780 170 792 168 800
-           C166 815 164 828 163 840
-           C162 855 162 865 165 872
-           C168 878 174 878 178 872
-           C182 862 184 848 186 835
-           C188 820 190 808 192 795
-           C194 780 196 768 198 755
-           C199 742 200 732 200 725
-           C200 732 201 742 202 755
-           C204 768 206 780 208 795
-           C210 808 212 820 214 835
-           C216 848 218 862 222 872
-           C226 878 232 878 235 872
-           C238 865 238 855 237 840
-           C236 828 234 815 232 800
-           C230 792 227 780 225 765
-           C222 748 220 730 218 710
-           C216 690 215 675 214 660
-           C212 640 211 620 210 600
-           C208 575 207 555 206 530
-           C205 500 204 470 204 445
-           C204 425 205 400 205 380
-           C206 360 207 340 208 320
-           C210 305 212 285 214 270
-           C218 248 222 222 224 202
-           C226 205 228 208 230 212
-           C236 220 242 228 245 238
-           C248 246 250 254 254 258
-           C258 260 263 258 265 252
-           C268 242 264 228 258 218
-           C252 208 245 202 242 200
-           C240 188 236 170 234 155
-           C232 138 230 120 228 108
-           C232 112 237 116 242 120
-           C252 128 262 134 268 132
-           C274 130 276 122 272 115
-           C268 108 255 98 245 95
-           C235 92 227 95 224 100
-           C222 90 218 75 215 65
-           C212 55 205 45 200 40Z"
+        d="
+          M 155,70
+          C 170,85  190,106  205,126
+          C 214,140  214,152  209,163
+          C 204,174  200,184  199,196
+          C 198,209  193,222  188,237
+          C 183,250  181,262  181,274
+          C 181,286  183,298  189,311
+          C 195,323  201,333  203,346
+          C 205,358  203,372  197,387
+          C 191,401  185,416  180,432
+          C 175,448  171,462  169,476
+          C 167,490  163,504  161,520
+          C 159,534  157,547  157,559
+          C 157,571  161,581  168,588
+          L 112,588
+          C 119,581  123,571  123,559
+          C 123,547  121,534  119,520
+          C 117,504  113,490  111,476
+          C 109,462  105,448  100,432
+          C  95,416   89,401   83,387
+          C  77,372   75,358   77,346
+          C  79,333   85,323   91,311
+          C  97,298   99,286   99,274
+          C  99,262   97,250   92,237
+          C  87,222   82,209   81,196
+          C  80,184   76,174   71,163
+          C  66,152   66,140   75,126
+          C  90,106  110,85   125,70
+          Z
+        "
         fill="url(#silhouetteGrad)"
         filter="url(#glow)"
       />
@@ -257,9 +241,9 @@ export default function HeroAnimated() {
               className="text-lg sm:text-xl text-[#9CA3AF] max-w-lg mb-8 leading-relaxed"
               style={{ opacity: 0 }}
             >
-              Stop swiping blind. Let AI handle the grind &mdash; personalized
-              openers, NLP conversation analysis, automatic date booking across
-              10 platforms.
+              Your AI co-pilot swipes, writes openers, replies in your voice,
+              and books the date &mdash; across Tinder, Hinge, Bumble, and 7
+              more apps. Set it up once. Go live your life.
             </p>
 
             {/* CTA Buttons */}
@@ -304,7 +288,7 @@ export default function HeroAnimated() {
               </div>
               <p className="text-sm text-[#6B7280]">
                 <span className="text-[#D4AF37] font-semibold">2,400+</span>{" "}
-                matches made this week
+                dates booked this month
               </p>
             </div>
           </div>

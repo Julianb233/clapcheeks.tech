@@ -16,7 +16,7 @@ const features = [
       </svg>
     ),
     title: "10 Platforms",
-    desc: "Tinder, Hinge, Bumble, Grindr + 6 more. One AI, everywhere you swipe.",
+    desc: "Tinder, Hinge, Bumble, and 7 more — simultaneously. One agent runs every app you're on.",
   },
   {
     icon: (
@@ -25,8 +25,8 @@ const features = [
         <path d="M8 9h8M8 13h4" />
       </svg>
     ),
-    title: "NLP Style Mirror",
-    desc: "Reads their energy. Matches their tone. Cialdini persuasion built in.",
+    title: "Speaks Their Language",
+    desc: "Analyzes how they text and mirrors it. Playful when they're playful. Smooth when they're warm.",
   },
   {
     icon: (
@@ -37,7 +37,7 @@ const features = [
       </svg>
     ),
     title: "Auto Date Booking",
-    desc: "Detects date-ready signals. Books time on your Calendar. You just show up.",
+    desc: "Detects when she's ready. Proposes a spot, books the time, adds it to your calendar. Just show up.",
   },
   {
     icon: (
@@ -47,8 +47,8 @@ const features = [
         <path d="M22 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75" />
       </svg>
     ),
-    title: "Human-Like Behavior",
-    desc: "Gaussian jitter delays. Per-platform rate limits. Stays under detection radar.",
+    title: "Stays Undetected",
+    desc: "Randomized typing delays, human-paced replies, per-app rate limits. Looks completely real.",
   },
   {
     icon: (
@@ -57,8 +57,8 @@ const features = [
         <path d="M12 6v6l4 2" />
       </svg>
     ),
-    title: "Runs 24/7",
-    desc: "Set it up once. The daemon runs swipe sessions while you sleep.",
+    title: "Never Sleeps",
+    desc: "Configure once. The daemon runs swipe sessions overnight, on weekends, whenever you're not.",
   },
   {
     icon: (
@@ -66,8 +66,8 @@ const features = [
         <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
       </svg>
     ),
-    title: "Kimi AI Powered",
-    desc: "Local Ollama for free. Kimi 2.5 as primary. Sub-$5/month AI costs.",
+    title: "Best AI, Lowest Cost",
+    desc: "Claude for premium replies, Kimi AI for speed, local Ollama for privacy. All under $5/month.",
   },
 ]
 
@@ -111,13 +111,13 @@ export default function FeaturesSection() {
       <div className="container mx-auto max-w-6xl">
         <div className="text-center mb-16">
           <h2 className="text-3xl sm:text-4xl lg:text-5xl font-bold text-[#F5F5F5] mb-4">
-            Everything You Need to{" "}
+            Built to{" "}
             <span className="bg-gradient-to-r from-[#8B5CF6] to-[#D4AF37] bg-clip-text text-transparent">
               Win
             </span>
           </h2>
           <p className="text-[#6B7280] text-lg max-w-2xl mx-auto">
-            One platform. Every dating app. Full automation.
+            Every feature exists to get you more dates. Nothing more, nothing less.
           </p>
         </div>
 
