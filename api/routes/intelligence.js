@@ -1,10 +1,11 @@
 import { Router } from 'express'
 import { supabase, validateAgentToken } from '../server.js'
+import { requirePlan } from '../middleware/requirePlan.js'
 
 export const router = Router()
 
 // POST /intelligence/opener — log an opener send
-router.post('/opener', validateAgentToken, async (req, res) => {
+router.post('/opener', validateAgentToken, requirePlan('pro'), async (req, res) => {
   const { platform, opener_text, opener_style, match_name } = req.body
   if (!platform || !opener_text) {
     return res.status(400).json({ error: 'platform and opener_text required' })
@@ -25,7 +26,7 @@ router.post('/opener', validateAgentToken, async (req, res) => {
 })
 
 // POST /intelligence/progression — log stage progression
-router.post('/progression', validateAgentToken, async (req, res) => {
+router.post('/progression', validateAgentToken, requirePlan('pro'), async (req, res) => {
   const { platform, match_id, from_stage, to_stage, messages_sent, days_to_progress } = req.body
   if (!platform || !from_stage || !to_stage) {
     return res.status(400).json({ error: 'platform, from_stage, to_stage required' })
@@ -48,7 +49,7 @@ router.post('/progression', validateAgentToken, async (req, res) => {
 })
 
 // GET /intelligence/stats — opener reply rates, stage funnel, best performing styles
-router.get('/stats', validateAgentToken, async (req, res) => {
+router.get('/stats', validateAgentToken, requirePlan('pro'), async (req, res) => {
   const since = new Date()
   since.setDate(since.getDate() - 30)
   const sinceStr = since.toISOString()
@@ -171,7 +172,7 @@ router.get('/stats', validateAgentToken, async (req, res) => {
 })
 
 // GET /intelligence/ab-test — A/B comparison of opener styles
-router.get('/ab-test', validateAgentToken, async (req, res) => {
+router.get('/ab-test', validateAgentToken, requirePlan('pro'), async (req, res) => {
   const since = new Date()
   since.setDate(since.getDate() - 30)
 

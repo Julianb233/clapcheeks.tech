@@ -12,6 +12,21 @@ import { router as intelligenceRouter } from './routes/intelligence.js'
 import { router as eventsRouter } from './routes/events.js'
 import { router as emailRouter } from './routes/email.js'
 
+// Validate required env vars before starting
+if (process.env.NODE_ENV === 'production') {
+  const required = ['STRIPE_WEBHOOK_SECRET', 'SUPABASE_SERVICE_ROLE_KEY']
+  const missing = required.filter(k => !process.env[k])
+  if (missing.length > 0) {
+    console.error(`[FATAL] Missing required env vars: ${missing.join(', ')}`)
+    console.error('Server cannot start without these variables set.')
+    process.exit(1)
+  }
+} else {
+  if (!process.env.STRIPE_WEBHOOK_SECRET) {
+    console.warn('[WARN] STRIPE_WEBHOOK_SECRET not set — webhook verification disabled')
+  }
+}
+
 const app = express()
 const PORT = process.env.PORT || 3001
 
