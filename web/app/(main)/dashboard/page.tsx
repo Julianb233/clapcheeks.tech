@@ -68,7 +68,7 @@ export default async function Dashboard() {
 
   const [analyticsRes, convoRes, spendRes, deviceRes, subRes, profileRes] = await Promise.all([
     supabase
-      .from('analytics_daily')
+      .from('clapcheeks_analytics_daily')
       .select('app, swipes_right, swipes_left, matches, conversations_started, dates_booked, money_spent, date')
       .eq('user_id', user.id)
       .gte('date', sinceStr)
@@ -190,7 +190,7 @@ export default async function Dashboard() {
   }
   const timeSeries = Object.values(dailyMap).sort((a, b) => a.date.localeCompare(b.date))
 
-  // Spending — combine analytics_daily.money_spent with clapcheeks_spending
+  // Spending — combine clapcheeks_analytics_daily.money_spent with clapcheeks_spending
   const externalSpent = spending.reduce((s, r) => s + Number(r.amount), 0)
   const totalSpent = totals.money_spent + externalSpent
   const spendByCategory: Record<string, number> = {}

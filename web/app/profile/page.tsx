@@ -30,7 +30,7 @@ export default async function ProfilePage() {
   const sinceStr = since.toISOString().split("T")[0]
 
   const { data: analytics } = await supabase
-    .from("analytics_daily")
+    .from("clapcheeks_analytics_daily")
     .select("matches, conversations_started, dates_booked")
     .eq("user_id", user.id)
     .gte("date", sinceStr)

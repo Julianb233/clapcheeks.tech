@@ -68,7 +68,7 @@ export async function generateCoaching(supabase: SupabaseClient, userId: string)
   const sinceStr = since.toISOString().split('T')[0]
 
   const { data: rows } = await supabase
-    .from('analytics_daily')
+    .from('clapcheeks_analytics_daily')
     .select('app, swipes_right, swipes_left, matches, conversations_started, dates_booked, date')
     .eq('user_id', userId)
     .gte('date', sinceStr)

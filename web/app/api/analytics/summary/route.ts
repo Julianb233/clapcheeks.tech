@@ -26,7 +26,7 @@ export async function GET(request: NextRequest) {
 
   const [analyticsRes, convoRes, spendRes] = await Promise.all([
     supabase
-      .from('analytics_daily')
+      .from('clapcheeks_analytics_daily')
       .select('app, swipes_right, swipes_left, matches, conversations_started, dates_booked, money_spent, date')
       .eq('user_id', user.id)
       .gte('date', fmt(rangeStart))

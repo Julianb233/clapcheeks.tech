@@ -21,13 +21,13 @@ export async function generateReportData(
   // Fetch this week + last week analytics
   const [thisWeekRes, prevWeekRes, coachingRes] = await Promise.all([
     supabase
-      .from('analytics_daily')
+      .from('clapcheeks_analytics_daily')
       .select('app, swipes_right, swipes_left, matches, conversations_started, dates_booked')
       .eq('user_id', userId)
       .gte('date', weekStartStr)
       .lte('date', weekEndStr),
     supabase
-      .from('analytics_daily')
+      .from('clapcheeks_analytics_daily')
       .select('app, swipes_right, swipes_left, matches, conversations_started, dates_booked')
       .eq('user_id', userId)
       .gte('date', prevStartStr)

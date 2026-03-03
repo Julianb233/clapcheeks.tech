@@ -811,39 +811,42 @@ export type Database = {
       clapcheeks_analytics_daily: {
         Row: {
           id: string
-          user_id: string | null
+          user_id: string
           date: string
-          platform: string
           swipes_right: number
           swipes_left: number
           matches: number
-          messages_sent: number
+          conversations_started: number
           dates_booked: number
-          created_at: string | null
+          money_spent: number
+          app: "tinder" | "bumble" | "hinge"
+          created_at: string
         }
         Insert: {
           id?: string
-          user_id?: string | null
+          user_id: string
           date: string
-          platform: string
           swipes_right?: number
           swipes_left?: number
           matches?: number
-          messages_sent?: number
+          conversations_started?: number
           dates_booked?: number
-          created_at?: string | null
+          money_spent?: number
+          app: "tinder" | "bumble" | "hinge"
+          created_at?: string
         }
         Update: {
           id?: string
-          user_id?: string | null
+          user_id?: string
           date?: string
-          platform?: string
           swipes_right?: number
           swipes_left?: number
           matches?: number
-          messages_sent?: number
+          conversations_started?: number
           dates_booked?: number
-          created_at?: string | null
+          money_spent?: number
+          app?: "tinder" | "bumble" | "hinge"
+          created_at?: string
         }
         Relationships: [
           {
@@ -1096,7 +1099,7 @@ export type Database = {
 // Convenience type aliases
 export type Profile = Database["public"]["Tables"]["profiles"]["Row"]
 export type Device = Database["public"]["Tables"]["devices"]["Row"]
-export type AnalyticsDaily = Database["public"]["Tables"]["analytics_daily"]["Row"]
+export type AnalyticsDaily = Database["public"]["Tables"]["clapcheeks_analytics_daily"]["Row"]
 export type AiSuggestion = Database["public"]["Tables"]["ai_suggestions"]["Row"]
 export type Subscription = Database["public"]["Tables"]["clapcheeks_subscriptions"]["Row"]
 export type UsageDaily = Database["public"]["Tables"]["clapcheeks_usage_daily"]["Row"]
