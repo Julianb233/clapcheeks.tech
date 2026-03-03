@@ -9,14 +9,23 @@ export async function GET() {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const { data } = await supabase
-    .from('devices')
-    .select('last_seen_at, is_active')
-    .eq('user_id', user.id)
-    .order('last_seen_at', { ascending: false })
-    .limit(1)
+  const [deviceRes, agentTokenRes] = await Promise.all([
+    supabase
+      .from('devices')
+      .select('last_seen_at, is_active')
+      .eq('user_id', user.id)
+      .order('last_seen_at', { ascending: false })
+      .limit(1),
+    supabase
+      .from('clapcheeks_agent_tokens')
+      .select('status, degraded_platform, degraded_reason')
+      .eq('user_id', user.id)
+      .order('updated_at', { ascending: false })
+      .limit(1),
+  ])
 
-  const device = data?.[0] || null
+  const device = deviceRes.data?.[0] || null
+  const agentToken = agentTokenRes.data?.[0] || null
 
-  return NextResponse.json({ device })
+  return NextResponse.json({ device, agentToken })
 }

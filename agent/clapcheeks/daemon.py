@@ -5,10 +5,13 @@ and heartbeat on independent threads with configurable intervals and
 active-hours gating.
 """
 import logging
+import logging.handlers
+import os
 import signal
 import sys
 import threading
 import time
+from collections import defaultdict
 from datetime import datetime
 
 import requests
@@ -20,6 +23,71 @@ from clapcheeks.session.ban_detector import BanDetector
 LOG_FILE = CONFIG_DIR / "daemon.log"
 
 log = logging.getLogger("clapcheeks.daemon")
+
+# ---------------------------------------------------------------------------
+# Crash tracking for degraded status detection (AGENT-01)
+# ---------------------------------------------------------------------------
+
+worker_crashes: dict[str, list[float]] = defaultdict(list)
+CRASH_WINDOW_SECS = 3600  # 1 hour
+CRASH_THRESHOLD = 3        # 3 crashes in window = degraded
+
+
+def record_worker_crash(platform: str) -> None:
+    """Record a worker crash and mark platform degraded if threshold exceeded."""
+    now = time.time()
+    worker_crashes[platform].append(now)
+    # Keep only crashes within the window
+    worker_crashes[platform] = [
+        t for t in worker_crashes[platform] if now - t < CRASH_WINDOW_SECS
+    ]
+    crashes_in_window = len(worker_crashes[platform])
+    if crashes_in_window >= CRASH_THRESHOLD:
+        _mark_platform_degraded(platform, crashes_in_window)
+
+
+def _mark_platform_degraded(platform: str, crash_count: int) -> None:
+    """Push degraded status to Supabase so dashboard can show it."""
+    log.warning(
+        "[DEGRADED] %s worker crashed %dx in 1 hour — marking degraded",
+        platform, crash_count,
+    )
+    push_agent_status("degraded", affected_platform=platform)
+
+
+def push_agent_status(
+    status: str,
+    affected_platform: str | None = None,
+    reason: str | None = None,
+) -> None:
+    """Push agent status to Supabase for dashboard visibility."""
+    from clapcheeks.sync import _load_supabase_env
+
+    try:
+        from supabase import create_client
+
+        url, key = _load_supabase_env()
+        if not url or not key:
+            log.warning("Cannot push agent status — SUPABASE_URL/KEY not set")
+            return
+
+        client = create_client(url, key)
+        payload: dict = {
+            "status": status,
+        }
+        if affected_platform:
+            payload["degraded_platform"] = affected_platform
+            payload["degraded_reason"] = reason or (
+                f"{affected_platform} worker crashed {CRASH_THRESHOLD}+ times in 1 hour"
+            )
+
+        device_id = os.environ.get("DEVICE_ID", "default")
+        client.table("clapcheeks_agent_tokens").update(payload).eq(
+            "device_id", device_id
+        ).execute()
+        log.info("Agent status pushed: %s", status)
+    except Exception as exc:
+        log.error("Failed to push agent status: %s", exc)
 
 # Platform client class registry — mirrors platforms/__init__.py imports.
 PLATFORM_CLIENTS = {
@@ -214,6 +282,7 @@ def _platform_worker(
             session_mgr.close_all()
         except Exception as exc:
             log.error("[%s] Session failed: %s", platform, exc)
+            record_worker_crash(platform)
 
         # Sleep until next session (check shutdown every second via Event.wait)
         _shutdown.wait(interval_sec)
