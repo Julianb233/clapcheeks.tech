@@ -1,7 +1,14 @@
-"""iMessage chat.db reader — read-only SQLite access to conversations."""
+"""iMessage chat.db reader — read-only SQLite access to conversations.
+
+Includes runtime Full Disk Access (FDA) detection: if FDA is revoked
+after startup, iMessage features gracefully degrade instead of crashing.
+"""
 from __future__ import annotations
 
+import logging
 import sqlite3
+import threading
+import time
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -10,6 +17,40 @@ CHAT_DB = Path.home() / "Library" / "Messages" / "chat.db"
 
 # iMessage stores dates as nanoseconds since 2001-01-01
 _APPLE_EPOCH = datetime(2001, 1, 1)
+
+log = logging.getLogger(__name__)
+
+# Module-level FDA availability flag
+_fda_available = True
+_fda_lock = threading.Lock()
+FDA_RECHECK_INTERVAL = 300  # 5 minutes
+
+
+def check_fda() -> bool:
+    """Check if Full Disk Access is available by probing chat.db."""
+    try:
+        conn = sqlite3.connect(f"file:{CHAT_DB}?mode=ro", uri=True)
+        conn.execute("SELECT 1 FROM message LIMIT 1")
+        conn.close()
+        return True
+    except (sqlite3.OperationalError, PermissionError, OSError):
+        return False
+
+
+def _fda_recheck_loop() -> None:
+    """Periodically re-check FDA so iMessage auto-re-enables if permission restored."""
+    global _fda_available
+    while True:
+        time.sleep(FDA_RECHECK_INTERVAL)
+        with _fda_lock:
+            if not _fda_available and check_fda():
+                log.info("[FDA] Full Disk Access restored — re-enabling iMessage features")
+                _fda_available = True
+
+
+# Start FDA re-check in a daemon thread
+_fda_thread = threading.Thread(target=_fda_recheck_loop, daemon=True)
+_fda_thread.start()
 
 
 def _apple_ts_to_datetime(ts: int | None) -> datetime | None:
@@ -20,7 +61,11 @@ def _apple_ts_to_datetime(ts: int | None) -> datetime | None:
 
 
 class IMMessageReader:
-    """Read-only access to the macOS iMessage SQLite database."""
+    """Read-only access to the macOS iMessage SQLite database.
+
+    Handles runtime FDA revocation gracefully — all read methods return
+    empty results instead of crashing when permission is denied.
+    """
 
     def __init__(self, db_path: Path = CHAT_DB) -> None:
         self._db_path = db_path
@@ -37,12 +82,42 @@ class IMMessageReader:
     def __exit__(self, *exc: Any) -> None:
         self.close()
 
+    def _handle_permission_error(self, exc: Exception) -> None:
+        """Handle FDA revocation — disable iMessage features gracefully."""
+        global _fda_available
+        with _fda_lock:
+            if _fda_available:
+                log.warning(
+                    "[FDA] Full Disk Access revoked — disabling iMessage features: %s", exc
+                )
+                _fda_available = False
+                # Push degraded status to dashboard
+                try:
+                    from clapcheeks.daemon import push_agent_status
+                    push_agent_status(
+                        "degraded",
+                        affected_platform="imessage",
+                        reason="iMessage access revoked — grant Full Disk Access in System Settings",
+                    )
+                except Exception:
+                    pass
+
     def get_conversations(self, limit: int = 50) -> list[dict]:
         """Get recent conversations sorted by last message date.
 
         Returns list of dicts with keys: chat_id, display_name, handle_id,
-        last_message_date.
+        last_message_date. Returns empty list if FDA is revoked.
         """
+        if not _fda_available:
+            return []
+
+        try:
+            return self._get_conversations_inner(limit)
+        except (PermissionError, sqlite3.OperationalError) as exc:
+            self._handle_permission_error(exc)
+            return []
+
+    def _get_conversations_inner(self, limit: int = 50) -> list[dict]:
         cursor = self._conn.execute(
             """
             SELECT
@@ -75,7 +150,18 @@ class IMMessageReader:
         """Get messages for a conversation, oldest first.
 
         Returns list of dicts with keys: text, is_from_me, date, handle_id.
+        Returns empty list if FDA is revoked.
         """
+        if not _fda_available:
+            return []
+
+        try:
+            return self._get_messages_inner(chat_id, limit)
+        except (PermissionError, sqlite3.OperationalError) as exc:
+            self._handle_permission_error(exc)
+            return []
+
+    def _get_messages_inner(self, chat_id: int, limit: int = 100) -> list[dict]:
         cursor = self._conn.execute(
             """
             SELECT
@@ -103,7 +189,17 @@ class IMMessageReader:
         return results
 
     def get_latest_message(self, chat_id: int) -> dict | None:
-        """Get the most recent message in a conversation."""
+        """Get the most recent message in a conversation. Returns None if FDA revoked."""
+        if not _fda_available:
+            return None
+
+        try:
+            return self._get_latest_message_inner(chat_id)
+        except (PermissionError, sqlite3.OperationalError) as exc:
+            self._handle_permission_error(exc)
+            return None
+
+    def _get_latest_message_inner(self, chat_id: int) -> dict | None:
         cursor = self._conn.execute(
             """
             SELECT

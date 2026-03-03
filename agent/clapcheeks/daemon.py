@@ -153,12 +153,31 @@ def validate_env() -> None:
 
 
 def _setup_logging() -> None:
+    """Configure rotating log file handler (10MB, 5 backups) + console output."""
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    logging.basicConfig(
-        filename=str(LOG_FILE),
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s [%(threadName)s] %(message)s",
+
+    formatter = logging.Formatter(
+        "%(asctime)s %(levelname)s [%(threadName)s] %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
     )
+
+    # Rotate at 10MB, keep 5 backup files
+    file_handler = logging.handlers.RotatingFileHandler(
+        str(LOG_FILE),
+        maxBytes=10 * 1024 * 1024,  # 10MB
+        backupCount=5,
+        encoding="utf-8",
+    )
+    file_handler.setFormatter(formatter)
+
+    # Also log to stdout for `clapcheeks logs` and systemd journal
+    console_handler = logging.StreamHandler()
+    console_handler.setFormatter(formatter)
+
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.INFO)
+    root_logger.addHandler(file_handler)
+    root_logger.addHandler(console_handler)
 
 
 def _handle_sigterm(signum, frame):

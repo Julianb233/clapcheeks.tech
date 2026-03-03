@@ -73,6 +73,28 @@ def setup() -> None:
 
 
 @main.command()
+@click.option("--lines", "-n", default=100, show_default=True, help="Number of lines to show.")
+def logs(lines: int) -> None:
+    """Show recent daemon log entries."""
+    from clapcheeks.config import CONFIG_DIR
+
+    log_path = CONFIG_DIR / "daemon.log"
+    if not log_path.exists():
+        console.print("[dim]No log file found at %s[/dim]" % log_path)
+        console.print("[dim]Start the daemon first: [cyan]clapcheeks daemon[/cyan][/dim]")
+        return
+
+    # Read last N lines from log file
+    try:
+        all_lines = log_path.read_text(encoding="utf-8", errors="replace").splitlines()
+        tail = all_lines[-lines:] if len(all_lines) > lines else all_lines
+        for line in tail:
+            console.print(line)
+    except Exception as e:
+        console.print(f"[red]Error reading log: {e}[/red]")
+
+
+@main.command()
 def status() -> None:
     """Show current mode, connections, and daily stats."""
     config = load_config()
