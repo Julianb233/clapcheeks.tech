@@ -41,7 +41,7 @@ Progress: ███████████████████████�
 | Phase | Name | Requirements | Status |
 |-------|------|-------------|--------|
 | 27 | DB Schema Fixes | DB-01 through DB-08 | COMPLETE |
-| 28 | Security & API Hardening | SEC-01 through SEC-07 | Not Started |
+| 28 | Security & API Hardening | SEC-01 through SEC-07 | COMPLETE |
 | 29 | Billing Completion | BILL-01 through BILL-06 | Not Started |
 | 30 | Agent Reliability | AGENT-01 through AGENT-05 | COMPLETE |
 | 31 | Frontend Polish | FE-01 through FE-05 | COMPLETE |
@@ -52,7 +52,7 @@ Progress: ███████████████████████�
 
 1. ~~**DB-01 CRITICAL:** `clapcheeks_agent_tokens` table missing~~ RESOLVED (24b0b40)
 2. ~~**DB-02 CRITICAL:** `analytics_daily` vs `clapcheeks_analytics_daily` name mismatch~~ RESOLVED (07d7e80)
-3. **SEC-02 CRITICAL:** No server-side plan gating — free users access Elite features
+3. ~~**SEC-02 CRITICAL:** No server-side plan gating — free users access Elite features~~ RESOLVED (69b62f1)
 4. **BILL-01 CRITICAL:** Failed payments don't revoke access — revenue leak
 5. **BILL-02 CRITICAL:** Trial periods not implemented in webhook handler
 
@@ -74,6 +74,9 @@ Progress: ███████████████████████�
 | milestone-not-hotfix | Structure fixes as a milestone with phases | Maintains GSD workflow discipline, enables parallel execution |
 | analytics-consolidation | Drop old clapcheeks_analytics_daily, rename analytics_daily | Two tables existed with different schemas; consolidated into one using richer migration 009 schema |
 | profiles-rls-restrict | Restrict profiles to own-row reads only | scripts/001 had USING(true) policy — security vulnerability |
+| requirePlan-middleware | Create requirePlan middleware for server-side plan gating | Free users could access pro/elite API endpoints; now blocked with 403 |
+| rate-limiting-3tier | Three-tier rate limiting (auth 5/min, AI 20/min, general 100/min) | Zero rate limiting existed; express-rate-limit added |
+| async-error-handling | asyncHandler + global errorHandler for all async routes | Unhandled rejections crashed server; now caught globally |
 | agent-degraded-via-supabase | Push degraded status to clapcheeks_agent_tokens table | Dashboard polls agent token row for degraded_platform/reason |
 | queue-exponential-backoff | Replace fixed retry with exponential backoff (5s-5min) | Prevents hammering Supabase during outages, MAX_RETRIES 50 |
 | fda-runtime-recheck | Re-check FDA every 5 min in background thread | Auto-re-enables iMessage when user grants permission back |
