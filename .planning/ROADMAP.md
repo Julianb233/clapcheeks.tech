@@ -1,4 +1,4 @@
-# Outward Roadmap
+# Clapcheeks Roadmap
 
 ## Milestone 1: Foundation (v0.1)
 Core scaffold, landing page, auth, and deployment.
