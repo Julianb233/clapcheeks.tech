@@ -16,7 +16,7 @@ export default async function BillingPage() {
 
   const { data: profile } = await supabase
     .from('profiles')
-    .select('plan, subscription_status, stripe_customer_id, stripe_subscription_id')
+    .select('subscription_tier, subscription_status, stripe_customer_id, stripe_subscription_id')
     .eq('id', user.id)
     .single()
 
@@ -44,7 +44,7 @@ export default async function BillingPage() {
         </div>
 
         <BillingClient
-          plan={profile?.plan || 'base'}
+          plan={profile?.subscription_tier || 'base'}
           subscriptionStatus={profile?.subscription_status || 'inactive'}
           hasStripeCustomer={!!profile?.stripe_customer_id}
         />

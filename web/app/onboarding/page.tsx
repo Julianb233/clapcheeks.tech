@@ -17,11 +17,11 @@ export default async function OnboardingPage() {
 
   const { data: profile } = await supabase
     .from('profiles')
-    .select('plan')
+    .select('subscription_tier')
     .eq('id', user.id)
     .single()
 
-  const plan = profile?.plan || 'free'
+  const plan = profile?.subscription_tier || 'free'
 
   return (
     <div className="relative min-h-screen bg-black">

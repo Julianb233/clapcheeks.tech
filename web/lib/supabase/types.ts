@@ -16,10 +16,13 @@ export type Database = {
           full_name: string | null
           avatar_url: string | null
           // Subscription fields
-          subscription_tier: string | null
+          subscription_tier: 'free' | 'starter' | 'pro' | 'elite' | null
           subscription_status: string | null
           stripe_customer_id: string | null
           stripe_subscription_id: string | null
+          access_expires_at: string | null
+          trial_end: string | null
+          /** @deprecated Use subscription_tier instead */
           plan: string | null
           // Onboarding fields
           onboarding_completed: boolean | null

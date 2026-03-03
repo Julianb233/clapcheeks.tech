@@ -14,14 +14,14 @@ export async function GET() {
 
     const { data: profile } = await supabase
       .from('profiles')
-      .select('plan, subscription_status, stripe_customer_id, stripe_subscription_id')
+      .select('subscription_tier, subscription_status, stripe_customer_id, stripe_subscription_id')
       .eq('id', user.id)
       .single()
 
     if (!profile?.stripe_customer_id || !profile?.stripe_subscription_id) {
       return NextResponse.json({
         subscribed: false,
-        plan: profile?.plan || 'base',
+        plan: profile?.subscription_tier || 'base',
         status: profile?.subscription_status || 'inactive',
       })
     }
@@ -56,7 +56,7 @@ export async function GET() {
     const sub = subscription as any
     return NextResponse.json({
       subscribed: true,
-      plan: profile.plan,
+      plan: profile.subscription_tier,
       status: profile.subscription_status,
       currentPeriodEnd: sub.current_period_end,
       cancelAtPeriodEnd: sub.cancel_at_period_end,

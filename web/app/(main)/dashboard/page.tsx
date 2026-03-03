@@ -98,7 +98,7 @@ export default async function Dashboard() {
       .single(),
     supabase
       .from('profiles')
-      .select('plan, subscription_status')
+      .select('subscription_tier, subscription_status')
       .eq('id', user.id)
       .single(),
   ])
@@ -107,7 +107,7 @@ export default async function Dashboard() {
   const coachingSession = await getLatestCoaching(supabase, user.id)
 
   const isSubscribed = subRes.data?.status === 'active'
-  const userPlan = (profileRes.data?.plan || 'base') as 'base' | 'elite'
+  const userPlan = (profileRes.data?.subscription_tier || 'base') as 'base' | 'elite'
   const userSubStatus = profileRes.data?.subscription_status || 'inactive'
   const userIsElite = userPlan === 'elite' && userSubStatus === 'active'
 
