@@ -1,3 +1,4 @@
+import type { Metadata } from "next"
 import { redirect } from "next/navigation"
 import { createClient } from "@/lib/supabase/server"
 import Link from "next/link"
@@ -7,6 +8,11 @@ const ADMIN_EMAILS = [
   "julian@clapcheeks.tech",
   "admin@clapcheeks.tech",
 ]
+
+export const metadata: Metadata = {
+  title: 'Admin | Clapcheeks',
+  description: 'Clapcheeks admin dashboard.',
+}
 
 function isAdmin(email: string | undefined): boolean {
   if (!email) return false

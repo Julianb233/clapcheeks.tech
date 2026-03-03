@@ -1,7 +1,10 @@
+import type { Metadata } from "next"
 import { redirect } from "next/navigation"
 import { createClient } from "@/lib/supabase/server"
 import { ArrowLeft, MessageSquare, Heart } from "lucide-react"
 import Link from "next/link"
+
+export const metadata: Metadata = { title: 'Groups | Clapcheeks' }
 
 export default async function ConversationsPage() {
   const supabase = await createClient()

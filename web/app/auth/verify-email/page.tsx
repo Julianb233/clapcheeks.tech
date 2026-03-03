@@ -1,5 +1,8 @@
+import type { Metadata } from "next"
 import { Mail, ArrowLeft } from "lucide-react"
 import Link from "next/link"
+
+export const metadata: Metadata = { title: 'Verify Email | Clapcheeks' }
 
 export default function VerifyEmailPage() {
   return (

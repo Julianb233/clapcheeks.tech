@@ -1,4 +1,7 @@
+import type { Metadata } from "next"
 import { createAdminClient } from "@/lib/supabase/admin"
+
+export const metadata: Metadata = { title: 'Revenue | Admin' }
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { DollarSign, TrendingUp, TrendingDown, UserMinus } from "lucide-react"
 

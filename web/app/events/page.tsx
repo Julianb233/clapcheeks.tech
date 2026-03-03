@@ -1,7 +1,13 @@
+import type { Metadata } from "next"
 import { redirect } from "next/navigation"
 import { createClient } from "@/lib/supabase/server"
 import { ArrowLeft, Calendar, MapPin, Clock } from "lucide-react"
 import Link from "next/link"
+
+export const metadata: Metadata = {
+  title: 'Events | Clapcheeks',
+  description: 'Track your dates and events.',
+}
 
 export default async function DatesPage() {
   const supabase = await createClient()

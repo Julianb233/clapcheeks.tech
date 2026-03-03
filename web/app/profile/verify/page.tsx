@@ -1,7 +1,10 @@
+import type { Metadata } from "next"
 import { redirect } from "next/navigation"
 import { createClient } from "@/lib/supabase/server"
 import { Shield, CheckCircle, ArrowLeft } from "lucide-react"
 import Link from "next/link"
+
+export const metadata: Metadata = { title: 'Verify Profile | Clapcheeks' }
 
 export default async function VerifyProfilePage() {
   const supabase = await createClient()

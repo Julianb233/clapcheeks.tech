@@ -1,7 +1,13 @@
+import type { Metadata } from "next"
 import { redirect } from "next/navigation"
 import { createClient } from "@/lib/supabase/server"
 import { Shield, Heart, MessageSquare, Calendar, ArrowLeft, Edit } from "lucide-react"
 import Link from "next/link"
+
+export const metadata: Metadata = {
+  title: 'Profile | Clapcheeks',
+  description: 'Manage your dating preferences and profile settings.',
+}
 
 export default async function ProfilePage() {
   const supabase = await createClient()

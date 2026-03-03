@@ -1,6 +1,12 @@
+import type { Metadata } from 'next'
 import Link from 'next/link'
 import Navbar from '@/components/layout/navbar'
 import Footer from '@/components/layout/footer'
+
+export const metadata: Metadata = {
+  title: 'Features | Clapcheeks',
+  description: 'Everything Clapcheeks can do — AI openers, automated swiping, conversation management and more.',
+}
 
 const features = [
   {

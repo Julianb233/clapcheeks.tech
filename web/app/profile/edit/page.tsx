@@ -1,8 +1,11 @@
+import type { Metadata } from "next"
 import { redirect } from "next/navigation"
 import { createClient } from "@/lib/supabase/server"
 import { EditProfileForm } from "@/components/edit-profile-form"
 import { ArrowLeft } from "lucide-react"
 import Link from "next/link"
+
+export const metadata: Metadata = { title: 'Edit Profile | Clapcheeks' }
 
 export default async function EditProfilePage() {
   const supabase = await createClient()

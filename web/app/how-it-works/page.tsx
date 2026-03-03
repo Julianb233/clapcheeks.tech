@@ -1,6 +1,12 @@
+import type { Metadata } from 'next'
 import Link from 'next/link'
 import Navbar from '@/components/layout/navbar'
 import Footer from '@/components/layout/footer'
+
+export const metadata: Metadata = {
+  title: 'How It Works | Clapcheeks',
+  description: 'Learn how to set up and use Clapcheeks in minutes.',
+}
 
 const steps = [
   {

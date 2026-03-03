@@ -1,6 +1,12 @@
+import type { Metadata } from 'next'
 import Link from 'next/link'
 import Navbar from '@/components/layout/navbar'
 import Footer from '@/components/layout/footer'
+
+export const metadata: Metadata = {
+  title: 'Supported Platforms | Clapcheeks',
+  description: 'Clapcheeks works with Tinder, Hinge, Bumble and more dating apps.',
+}
 
 const platforms = [
   {

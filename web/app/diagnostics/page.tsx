@@ -1,7 +1,10 @@
+import type { Metadata } from "next"
 import { redirect } from "next/navigation"
 import { createClient } from "@/lib/supabase/server"
 import { ArrowLeft, Activity, Wifi, WifiOff, CheckCircle, XCircle } from "lucide-react"
 import Link from "next/link"
+
+export const metadata: Metadata = { title: 'Diagnostics | Clapcheeks' }
 
 export default async function DiagnosticsPage() {
   const supabase = await createClient()

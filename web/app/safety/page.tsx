@@ -1,7 +1,13 @@
+import type { Metadata } from "next"
 import { redirect } from "next/navigation"
 import { createClient } from "@/lib/supabase/server"
 import { ArrowLeft, Lock, Shield, CheckCircle, Database, Eye, Trash2 } from "lucide-react"
 import Link from "next/link"
+
+export const metadata: Metadata = {
+  title: 'Safety | Clapcheeks',
+  description: 'Safety guidelines and privacy settings.',
+}
 
 export default async function PrivacyPage() {
   const supabase = await createClient()

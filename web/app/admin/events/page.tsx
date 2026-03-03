@@ -1,7 +1,10 @@
+import type { Metadata } from "next"
 import { createAdminClient } from "@/lib/supabase/admin"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Radio } from "lucide-react"
+
+export const metadata: Metadata = { title: 'Agent Events | Admin' }
 
 export const dynamic = "force-dynamic"
 

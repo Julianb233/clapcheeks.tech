@@ -1,6 +1,12 @@
+import type { Metadata } from 'next'
 import Link from 'next/link'
 import Navbar from '@/components/layout/navbar'
 import Footer from '@/components/layout/footer'
+
+export const metadata: Metadata = {
+  title: 'Download | Clapcheeks',
+  description: 'Install the Clapcheeks Mac agent with one command.',
+}
 
 const systemRequirements = [
   { icon: '🍎', label: 'macOS 12 Monterey or later' },

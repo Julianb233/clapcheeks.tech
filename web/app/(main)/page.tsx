@@ -1,4 +1,10 @@
+import type { Metadata } from 'next'
 import '../landing.css'
+
+export const metadata: Metadata = {
+  title: 'Clapcheeks — AI Dating Co-Pilot',
+  description: 'Your unfair advantage. AI that automates your dating apps — swipes, messages, and dates on autopilot.',
+}
 import Hero from '@/components/sections/hero'
 import Features from '@/components/sections/features'
 import HowItWorks from '@/components/sections/how-it-works'
