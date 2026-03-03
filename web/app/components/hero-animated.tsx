@@ -94,7 +94,7 @@ export default function HeroAnimated() {
   const tagRef = useRef<HTMLDivElement>(null)
   const subtitleRef = useRef<HTMLParagraphElement>(null)
   const ctaRef = useRef<HTMLDivElement>(null)
-  const proofRef = useRef<HTMLDivElement>(null)
+
   const [scrollY, setScrollY] = useState(0)
 
   useEffect(() => {
@@ -158,13 +158,6 @@ export default function HeroAnimated() {
           }
         )
       }
-
-      // Social proof
-      gsap.fromTo(
-        proofRef.current,
-        { opacity: 0 },
-        { opacity: 1, duration: 0.8, delay: 2.2, ease: "power2.out" }
-      )
 
       // Silhouette fade in from right
       gsap.fromTo(
@@ -271,26 +264,6 @@ export default function HeroAnimated() {
               </Link>
             </div>
 
-            {/* Social Proof */}
-            <div ref={proofRef} className="flex items-center gap-3" style={{ opacity: 0 }}>
-              <div className="flex -space-x-2">
-                {[0, 1, 2, 3].map((i) => (
-                  <div
-                    key={i}
-                    className="w-8 h-8 rounded-full border-2 border-[#0a0a0f]"
-                    style={{
-                      background: `linear-gradient(135deg, ${
-                        ["#8B5CF6", "#D4AF37", "#7C3AED", "#B8860B"][i]
-                      }, ${["#D4AF37", "#8B5CF6", "#6D28D9", "#D4AF37"][i]})`,
-                    }}
-                  />
-                ))}
-              </div>
-              <p className="text-sm text-[#6B7280]">
-                <span className="text-[#D4AF37] font-semibold">2,400+</span>{" "}
-                dates booked this month
-              </p>
-            </div>
           </div>
 
           {/* Desktop silhouette placeholder — actual SVG is positioned absolute on mobile, relative in flex on md+ */}
