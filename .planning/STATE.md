@@ -1,44 +1,89 @@
-# Project State
+# Project State: Clapcheeks
+
+**Last Updated:** 2026-03-03
+**Current Milestone:** v0.7 Production Hardening
+**Current Phase:** Phase 27 — DB Schema Fixes (Not Started)
+
+---
 
 ## Current Position
 
-- Phase: 26 of 26 (Public Launch)
-- Plan: All complete
-- Status: ALL MILESTONES COMPLETE — Ready for deployment
-- Last activity: 2026-03-02 - Completed all phases 16-26
+- Milestone: 7 of 7 (Production Hardening)
+- Phase: 27 of 31
+- Plan: 0 of ? in phase
+- Status: Planning complete — ready to execute Phase 27
 
-Progress: ██████████████████████████ (All milestones M1-M6 complete)
+Progress: ██████████████████████████░░░░░ (M1-M6 complete, M7 starting)
 
-## Decisions
+---
 
-| ID | Decision | Reason | Phase |
-|----|----------|--------|-------|
-| stealth-approach | Init script injection for anti-detection | Lightweight, no external library needed | 11 |
-| session-format | JSON cookie files at ~/.clapcheeks/sessions/ | Simple, debuggable, per-platform isolation | 11 |
-| event-loop | asyncio.new_event_loop() for sync-async bridging | CLI is sync Click, browser is async Playwright | 11 |
-| manual-auth | Manual browser login only, no automated credential entry | Security and ToS compliance; session persists via cookies | 12 |
-| selector-dict | Centralized SELECTORS dict for all DOM queries | Tinder changes class names frequently; single maintenance point | 12 |
-| local-ai-first | Ollama local first, Claude API fallback, safe string last | Privacy — no data leaves device unless user configures API key | 12 |
-| bumble-selectors | data-qa-role primary selectors with class fallbacks | Bumble uses data-qa-role extensively; matches Phase 12 pattern | 13 |
-| existing-rate-limits | Keep existing per-direction bumble limits (60 right, 250 left) | Already registered in rate_limiter.py; more granular than flat 75 | 13 |
-| session-via-driver | Session persistence via BrowserDriver/SessionStore | Phase 11 established SessionStore pattern; reuse avoids duplication | 13 |
-| playwright-over-api | Rewrote Hinge from REST API to Playwright browser automation | Matches Tinder/Bumble pattern, no token management needed | 14 |
-| ai-comment-quality-gate | Regenerate AI comment if 3+ emojis, quotes, or >2 sentences | Natural-sounding comments avoid spam detection | 14 |
-| hinge-50-limit | 50/day enforced via rate_limiter integration | Hinge's actual daily free like cap | 14 |
-| aggregate-caps | Added aggregate daily caps (100/75/50) alongside per-direction limits | Plan specifies total caps; per-direction limits remain for finer control | 15 |
-| api-date-range | Added ?days=7|30|90 to analytics API with whitelist validation | User needs flexible date range filtering; defaults to 30 | 16 |
-| separate-analytics-page | Dedicated /analytics page with client-side date range state | Full-screen analytics view separate from dashboard overview | 16 |
-| reply-style-rename | Renamed tones from playful/direct/flirty to witty/warm/direct with reasoning | Better differentiation, reasoning helps users understand suggestions | 18 |
-| claude-preferred-fallback | Python reply module uses Claude API as preferred fallback over Kimi | Higher quality replies for conversation context vs openers | 18 |
-| light-email-theme | Light theme email (white bg) for email client compatibility | Dark backgrounds render poorly in Outlook/Gmail | 19 |
-| profiles-email-fetch | Batch fetch emails from profiles table instead of admin.getUserById loop | Single query vs N queries; better performance | 19 |
+## Milestone History
 
-## Blockers / Concerns
+| Milestone | Version | Phases | Status | Shipped |
+|-----------|---------|--------|--------|---------|
+| Foundation & Web | v0.1 | 1-5 | ✓ SHIPPED | 2026-01 |
+| iMessage AI | v0.2 | 6-10 | ✓ SHIPPED | 2026-01 |
+| Dating App Automation | v0.3 | 11-15 | ✓ SHIPPED | 2026-02 |
+| Analytics & AI Coaching | v0.4 | 16-19 | ✓ SHIPPED | 2026-02 |
+| Monetization | v0.5 | 20-23 | ✓ SHIPPED | 2026-02 |
+| Growth | v0.6 | 24-26 | ✓ SHIPPED | 2026-03-02 |
+| Production Hardening | v0.7 | 27-31 | 🔄 ACTIVE | — |
 
-- None
+---
 
-## Session Continuity
+## Active Milestone: v0.7 Production Hardening
 
-- Last session: 2026-03-02T07:15:00Z
-- Stopped at: Completed 19-01-PLAN.md (Weekly Report Email System)
-- Resume file: None
+**Goal:** Close all 28 production-blocking gaps identified by 5-agent audit before accepting real users and real payments.
+
+**Audit Date:** 2026-03-03
+**Audit Coverage:** API security, DB schema, frontend UX, agent reliability, Stripe billing
+
+| Phase | Name | Requirements | Status |
+|-------|------|-------------|--------|
+| 27 | DB Schema Fixes | DB-01 through DB-08 | Not Started |
+| 28 | Security & API Hardening | SEC-01 through SEC-07 | Not Started |
+| 29 | Billing Completion | BILL-01 through BILL-06 | Not Started |
+| 30 | Agent Reliability | AGENT-01 through AGENT-05 | Not Started |
+| 31 | Frontend Polish | FE-01 through FE-05 | Not Started |
+
+---
+
+## Active Blockers
+
+1. **DB-01 CRITICAL:** `clapcheeks_agent_tokens` table missing — agent auth completely broken
+2. **DB-02 CRITICAL:** `analytics_daily` vs `clapcheeks_analytics_daily` name mismatch — dashboard shows no data
+3. **SEC-02 CRITICAL:** No server-side plan gating — free users access Elite features
+4. **BILL-01 CRITICAL:** Failed payments don't revoke access — revenue leak
+5. **BILL-02 CRITICAL:** Trial periods not implemented in webhook handler
+
+---
+
+## Next Actions
+
+1. **Execute Phase 27** — DB Schema Fixes (start here, unblocks everything)
+   - `/gsd:plan-phase 27` then `/gsd:execute-phase 27`
+2. **Then Phase 28** — Security & API Hardening
+3. Work through phases 29-31 in order
+
+---
+
+## Decisions Log (v0.7)
+
+| ID | Decision | Context |
+|----|----------|---------|
+| audit-first | Run 5-agent audit before coding fixes | Identified 28 gaps systematically before touching code |
+| milestone-not-hotfix | Structure fixes as a milestone with phases | Maintains GSD workflow discipline, enables parallel execution |
+
+---
+
+## Key Files
+
+| File | Purpose |
+|------|---------|
+| `.planning/milestone-7/REQUIREMENTS.md` | All 28 requirements with IDs and acceptance criteria |
+| `.planning/milestone-7/MILESTONE.md` | Milestone overview, phase details, success criteria |
+| `.planning/ROADMAP.md` | Full roadmap including M7 phases 27-31 |
+
+---
+
+*State updated: 2026-03-03 — Milestone 7 planning complete, ready to execute*
