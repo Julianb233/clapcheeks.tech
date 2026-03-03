@@ -103,18 +103,14 @@ export default function PressPage() {
           {/* Product Screenshots */}
           <section className="mb-16">
             <h2 className="text-2xl font-bold text-white mb-6 border-l-2 border-brand-600/50 pl-3">Product Screenshots</h2>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {['Dashboard', 'Analytics', 'Pricing', 'Referrals'].map((name, i) => (
-                <div key={name} className={`feature-card bg-white/[0.03] border border-white/8 rounded-xl p-6 aspect-video flex items-center justify-center hover:border-purple-500/30 animate-fade-in delay-${[150, 300, 500, 700][i]}`}>
-                  <div className="text-center">
-                    <div className="w-10 h-10 rounded-lg bg-white/5 flex items-center justify-center mx-auto mb-2">
-                      <Download className="w-5 h-5 text-white/20" />
-                    </div>
-                    <p className="text-white/30 text-sm">{name} Screenshot</p>
-                    <p className="text-white/15 text-xs">Coming soon</p>
-                  </div>
-                </div>
-              ))}
+            <div className="bg-white/[0.03] border border-white/[0.08] rounded-xl p-8 text-center">
+              <p className="text-white/50 text-sm mb-2">Screenshots & media kit coming soon.</p>
+              <p className="text-white/30 text-xs">
+                For press inquiries and media assets, contact{' '}
+                <a href="mailto:press@clapcheeks.tech" className="text-brand-400 hover:underline">
+                  press@clapcheeks.tech
+                </a>
+              </p>
             </div>
           </section>
 
