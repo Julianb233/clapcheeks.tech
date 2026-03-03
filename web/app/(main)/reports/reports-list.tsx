@@ -29,8 +29,8 @@ export default function ReportsList({ reports }: { reports: Report[] }) {
       if (res.ok) {
         window.location.reload()
       }
-    } catch (err) {
-      console.error('Failed to generate report:', err)
+    } catch {
+      // silent in production
     } finally {
       setGenerating(false)
     }

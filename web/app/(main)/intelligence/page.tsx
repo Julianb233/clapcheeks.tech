@@ -58,8 +58,8 @@ export default function IntelligencePage() {
 
         if (statsRes.ok) setStats(await statsRes.json())
         if (abRes.ok) setAbTest(await abRes.json())
-      } catch (err) {
-        console.error('Failed to fetch intelligence data:', err)
+      } catch {
+        // silent in production
       } finally {
         setLoading(false)
       }
