@@ -49,3 +49,12 @@ Referral system, affiliate program, and public launch.
 - Phase 24: Referral program — Users get 1 free month per referral
 - Phase 25: Affiliate dashboard — Commission tracking for promoters
 - Phase 26: Public launch — Product Hunt, social launch, press kit
+
+## Milestone 7: Production Hardening (v0.7)
+Close all production-blocking gaps before real user traffic. 28 fixes across DB, security, billing, agent, and frontend layers — identified by 5-agent audit on 2026-03-03.
+
+- Phase 27: DB Schema Fixes — Table renames, indexes, RLS policies, constraints (DB-01 through DB-08)
+- Phase 28: Security & API Hardening — Plan gating, rate limiting, error handling, input validation (SEC-01 through SEC-07)
+- Phase 29: Billing Completion — Payment failure handling, trials, plan field consolidation (BILL-01 through BILL-06)
+- Phase 30: Agent Reliability — Degraded state surfacing, env validation, queue backoff, log rotation (AGENT-01 through AGENT-05)
+- Phase 31: Frontend Polish — Remove fake metrics, auth redirects, SEO metadata (FE-01 through FE-05)
