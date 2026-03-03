@@ -11,6 +11,7 @@ import { router as referralRouter } from './routes/referral.js'
 import { router as intelligenceRouter } from './routes/intelligence.js'
 import { router as eventsRouter } from './routes/events.js'
 import { router as emailRouter } from './routes/email.js'
+import { authLimiter, aiLimiter, generalLimiter } from './middleware/rateLimiter.js'
 
 // Validate required env vars before starting
 if (process.env.NODE_ENV === 'production') {
@@ -55,14 +56,17 @@ export async function validateAgentToken(req, res, next) {
 
 app.use(helmet())
 app.use(cors({ origin: process.env.WEB_URL || 'http://localhost:3000' }))
-app.use(express.json())
+app.use(express.json({ limit: '1mb' }))
+app.use(express.urlencoded({ extended: true, limit: '1mb' }))
 
-app.use('/auth', authRouter)
+// Rate limiting
+app.use(generalLimiter)
+app.use('/auth', authLimiter, authRouter)
 app.use('/analytics', analyticsRouter)
 app.use('/agent', agentRouter)
 app.use('/stripe', stripeRouter)
 app.use('/referral', referralRouter)
-app.use('/intelligence', intelligenceRouter)
+app.use('/intelligence', aiLimiter, intelligenceRouter)
 app.use('/events', eventsRouter)
 // Email onboarding sequence (welcome, day3, day7, day14 via Resend)
 // To trigger welcome email automatically on signup, create a Supabase Database Webhook
