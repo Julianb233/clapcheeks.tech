@@ -1,11 +1,13 @@
 import { Router } from 'express'
 import { supabase, validateAgentToken } from '../server.js'
 import { requireTierAccess, TIER_LIMITS } from '../middleware/tier-check.js'
+import { asyncHandler } from '../utils/asyncHandler.js'
+import { validatePlatform } from '../middleware/validate.js'
 
 export const router = Router()
 
 // POST /analytics/sync — agent reports session results
-router.post('/sync', validateAgentToken, requireTierAccess, async (req, res) => {
+router.post('/sync', validateAgentToken, requireTierAccess, validatePlatform, asyncHandler(async (req, res) => {
   const { platform, date, swipes_right, swipes_left, matches, messages_sent, dates_booked, conversations_started, money_spent } = req.body
   if (!platform) return res.status(400).json({ error: 'platform required' })
 
@@ -28,10 +30,10 @@ router.post('/sync', validateAgentToken, requireTierAccess, async (req, res) => 
 
   if (error) return res.status(500).json({ error: error.message })
   res.json({ synced: true })
-})
+}))
 
 // GET /analytics/tier — return current tier + limits for this agent token
-router.get('/tier', validateAgentToken, async (req, res) => {
+router.get('/tier', validateAgentToken, asyncHandler(async (req, res) => {
   const { data: profile } = await supabase
     .from('profiles')
     .select('subscription_tier')
@@ -46,10 +48,10 @@ router.get('/tier', validateAgentToken, async (req, res) => {
     allowed_platforms: limits.platforms,
     max_swipes_per_platform: limits.maxSwipesPerPlatform,
   })
-})
+}))
 
 // GET /analytics/summary — return 30-day aggregated stats
-router.get('/summary', validateAgentToken, async (req, res) => {
+router.get('/summary', validateAgentToken, asyncHandler(async (req, res) => {
   const since = new Date()
   since.setDate(since.getDate() - 30)
   const sinceStr = since.toISOString().split('T')[0]
@@ -83,4 +85,4 @@ router.get('/summary', validateAgentToken, async (req, res) => {
     top_platform: Object.entries(by_platform).sort((a, b) => b[1].matches - a[1].matches)[0]?.[0] || null,
     by_platform,
   })
-})
+}))

@@ -1,5 +1,7 @@
 import { Router } from 'express'
 import { supabase, validateAgentToken } from '../server.js'
+import { asyncHandler } from '../utils/asyncHandler.js'
+import { validatePlatform } from '../middleware/validate.js'
 
 export const router = Router()
 
@@ -14,7 +16,7 @@ async function requireAuth(req, res, next) {
 }
 
 // POST /events/agent — receive events from agent daemon
-router.post('/agent', validateAgentToken, async (req, res) => {
+router.post('/agent', validateAgentToken, validatePlatform, asyncHandler(async (req, res) => {
   const { event, data, ts } = req.body
 
   if (!event) return res.status(400).json({ error: 'Missing event type' })
@@ -41,10 +43,10 @@ router.post('/agent', validateAgentToken, async (req, res) => {
   }
 
   res.json({ received: true })
-})
+}))
 
 // POST /events/push-token — register Expo push token from mobile app
-router.post('/push-token', requireAuth, async (req, res) => {
+router.post('/push-token', requireAuth, asyncHandler(async (req, res) => {
   const { expo_token, device_name } = req.body
 
   if (!expo_token) return res.status(400).json({ error: 'Missing expo_token' })
@@ -59,10 +61,10 @@ router.post('/push-token', requireAuth, async (req, res) => {
   if (error) return res.status(500).json({ error: error.message })
 
   res.json({ registered: true })
-})
+}))
 
 // DELETE /events/push-token — unregister Expo push token
-router.delete('/push-token', requireAuth, async (req, res) => {
+router.delete('/push-token', requireAuth, asyncHandler(async (req, res) => {
   const { expo_token } = req.body
 
   if (!expo_token) return res.status(400).json({ error: 'Missing expo_token' })
@@ -76,7 +78,7 @@ router.delete('/push-token', requireAuth, async (req, res) => {
   if (error) return res.status(500).json({ error: error.message })
 
   res.json({ removed: true })
-})
+}))
 
 function formatPushMessage(event, data) {
   switch (event) {

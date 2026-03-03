@@ -1,6 +1,7 @@
 import { Router } from 'express'
 import { randomBytes, randomUUID } from 'crypto'
 import { supabase } from '../server.js'
+import { asyncHandler } from '../utils/asyncHandler.js'
 
 export const router = Router()
 
@@ -29,7 +30,7 @@ function generateDeviceCode() {
 }
 
 // POST /auth/register — sync profile after signup
-router.post('/register', requireAuth, async (req, res) => {
+router.post('/register', requireAuth, asyncHandler(async (req, res) => {
   const { data, error } = await supabase
     .from('profiles')
     .upsert({ id: req.user.id, email: req.user.email, updated_at: new Date().toISOString() })
@@ -37,10 +38,10 @@ router.post('/register', requireAuth, async (req, res) => {
     .single()
   if (error) return res.status(500).json({ error: error.message })
   res.json({ profile: data })
-})
+}))
 
 // GET /auth/profile
-router.get('/profile', requireAuth, async (req, res) => {
+router.get('/profile', requireAuth, asyncHandler(async (req, res) => {
   const { data, error } = await supabase
     .from('profiles')
     .select('*')
@@ -48,10 +49,10 @@ router.get('/profile', requireAuth, async (req, res) => {
     .single()
   if (error) return res.status(404).json({ error: 'Profile not found' })
   res.json({ profile: data })
-})
+}))
 
 // PATCH /auth/profile
-router.patch('/profile', requireAuth, async (req, res) => {
+router.patch('/profile', requireAuth, asyncHandler(async (req, res) => {
   const { full_name } = req.body
   const { data, error } = await supabase
     .from('profiles')
@@ -61,12 +62,12 @@ router.patch('/profile', requireAuth, async (req, res) => {
     .single()
   if (error) return res.status(500).json({ error: error.message })
   res.json({ profile: data })
-})
+}))
 
 // ── Device Flow (CLI login) ─────────────────────────────────────────────────
 
 // POST /auth/device — generate a device code for CLI login
-router.post('/device', async (req, res) => {
+router.post('/device', asyncHandler(async (req, res) => {
   const code = generateDeviceCode()
   const now = new Date()
   const expiresAt = new Date(now.getTime() + 5 * 60 * 1000) // 5 minutes
@@ -85,10 +86,10 @@ router.post('/device', async (req, res) => {
     verification_url: 'https://clapcheeks.tech/activate',
     expires_in: 300,
   })
-})
+}))
 
 // GET /auth/device/poll?code=XXXX-XXXX — CLI polls for approval
-router.get('/device/poll', async (req, res) => {
+router.get('/device/poll', asyncHandler(async (req, res) => {
   const { code } = req.query
   if (!code) return res.status(400).json({ error: 'Missing code parameter' })
 
@@ -134,10 +135,10 @@ router.get('/device/poll', async (req, res) => {
     .eq('code', code)
 
   res.json({ status: 'approved', agent_token: agentToken })
-})
+}))
 
 // POST /auth/device/approve — web dashboard approves a device code
-router.post('/device/approve', requireAuth, async (req, res) => {
+router.post('/device/approve', requireAuth, asyncHandler(async (req, res) => {
   const { code } = req.body
   if (!code) return res.status(400).json({ error: 'Missing code' })
 
@@ -168,4 +169,4 @@ router.post('/device/approve', requireAuth, async (req, res) => {
   if (updateError) return res.status(500).json({ error: updateError.message })
 
   res.json({ success: true })
-})
+}))

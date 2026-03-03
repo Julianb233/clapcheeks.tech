@@ -2,6 +2,7 @@ import { Router } from 'express'
 import { randomUUID } from 'crypto'
 import { supabase, validateAgentToken } from '../server.js'
 import { TIER_LIMITS } from '../middleware/tier-check.js'
+import { asyncHandler } from '../utils/asyncHandler.js'
 
 export const router = Router()
 
@@ -16,7 +17,7 @@ async function requireAuth(req, res, next) {
 }
 
 // POST /agent/register — issue a new agent token for this device
-router.post('/register', requireAuth, async (req, res) => {
+router.post('/register', requireAuth, asyncHandler(async (req, res) => {
   const { device_name } = req.body
   const token = randomUUID()
   const { data, error } = await supabase
@@ -26,10 +27,10 @@ router.post('/register', requireAuth, async (req, res) => {
     .single()
   if (error) return res.status(500).json({ error: error.message })
   res.json({ agent_token: token, message: 'Device registered' })
-})
+}))
 
 // GET /agent/config — return agent configuration based on user's tier
-router.get('/config', validateAgentToken, async (req, res) => {
+router.get('/config', validateAgentToken, asyncHandler(async (req, res) => {
   const { data: profile } = await supabase
     .from('profiles')
     .select('subscription_tier')
@@ -52,13 +53,13 @@ router.get('/config', validateAgentToken, async (req, res) => {
     max_swipes_per_platform: limits.maxSwipesPerPlatform,
     features: featuresByTier[tier] || featuresByTier.free,
   })
-})
+}))
 
 // POST /agent/heartbeat — update last_seen_at
-router.post('/heartbeat', validateAgentToken, async (req, res) => {
+router.post('/heartbeat', validateAgentToken, asyncHandler(async (req, res) => {
   await supabase
     .from('clapcheeks_agent_tokens')
     .update({ last_seen_at: new Date().toISOString() })
     .eq('user_id', req.userId)
   res.json({ ok: true })
-})
+}))

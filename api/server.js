@@ -12,6 +12,8 @@ import { router as intelligenceRouter } from './routes/intelligence.js'
 import { router as eventsRouter } from './routes/events.js'
 import { router as emailRouter } from './routes/email.js'
 import { authLimiter, aiLimiter, generalLimiter } from './middleware/rateLimiter.js'
+import { errorHandler } from './middleware/errorHandler.js'
+import { asyncHandler } from './utils/asyncHandler.js'
 
 // Validate required env vars before starting
 if (process.env.NODE_ENV === 'production') {
@@ -73,6 +75,38 @@ app.use('/events', eventsRouter)
 // on auth.users INSERT → POST to https://api.clapcheeks.tech/email/welcome
 app.use('/email', emailRouter)
 
-app.get('/health', (req, res) => res.json({ status: 'ok', version: '0.1.0' }))
+app.get('/health', asyncHandler(async (req, res) => {
+  const start = Date.now()
+
+  try {
+    const { error } = await supabase
+      .from('profiles')
+      .select('id')
+      .limit(1)
+      .single()
+
+    if (error && error.code !== 'PGRST116') {
+      throw error
+    }
+  } catch (err) {
+    return res.status(503).json({
+      status: 'degraded',
+      db: 'unreachable',
+      error: err.message,
+      uptime: process.uptime(),
+    })
+  }
+
+  res.json({
+    status: 'ok',
+    db: 'connected',
+    latency_ms: Date.now() - start,
+    uptime: process.uptime(),
+    version: process.env.npm_package_version || '0.7.0',
+  })
+}))
+
+// Global error handler — must be registered last
+app.use(errorHandler)
 
 app.listen(PORT, () => console.log(`Clapcheeks API running on port ${PORT}`))
