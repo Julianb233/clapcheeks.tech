@@ -8,6 +8,10 @@ interface SpendingChartProps {
   totalSpent: number
   costPerMatch: number
   costPerDate: number
+  cpn?: number
+  cpnGrade?: string
+  cpnVerdict?: string
+  cpnNuts?: number
   byCategory: Record<string, number>
 }
 
@@ -21,7 +25,17 @@ const CATEGORY_COLORS: Record<string, string> = {
   other: '#94a3b8',
 }
 
-export function SpendingChart({ totalSpent, costPerMatch, costPerDate, byCategory }: SpendingChartProps) {
+const GRADE_COLORS: Record<string, string> = {
+  'S': 'text-yellow-400',
+  'A': 'text-green-400',
+  'B': 'text-emerald-400',
+  'C': 'text-white',
+  'D': 'text-orange-400',
+  'F': 'text-red-400',
+  '--': 'text-white/30',
+}
+
+export function SpendingChart({ totalSpent, costPerMatch, costPerDate, cpn, cpnGrade, cpnVerdict, cpnNuts, byCategory }: SpendingChartProps) {
   const chartData = Object.entries(byCategory).map(([category, amount]) => ({
     category: category.charAt(0).toUpperCase() + category.slice(1),
     amount: Number(amount.toFixed(2)),
@@ -35,7 +49,7 @@ export function SpendingChart({ totalSpent, costPerMatch, costPerDate, byCategor
       <h2 className="text-white/60 text-xs font-semibold uppercase tracking-wider mb-4">
         Spend Tracker
       </h2>
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-3 mb-4">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 mb-4">
         <div className="text-center">
           <div className="text-lg font-bold text-white">${totalSpent.toFixed(2)}</div>
           <div className="text-white/40 text-xs">Total This Month</div>
@@ -48,7 +62,26 @@ export function SpendingChart({ totalSpent, costPerMatch, costPerDate, byCategor
           <div className="text-lg font-bold text-white">${costPerDate.toFixed(2)}</div>
           <div className="text-white/40 text-xs">Per Date</div>
         </div>
+        <div className="text-center">
+          <div className="text-lg font-bold text-yellow-400">
+            {cpn !== undefined && cpnNuts !== undefined && cpnNuts > 0 ? `$${cpn.toFixed(2)}` : '--'}
+          </div>
+          <div className="text-white/40 text-xs">Per Nut (CPN)</div>
+        </div>
       </div>
+
+      {/* CPN Grade Bar */}
+      {cpnGrade && cpnGrade !== '--' && (
+        <div className="flex items-center gap-3 mb-4 px-3 py-2.5 rounded-lg" style={{ background: 'rgba(201,164,39,0.06)', border: '1px solid rgba(201,164,39,0.15)' }}>
+          <span className={`text-2xl font-bold ${GRADE_COLORS[cpnGrade] || 'text-white'}`}>
+            {cpnGrade}
+          </span>
+          <div className="flex-1 min-w-0">
+            <div className="text-white/60 text-xs font-semibold uppercase tracking-wider">CPN Grade</div>
+            <div className="text-white/40 text-xs truncate">{cpnVerdict}</div>
+          </div>
+        </div>
+      )}
       {chartData.length > 0 && (
         <div className="h-36 sm:h-40">
           <ResponsiveContainer width="100%" height="100%">

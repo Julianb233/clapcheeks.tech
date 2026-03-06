@@ -14,6 +14,7 @@ import { getLatestCoaching } from '@/lib/coaching/generate'
 import { TrendCard } from './components/trend-card'
 import { DashboardCharts } from './components/dashboard-charts'
 import { calculateRizzScore, getRizzTrend } from '@/lib/rizz'
+import { calculateCPN, getCPNTrend } from '@/lib/cpn'
 
 export const metadata: Metadata = {
   title: 'Dashboard — Clapcheeks',
@@ -181,6 +182,50 @@ export default async function Dashboard() {
   const rizzScore = calculateRizzScore(rizzRows)
   const rizzTrend = getRizzTrend(rizzScore, calculateRizzScore(lastWeekRizzRows))
 
+  // Spending — compute early so CPN can use it
+  const externalSpent = spending.reduce((s, r) => s + Number(r.amount), 0)
+  const totalSpent = totals.money_spent + externalSpent
+
+  // CPN — Cost Per Nut
+  const totalMessagesSent = convos.reduce((s, c) => s + (c.messages_sent || 0), 0)
+  const cpnResult = calculateCPN({
+    moneySpent: totals.money_spent + externalSpent,
+    totalSwipes: totals.swipes_right,
+    totalMessagesSent,
+    datesBooked: totals.dates,
+    nutsReported: null, // user hasn't manually logged nuts yet
+  })
+
+  // CPN week-over-week
+  const thisWeekConvos = convos.filter(c => c.date >= fmtDate(sevenDaysAgo))
+  const lastWeekConvos = convos.filter(c => c.date >= fmtDate(fourteenDaysAgo) && c.date < fmtDate(sevenDaysAgo))
+  const thisWeekMsgsSent = thisWeekConvos.reduce((s, c) => s + (c.messages_sent || 0), 0)
+  const lastWeekMsgsSent = lastWeekConvos.reduce((s, c) => s + (c.messages_sent || 0), 0)
+  const thisWeekSpent = thisWeekRows.reduce((s, r) => s + (r.money_spent || 0), 0)
+  const lastWeekSpent = lastWeekRows.reduce((s, r) => s + (r.money_spent || 0), 0)
+
+  const thisWeekCPN = calculateCPN({
+    moneySpent: thisWeekSpent,
+    totalSwipes: thisWeek.swipes,
+    totalMessagesSent: thisWeekMsgsSent,
+    datesBooked: thisWeek.dates,
+    nutsReported: null,
+  })
+  const lastWeekCPN = calculateCPN({
+    moneySpent: lastWeekSpent,
+    totalSwipes: lastWeek.swipes,
+    totalMessagesSent: lastWeekMsgsSent,
+    datesBooked: lastWeek.dates,
+    nutsReported: null,
+  })
+  // For CPN, DOWN is good (cheaper), UP is bad — invert the colors
+  const cpnTrendRaw = getCPNTrend(thisWeekCPN.cpn, lastWeekCPN.cpn)
+  const cpnTrend = {
+    direction: cpnTrendRaw.direction,
+    delta: cpnTrendRaw.delta,
+    // Invert: down is good (green), up is bad (red) — handled in TrendCard via invertColors prop
+  }
+
   // Time series for charts
   const dailyMap: Record<string, { date: string; swipes_right: number; matches: number }> = {}
   for (const r of rows) {
@@ -190,9 +235,7 @@ export default async function Dashboard() {
   }
   const timeSeries = Object.values(dailyMap).sort((a, b) => a.date.localeCompare(b.date))
 
-  // Spending — combine clapcheeks_analytics_daily.money_spent with clapcheeks_spending
-  const externalSpent = spending.reduce((s, r) => s + Number(r.amount), 0)
-  const totalSpent = totals.money_spent + externalSpent
+  // Spending by category
   const spendByCategory: Record<string, number> = {}
   for (const r of spending) {
     spendByCategory[r.category] = (spendByCategory[r.category] || 0) + Number(r.amount)
@@ -251,6 +294,10 @@ export default async function Dashboard() {
       totalSpent,
       costPerMatch: totals.matches > 0 ? totalSpent / totals.matches : 0,
       costPerDate: totals.dates > 0 ? totalSpent / totals.dates : 0,
+      cpn: cpnResult.cpn,
+      cpnGrade: cpnResult.grade,
+      cpnVerdict: cpnResult.verdict,
+      cpnNuts: cpnResult.nuts,
       byCategory: spendByCategory,
     },
     trends: {
@@ -261,11 +308,12 @@ export default async function Dashboard() {
   }
 
   const stats = [
-    { label: 'Swipes Today', value: hasAgent ? String(todaySwipes) : '--', trend: undefined },
-    { label: 'Total Matches', value: hasAgent ? String(totals.matches) : '--', trend: hasAgent ? chartData.trends.matches : undefined },
-    { label: 'Dates Booked', value: hasAgent ? String(totals.dates) : '--', trend: hasAgent ? chartData.trends.dates : undefined },
-    { label: 'Match Rate', value: hasAgent ? `${matchRate.toFixed(1)}%` : '--', trend: undefined },
-    { label: 'Rizz Score', value: hasAgent ? String(rizzScore) : '--', trend: hasAgent ? rizzTrend : undefined },
+    { label: 'Swipes Today', value: hasAgent ? String(todaySwipes) : '--', trend: undefined, invertColors: false },
+    { label: 'Total Matches', value: hasAgent ? String(totals.matches) : '--', trend: hasAgent ? chartData.trends.matches : undefined, invertColors: false },
+    { label: 'Dates Booked', value: hasAgent ? String(totals.dates) : '--', trend: hasAgent ? chartData.trends.dates : undefined, invertColors: false },
+    { label: 'Match Rate', value: hasAgent ? `${matchRate.toFixed(1)}%` : '--', trend: undefined, invertColors: false },
+    { label: 'Rizz Score', value: hasAgent ? String(rizzScore) : '--', trend: hasAgent ? rizzTrend : undefined, invertColors: false },
+    { label: 'CPN', value: hasAgent ? (cpnResult.nuts > 0 ? `$${cpnResult.cpn}` : '--') : '--', trend: hasAgent && cpnResult.nuts > 0 ? cpnTrend : undefined, invertColors: true },
   ]
 
   return (
@@ -343,9 +391,9 @@ export default async function Dashboard() {
         </p>
 
         {/* Stats row -- 5 cards with trend arrows */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3 mb-8">
-          {stats.map(({ label, value, trend: t }) => (
-            <TrendCard key={label} label={label} value={value} trend={t} />
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3 mb-8">
+          {stats.map(({ label, value, trend: t, invertColors }) => (
+            <TrendCard key={label} label={label} value={value} trend={t} invertColors={invertColors} />
           ))}
         </div>
 

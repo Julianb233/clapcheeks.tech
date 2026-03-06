@@ -26,6 +26,10 @@ export interface AnalyticsSummary {
     totalSpent: number
     costPerMatch: number
     costPerDate: number
+    cpn?: number
+    cpnGrade?: string
+    cpnVerdict?: string
+    cpnNuts?: number
     byCategory: Record<string, number>
   }
   trends: {
@@ -90,6 +94,10 @@ export function DashboardCharts({ initialData, days }: DashboardChartsProps) {
         totalSpent={data.spending.totalSpent}
         costPerMatch={data.spending.costPerMatch}
         costPerDate={data.spending.costPerDate}
+        cpn={data.spending.cpn}
+        cpnGrade={data.spending.cpnGrade}
+        cpnVerdict={data.spending.cpnVerdict}
+        cpnNuts={data.spending.cpnNuts}
         byCategory={data.spending.byCategory}
       />
     </div>

@@ -1,1 +1,42 @@
-PHN2ZyB3aWR0aD0iMTgwIiBoZWlnaHQ9IjE4MCIgdmlld0JveD0iMCAwIDE4MCAxODAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CiAgPHN0eWxlPgogICAgQG1lZGlhIChwcmVmZXJzLWNvbG9yLXNjaGVtZTogbGlnaHQpIHsKICAgICAgLmJhY2tncm91bmQgeyBmaWxsOiBibGFjazsgfQogICAgICAuZm9yZWdyb3VuZCB7IGZpbGw6IHdoaXRlOyB9CiAgICB9CiAgICBAbWVkaWEgKHByZWZlcnMtY29sb3Itc2NoZW1lOiBkYXJrKSB7CiAgICAgIC5iYWNrZ3JvdW5kIHsgZmlsbDogd2hpdGU7IH0KICAgICAgLmZvcmVncm91bmQgeyBmaWxsOiBibGFjazsgfQogICAgfQogIDwvc3R5bGU+CiAgPGcgY2xpcC1wYXRoPSJ1cmwoI2NsaXAwXzc5NjBfNDM5NDUpIj4KICAgIDxyZWN0IGNsYXNzPSJiYWNrZ3JvdW5kIiB3aWR0aD0iMTgwIiBoZWlnaHQ9IjE4MCIgcng9IjM3IiAvPgogICAgPGcgc3R5bGU9InRyYW5zZm9ybTogc2NhbGUoOTUlKTsgdHJhbnNmb3JtLW9yaWdpbjogY2VudGVyIj4KICAgICAgPHBhdGggY2xhc3M9ImZvcmVncm91bmQiCiAgICAgICAgZD0iTTEwMS4xNDEgNTNIMTM2LjYzMkMxNTEuMDIzIDUzIDE2Mi42ODkgNjQuNjY2MiAxNjIuNjg5IDc5LjA1NzNWMTEyLjkwNEgxNDguMTEyVjc5LjA1NzNDMTQ4LjExMiA3OC43MTA1IDE0OC4wOTggNzguMzY2MiAxNDguMDcyIDc4LjAyNTFMMTEyLjU4MSAxMTIuODk4QzExMi43MDEgMTEyLjkwMiAxMTIuODIxIDExMi45MDQgMTEyLjk0MSAxMTIuOTA0SDE0OC4xMTJWMTI2LjY3MkgxMTIuOTQxQzk4LjU1MDQgMTI2LjY3MiA4Ni41NjM4IDExNC44OTEgODYuNTYzOCAxMDAuNVY2Ni43NDM0SDEwMS4xNDFWMTAwLjVDMTAxLjE0MSAxMDEuMTUgMTAxLjE5MSAxMDEuNzkyIDEwMS4yODkgMTAyLjQyMkwxMzcuNTYgNjYuNzgxNkMxMzcuMjU1IDY2Ljc1NjMgMTM2Ljk0NSA2Ni43NDM0IDEzNi42MzIgNjYuNzQzNEgxMDEuMTQxVjUzWiIgLz4KICAgICAgPHBhdGggY2xhc3M9ImZvcmVncm91bmQiCiAgICAgICAgZD0iTTY1LjI5MjYgMTI0LjEzNkwxNCA2Ni43MzcySDM0LjYzNTVMNjQuNzQ5NSAxMDAuNDM2VjY2LjczNzJIODAuMTM2NVYxMTguNDdDODAuMTM2NSAxMjYuMjc4IDcwLjQ5NTMgMTI5Ljk1OCA2NS4yOTI2IDEyNC4xMzZaIiAvPgogICAgPC9nPgogIDwvZz4KICA8ZGVmcz4KICAgIDxjbGlwUGF0aCBpZD0iY2xpcDBfNzk2MF80Mzk0NSI+CiAgICAgIDxyZWN0IHdpZHRoPSIxODAiIGhlaWdodD0iMTgwIiBmaWxsPSJ3aGl0ZSIgLz4KICAgIDwvY2xpcFBhdGg+CiAgPC9kZWZzPgo8L3N2Zz4=
+<svg width="180" height="180" viewBox="0 0 180 180" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <style>
+    @media (prefers-color-scheme: light) {
+      .bg { fill: #000000; }
+    }
+    @media (prefers-color-scheme: dark) {
+      .bg { fill: #000000; }
+    }
+  </style>
+  <defs>
+    <linearGradient id="gold" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#C9A427" />
+      <stop offset="50%" stop-color="#E8C547" />
+      <stop offset="100%" stop-color="#C9A427" />
+    </linearGradient>
+  </defs>
+  <rect class="bg" width="180" height="180" rx="37" />
+  <!-- Left cheek — smooth bezier curve -->
+  <path fill="url(#gold)"
+    d="M90 45
+       C85 48, 72 55, 58 72
+       C44 89, 30 100, 30 118
+       C30 136, 44 152, 64 152
+       C76 152, 84 144, 88 134
+       L90 125
+       L90 45
+       Z"
+  />
+  <!-- Right cheek — mirror -->
+  <path fill="url(#gold)"
+    d="M90 45
+       C95 48, 108 55, 122 72
+       C136 89, 150 100, 150 118
+       C150 136, 136 152, 116 152
+       C104 152, 96 144, 92 134
+       L90 125
+       L90 45
+       Z"
+  />
+  <!-- Cleft line -->
+  <line x1="90" y1="50" x2="90" y2="150" stroke="#000" stroke-width="3" stroke-linecap="round" opacity="0.5" />
+</svg>

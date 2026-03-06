@@ -61,7 +61,7 @@ const features = [
     title: 'Analytics Dashboard',
     tag: 'Intelligence',
     description:
-      'Swipe-to-match rate. Match-to-date conversion. Cost-per-date. Response time patterns. Know every number that matters and optimize like an athlete studies film.',
+      'Swipe-to-match rate. Match-to-date conversion. CPN (Cost Per Nut) — the only metric that matters. Know every number and optimize like an athlete studies film.',
   },
   {
     number: '05',

@@ -10,6 +10,7 @@ import Features from '@/components/sections/features'
 import HowItWorks from '@/components/sections/how-it-works'
 import Privacy from '@/components/sections/privacy'
 import Pricing from '@/components/sections/pricing'
+import CPNBreakdown from '@/components/sections/cpn-breakdown'
 import CTA from '@/components/sections/cta'
 import ParallaxOrbs from '@/components/parallax-orbs'
 
@@ -20,6 +21,7 @@ export default function Home() {
       <div className="relative" style={{ zIndex: 1 }}>
         <Hero />
         <Features />
+        <CPNBreakdown />
         <HowItWorks />
         <Privacy />
         <Pricing />
