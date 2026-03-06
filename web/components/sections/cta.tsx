@@ -10,82 +10,56 @@ gsap.registerPlugin(ScrollTrigger)
 
 const INSTALL_CMD = 'curl -fsSL https://clapcheeks.tech/install.sh | bash'
 
-// Feminine figure — flowing hourglass, slim and elegant
-function FemaleFigure({
-  scale = 1,
-  opacity = 1,
-  glow = false,
-}: {
-  scale?: number
-  opacity?: number
-  glow?: boolean
-}) {
-  const color = glow ? 'rgba(201,164,39,0.88)' : 'rgba(255,255,255,0.22)'
-  const dropShadow = glow
-    ? 'drop-shadow(0 0 24px rgba(201,164,39,0.45)) drop-shadow(0 0 60px rgba(201,164,39,0.15))'
-    : 'none'
+// Abstract crown / chess piece visual — represents dominance without literal people
+function CrownVisual() {
   return (
-    <svg
-      viewBox="0 0 220 520"
-      fill={color}
-      style={{
-        height: `${200 * scale}px`,
-        width: 'auto',
-        opacity,
-        filter: dropShadow,
-        flexShrink: 0,
-      }}
-      aria-hidden="true"
-    >
-      {/* Hair */}
-      <path d="M80 8 C66 2 54 12 52 26 C50 40 56 56 62 66 C58 58 56 44 60 32 C64 20 74 14 82 16 Z" />
-      <path d="M140 8 C154 2 166 12 168 26 C170 40 164 56 158 66 C162 58 164 44 160 32 C156 20 146 14 138 16 Z" />
-      {/* Head */}
-      <ellipse cx="110" cy="44" rx="30" ry="36" />
-      {/* Long slender neck */}
-      <path d="M99 78 C97 87 97 95 99 101 L121 101 C123 95 123 87 121 78 C117 83 113 85 110 85 C107 85 103 83 99 78 Z" />
-      {/* Hourglass torso — narrow waist, flared hips */}
-      <path d="
-        M74 108 C60 112 48 122 46 136
-        C44 150 52 164 64 172
-        C74 178 84 182 88 194
-        C92 206 90 220 82 234
-        C72 248 58 260 56 276
-        C54 292 64 306 80 312
-        C92 317 104 319 110 319
-        C116 319 128 317 140 312
-        C156 306 166 292 164 276
-        C162 260 148 248 138 234
-        C130 220 128 206 132 194
-        C136 182 146 178 156 172
-        C168 164 176 150 174 136
-        C172 122 160 112 146 108
-        C134 104 122 102 110 103
-        C98 102 86 104 74 108 Z
-      " />
-      {/* Left arm — relaxed, slightly away from body */}
-      <path d="M58 128 C44 142 36 164 36 186 C36 202 40 216 46 224 L56 220 C52 212 50 198 50 184 C50 166 56 148 66 136 Z" />
-      {/* Right arm — hand on hip, angled out */}
-      <path d="M162 128 C174 140 182 160 182 180 C182 196 178 208 170 216 C164 222 156 224 152 220 L158 214 C164 208 168 196 168 180 C168 164 164 146 156 134 Z" />
-      {/* Left leg */}
-      <path d="M68 314 C60 330 54 352 52 374 C50 394 52 412 56 424 C58 432 62 436 68 436 L88 436 C90 432 92 426 92 418 C92 404 90 386 92 368 C94 350 98 330 102 316 Z" />
-      {/* Right leg */}
-      <path d="M152 314 C160 330 166 352 168 374 C170 394 168 412 164 424 C162 432 158 436 152 436 L132 436 C130 432 128 426 128 418 C128 404 130 386 128 368 C126 350 122 330 118 316 Z" />
-      {/* Left stiletto heel */}
-      <path d="M50 432 L88 432 L88 440 L72 440 L72 442 L68 442 L68 456 L64 456 L64 442 L50 442 Z" />
-      {/* Right stiletto heel */}
-      <path d="M132 432 L170 432 L170 442 L156 442 L156 456 L152 456 L152 442 L148 442 L148 440 L132 440 Z" />
-    </svg>
-  )
-}
-
-function SilhouettePair() {
-  return (
-    <div className="relative flex items-end justify-center gap-12 pb-4">
-      {/* Secondary — faded white, shorter */}
-      <FemaleFigure scale={0.78} opacity={1} glow={false} />
-      {/* Primary — gold, taller */}
-      <FemaleFigure scale={1} opacity={1} glow={true} />
+    <div className="flex justify-center mb-8">
+      <div className="relative">
+        {/* Glow behind */}
+        <div
+          className="absolute inset-0 rounded-full"
+          style={{
+            width: '120px',
+            height: '120px',
+            top: '50%',
+            left: '50%',
+            transform: 'translate(-50%, -50%)',
+            background: 'radial-gradient(circle, rgba(201,164,39,0.25) 0%, transparent 70%)',
+            filter: 'blur(30px)',
+          }}
+        />
+        {/* Knight chess piece icon — like Tate's logo */}
+        <svg
+          width="80"
+          height="80"
+          viewBox="0 0 80 80"
+          fill="none"
+          className="relative z-10"
+          style={{ filter: 'drop-shadow(0 0 20px rgba(201,164,39,0.4))' }}
+        >
+          <defs>
+            <linearGradient id="gold-grad" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0%" stopColor="#C9A427" />
+              <stop offset="50%" stopColor="#E8C547" />
+              <stop offset="100%" stopColor="#C9A427" />
+            </linearGradient>
+          </defs>
+          {/* Crown / chess knight simplified */}
+          <path
+            d="M40 8 L20 28 L24 32 L18 50 L14 68 L66 68 L62 50 L56 32 L60 28 L40 8Z"
+            stroke="url(#gold-grad)"
+            strokeWidth="2"
+            fill="none"
+          />
+          {/* Crown points */}
+          <path d="M28 24 L40 12 L52 24" stroke="url(#gold-grad)" strokeWidth="2" fill="none" strokeLinejoin="round" />
+          <circle cx="40" cy="12" r="3" fill="#C9A427" />
+          <circle cx="28" cy="24" r="2" fill="#C9A427" />
+          <circle cx="52" cy="24" r="2" fill="#C9A427" />
+          {/* Base line */}
+          <line x1="14" y1="72" x2="66" y2="72" stroke="url(#gold-grad)" strokeWidth="2" />
+        </svg>
+      </div>
     </div>
   )
 }
@@ -179,10 +153,8 @@ export default function CTA() {
       </div>
 
       <div className="max-w-5xl mx-auto relative">
-        {/* Silhouette pair */}
-        <div className="flex justify-center mb-10">
-          <SilhouettePair />
-        </div>
+        {/* Crown visual */}
+        <CrownVisual />
 
         {/* Headline */}
         <div ref={headlineRef} className="text-center mb-10">
