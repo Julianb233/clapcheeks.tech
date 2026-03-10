@@ -1,6 +1,6 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
-import { Download, Mail, ArrowLeft } from 'lucide-react'
+import { Mail, ArrowLeft } from 'lucide-react'
 import PageOrbs from '@/components/page-orbs'
 
 export const metadata: Metadata = {
@@ -100,16 +100,17 @@ export default function PressPage() {
             </div>
           </section>
 
-          {/* Product Screenshots */}
+          {/* Media Requests */}
           <section className="mb-16">
-            <h2 className="text-2xl font-bold text-white mb-6 border-l-2 border-brand-600/50 pl-3">Product Screenshots</h2>
+            <h2 className="text-2xl font-bold text-white mb-6 border-l-2 border-brand-600/50 pl-3">Screenshots & Media</h2>
             <div className="bg-white/[0.03] border border-white/[0.08] rounded-xl p-8 text-center">
-              <p className="text-white/50 text-sm mb-2">Screenshots & media kit coming soon.</p>
+              <p className="text-white/50 text-sm mb-2">Need product screenshots or demo videos for your article?</p>
               <p className="text-white/30 text-xs">
-                For press inquiries and media assets, contact{' '}
+                Contact{' '}
                 <a href="mailto:press@clapcheeks.tech" className="text-brand-400 hover:underline">
                   press@clapcheeks.tech
                 </a>
+                {' '}and we will send you a tailored media kit.
               </p>
             </div>
           </section>
@@ -152,14 +153,14 @@ export default function PressPage() {
             </div>
           </section>
 
-          {/* Download Press Kit CTA */}
+          {/* Press Contact CTA */}
           <div className="text-center animate-fade-in delay-300">
-            <div className="inline-block rounded-xl p-[1px] bg-gradient-to-r from-purple-500/50 via-pink-500/50 to-orange-500/50">
+            <a href="mailto:press@clapcheeks.tech" className="inline-block rounded-xl p-[1px] bg-gradient-to-r from-purple-500/50 via-pink-500/50 to-orange-500/50 hover:from-purple-500/70 hover:via-pink-500/70 hover:to-orange-500/70 transition-all">
               <div className="flex items-center gap-3 bg-black/90 rounded-xl px-8 py-5">
-                <Download className="w-5 h-5 text-brand-400" />
-                <span className="text-white/60 text-sm">Full press kit download coming soon</span>
+                <Mail className="w-5 h-5 text-brand-400" />
+                <span className="text-white/60 text-sm">Contact press@clapcheeks.tech for media inquiries</span>
               </div>
-            </div>
+            </a>
           </div>
         </div>
       </div>
