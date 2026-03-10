@@ -1,22 +1,23 @@
 import { Router } from 'express'
 import { supabase } from '../server.js'
 import { sendWelcomeEmail, processEmailSequence } from '../email/sequence.js'
+import { asyncHandler } from '../utils/asyncHandler.js'
 
 export const router = Router()
 
 // POST /email/welcome — trigger welcome email for a new user
 // Called by Supabase Database Webhook on auth.users INSERT
-router.post('/welcome', async (req, res) => {
+router.post('/welcome', asyncHandler(async (req, res) => {
   const { email } = req.body?.record || req.body || {}
   if (!email) return res.status(400).json({ error: 'Missing email' })
 
   const result = await sendWelcomeEmail(email)
   res.json({ sent: true, result })
-})
+}))
 
 // POST /email/sequence — process onboarding sequence for all users
 // Called by daily cron job
-router.post('/sequence', async (req, res) => {
+router.post('/sequence', asyncHandler(async (req, res) => {
   // Fetch all users with their profile and agent activity
   const { data: profiles, error } = await supabase
     .from('profiles')
@@ -45,4 +46,4 @@ router.post('/sequence', async (req, res) => {
   }
 
   res.json({ processed: profiles.length, sent: results.length, results })
-})
+}))

@@ -2,6 +2,7 @@ import { Router } from 'express'
 import express from 'express'
 import Stripe from 'stripe'
 import { supabase } from '../server.js'
+import { asyncHandler } from '../utils/asyncHandler.js'
 
 export const router = Router()
 
@@ -20,7 +21,7 @@ async function requireAuth(req, res, next) {
 }
 
 // POST /stripe/webhook — Stripe sends events here
-router.post('/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
+router.post('/webhook', express.raw({ type: 'application/json' }), asyncHandler(async (req, res) => {
   const sig = req.headers['stripe-signature']
   const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET
 
@@ -53,10 +54,10 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
   }
 
   res.json({ received: true })
-})
+}))
 
 // POST /stripe/checkout — create checkout session
-router.post('/checkout', requireAuth, async (req, res) => {
+router.post('/checkout', requireAuth, asyncHandler(async (req, res) => {
   const { tier } = req.body
   const priceIds = {
     starter: process.env.STRIPE_PRICE_STARTER,
@@ -76,4 +77,4 @@ router.post('/checkout', requireAuth, async (req, res) => {
   })
 
   res.json({ url: session.url })
-})
+}))
