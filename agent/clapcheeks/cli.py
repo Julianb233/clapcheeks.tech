@@ -1,6 +1,10 @@
 """Clapcheeks local agent CLI — AI-powered dating co-pilot."""
 from __future__ import annotations
 
+# Initialize Sentry before anything else
+from clapcheeks.sentry import init_sentry
+init_sentry()
+
 import click
 from rich.console import Console
 from rich.panel import Panel

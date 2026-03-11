@@ -1,4 +1,6 @@
 import 'dotenv/config'
+// Sentry must be imported before all other modules
+import { Sentry } from './lib/sentry.js'
 import express from 'express'
 import cors from 'cors'
 import helmet from 'helmet'
@@ -82,6 +84,12 @@ app.use('/events', eventsRouter)
 // To trigger welcome email automatically on signup, create a Supabase Database Webhook
 // on auth.users INSERT → POST to https://api.clapcheeks.tech/email/welcome
 app.use('/email', emailRouter)
+
+// Sentry test endpoint — triggers a test error
+app.get('/sentry-test', (req, res) => {
+  Sentry.captureException(new Error('[Sentry Test] Express API error — PERS-216 verification'))
+  res.json({ ok: true, message: 'Test error sent to Sentry', timestamp: new Date().toISOString() })
+})
 
 app.get('/health', asyncHandler(async (req, res) => {
   const start = Date.now()
