@@ -16,6 +16,7 @@ dependencies = [
     "rich>=13.0",
     "keyring>=24.0",
     "openai>=1.0",
+    "sentry-sdk>=2.0",
 ]
 
 [project.optional-dependencies]

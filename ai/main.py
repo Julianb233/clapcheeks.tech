@@ -4,12 +4,34 @@ Uses Anthropic Claude API.
 """
 import json
 import os
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from dotenv import load_dotenv
 import anthropic
 
 load_dotenv()
+
+# --- Sentry initialization (must be before FastAPI app) ---
+import sentry_sdk
+from sentry_sdk.integrations.fastapi import FastApiIntegration
+from sentry_sdk.integrations.starlette import StarletteIntegration
+
+_sentry_dsn = os.environ.get("SENTRY_DSN", "")
+if _sentry_dsn:
+    sentry_sdk.init(
+        dsn=_sentry_dsn,
+        environment=os.environ.get("ENVIRONMENT", "development"),
+        traces_sample_rate=0.1 if os.environ.get("ENVIRONMENT") == "production" else 1.0,
+        integrations=[
+            StarletteIntegration(transaction_style="endpoint"),
+            FastApiIntegration(transaction_style="endpoint"),
+        ],
+        send_default_pii=False,
+    )
+    print("[Sentry] Initialized for AI service")
+else:
+    print("[Sentry] Skipped — SENTRY_DSN not set")
 
 app = FastAPI(title="Clapcheeks AI", version="0.3.0")
 
@@ -48,9 +70,28 @@ def chat_with_history(system: str, messages: list[dict], max_tokens: int = 200) 
     return resp.content[0].text.strip()
 
 
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    """Catch unhandled exceptions, report to Sentry, return 500."""
+    sentry_sdk.capture_exception(exc)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Internal server error"},
+    )
+
+
 @app.get("/health")
 def health():
     return {"status": "ok", "provider": "anthropic", "model": MODEL, "configured": bool(os.environ.get("ANTHROPIC_API_KEY"))}
+
+
+@app.get("/sentry-test")
+def sentry_test():
+    """Test endpoint to verify Sentry integration."""
+    sentry_sdk.capture_exception(
+        Exception("[Sentry Test] Python AI service error — PERS-216 verification")
+    )
+    return {"ok": True, "message": "Test error sent to Sentry", "service": "ai"}
 
 
 class PhotoScoreRequest(BaseModel):

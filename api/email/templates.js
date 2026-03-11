@@ -9,8 +9,10 @@ const MUTED = '#a1a1aa'
 const DASHBOARD_URL = 'https://clapcheeks.tech/dashboard'
 const PRICING_URL = 'https://clapcheeks.tech/pricing'
 const DOCS_URL = 'https://clapcheeks.tech/docs'
+const API_URL = process.env.API_URL || 'https://api.clapcheeks.tech'
 
-function layout(content) {
+function layout(content, email) {
+  const unsubscribeUrl = `${API_URL}/email/unsubscribe?email=${encodeURIComponent(email || '')}`
   return `<!DOCTYPE html>
 <html lang="en">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
@@ -26,7 +28,8 @@ function layout(content) {
   </td></tr>
   <tr><td style="padding:24px 0;text-align:center;color:${MUTED};font-size:12px;">
     Clap Cheeks &mdash; AI Dating Co-Pilot<br>
-    <a href="https://clapcheeks.tech" style="color:${MUTED};text-decoration:underline;">clapcheeks.tech</a>
+    <a href="https://clapcheeks.tech" style="color:${MUTED};text-decoration:underline;">clapcheeks.tech</a><br>
+    <a href="${unsubscribeUrl}" style="color:${MUTED};text-decoration:underline;">Unsubscribe</a>
   </td></tr>
 </table>
 </td></tr>
@@ -46,7 +49,7 @@ function code(text) {
 
 // ── Email 1: Welcome (sent immediately on signup) ────────────────────────────
 
-export function welcomeEmail() {
+export function welcomeEmail(email) {
   return {
     subject: "Welcome to Clap Cheeks — let's get you set up",
     html: layout(`
@@ -68,13 +71,13 @@ export function welcomeEmail() {
       </table>
       ${button('Go to Dashboard', DASHBOARD_URL)}
       <p style="color:${MUTED};font-size:13px;margin:16px 0 0;">PS: Questions? Reply to this email &mdash; a human will respond.</p>
-    `),
+    `, email),
   }
 }
 
 // ── Email 2: Day 3 Check-in (if no agent activity) ──────────────────────────
 
-export function day3Email() {
+export function day3Email(email) {
   return {
     subject: "Did you get Clap Cheeks set up? Here's help",
     html: layout(`
@@ -96,13 +99,13 @@ export function day3Email() {
       </table>
       ${button('Resume Setup', DOCS_URL)}
       <p style="color:${MUTED};font-size:13px;">Still stuck? Reply to this email and we'll help you out.</p>
-    `),
+    `, email),
   }
 }
 
 // ── Email 3: Day 7 Tips ─────────────────────────────────────────────────────
 
-export function day7Email() {
+export function day7Email(email) {
   return {
     subject: '5 tips to get more matches with Clap Cheeks',
     html: layout(`
@@ -131,13 +134,13 @@ export function day7Email() {
         </td></tr>
       </table>
       ${button('Read the Full Guide', DOCS_URL)}
-    `),
+    `, email),
   }
 }
 
 // ── Email 4: Day 14 Upgrade Nudge (free tier only) ──────────────────────────
 
-export function day14Email() {
+export function day14Email(email) {
   return {
     subject: "You've been on Free for 2 weeks — here's what Pro unlocks",
     html: layout(`
@@ -172,6 +175,6 @@ export function day14Email() {
       </table>
       <p style="color:${TEXT_COLOR};font-size:14px;margin:16px 0;"><strong style="color:#fff;">Pro users get 3.4x more matches</strong> on average compared to Free.</p>
       ${button('Upgrade to Pro', PRICING_URL)}
-    `),
+    `, email),
   }
 }
