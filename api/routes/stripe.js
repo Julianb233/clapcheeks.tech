@@ -73,6 +73,9 @@ router.post('/checkout', requireAuth, async (req, res) => {
     success_url: `${process.env.WEB_URL}/dashboard?upgraded=true`,
     cancel_url: `${process.env.WEB_URL}/pricing`,
     metadata: { user_id: req.user.id, tier },
+    subscription_data: {
+      trial_period_days: 7,
+    },
   })
 
   res.json({ url: session.url })

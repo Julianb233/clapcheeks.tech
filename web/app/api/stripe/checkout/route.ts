@@ -81,6 +81,9 @@ export async function POST(request: NextRequest) {
       success_url: `${process.env.NEXT_PUBLIC_SITE_URL}/home?success=true`,
       cancel_url: `${process.env.NEXT_PUBLIC_SITE_URL}/pricing`,
       metadata: { plan, user_id: user.id },
+      subscription_data: {
+        trial_period_days: 7,
+      },
     }
 
     // Reuse existing Stripe customer or pre-fill email for new ones
