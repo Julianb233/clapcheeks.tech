@@ -112,6 +112,36 @@ export default function BillingClient({ plan, subscriptionStatus, hasStripeCusto
     return `$${(cents / 100).toFixed(2)}`
   }
 
+  // Canceled state — re-subscribe CTA
+  if (subscriptionStatus === 'canceled') {
+    return (
+      <div className="space-y-6">
+        <div className="bg-red-500/5 border border-red-500/15 rounded-xl p-6 text-center">
+          <div className="inline-flex items-center gap-1.5 bg-red-500/10 border border-red-500/20 rounded-full px-3 py-1 mb-4">
+            <span className="text-red-400 text-xs font-medium">Subscription canceled</span>
+          </div>
+          <h2 className="text-xl font-bold text-white mb-2">Your subscription has ended</h2>
+          <p className="text-white/40 text-sm mb-2">Your agent has been paused and premium features are disabled.</p>
+          <p className="text-white/30 text-xs mb-6">Your data is safe — re-subscribe to pick up where you left off.</p>
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-3 sm:gap-4">
+            <button
+              onClick={() => handleCheckout('base')}
+              className="bg-white/10 hover:bg-white/15 text-white font-semibold px-6 py-2.5 rounded-xl transition-all text-sm w-full sm:w-auto"
+            >
+              Base — $97/mo
+            </button>
+            <button
+              onClick={() => handleCheckout('elite')}
+              className="bg-brand-600 hover:bg-brand-500 text-white font-semibold px-6 py-2.5 rounded-xl transition-all text-sm shadow-lg shadow-brand-900/40 w-full sm:w-auto"
+            >
+              Elite — $197/mo
+            </button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   // Not subscribed state
   if (!hasStripeCustomer || subscriptionStatus === 'inactive') {
     return (
@@ -341,6 +371,13 @@ function StatusBadge({ status, cancelAtPeriodEnd }: { status: string; cancelAtPe
     return (
       <span className="inline-flex items-center gap-1 bg-red-900/30 border border-red-500/40 rounded-full px-2.5 py-0.5 text-[10px] font-medium text-red-300">
         Past Due
+      </span>
+    )
+  }
+  if (status === 'canceled') {
+    return (
+      <span className="inline-flex items-center gap-1 bg-red-900/30 border border-red-500/40 rounded-full px-2.5 py-0.5 text-[10px] font-medium text-red-300">
+        Canceled
       </span>
     )
   }

@@ -99,7 +99,7 @@ export default async function Dashboard() {
       .single(),
     supabase
       .from('profiles')
-      .select('subscription_tier, subscription_status')
+      .select('subscription_tier, subscription_status, access_expires_at')
       .eq('id', user.id)
       .single(),
   ])
@@ -110,6 +110,7 @@ export default async function Dashboard() {
   const isSubscribed = subRes.data?.status === 'active'
   const userPlan = (profileRes.data?.subscription_tier || 'base') as 'base' | 'elite'
   const userSubStatus = profileRes.data?.subscription_status || 'inactive'
+  const accessExpiresAt = profileRes.data?.access_expires_at || null
   const userIsElite = userPlan === 'elite' && userSubStatus === 'active'
 
   const rows: DailyRow[] = analyticsRes.data || []
@@ -382,6 +383,47 @@ export default async function Dashboard() {
         <div className="mb-6">
           <AgentStatusBadge initialDevice={device} />
         </div>
+
+        {/* Dunning: grace period warning */}
+        {userSubStatus === 'past_due' && (
+          <div className="bg-yellow-500/10 border border-yellow-500/20 rounded-xl p-4 mb-6">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <div>
+                <p className="text-yellow-300 font-semibold text-sm">Payment failed</p>
+                <p className="text-white/40 text-xs mt-0.5">
+                  Your agent is still running{accessExpiresAt ? ` until ${new Date(accessExpiresAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` : ''}.
+                  Update your payment method to avoid interruption.
+                </p>
+              </div>
+              <a
+                href="/billing"
+                className="text-sm bg-yellow-500/20 hover:bg-yellow-500/30 text-yellow-300 px-4 py-2 rounded-lg transition-colors whitespace-nowrap"
+              >
+                Fix payment
+              </a>
+            </div>
+          </div>
+        )}
+
+        {/* Dunning: canceled state */}
+        {userSubStatus === 'canceled' && (
+          <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-4 mb-6">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <div>
+                <p className="text-red-400 font-semibold text-sm">Subscription canceled</p>
+                <p className="text-white/40 text-xs mt-0.5">
+                  Your agent has been paused. Re-subscribe to resume.
+                </p>
+              </div>
+              <a
+                href="/pricing"
+                className="text-sm bg-red-500/20 hover:bg-red-500/30 text-red-300 px-4 py-2 rounded-lg transition-colors whitespace-nowrap"
+              >
+                Re-subscribe
+              </a>
+            </div>
+          </div>
+        )}
 
         <h1 className="font-display text-4xl md:text-5xl text-white uppercase leading-none mb-2">
           HEY {displayName.toUpperCase()}

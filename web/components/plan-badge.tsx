@@ -22,6 +22,14 @@ export default function PlanBadge({ plan, subscriptionStatus }: PlanBadgeProps) 
     )
   }
 
+  if (subscriptionStatus === 'canceled') {
+    return (
+      <span className="inline-flex items-center gap-1 bg-red-900/30 border border-red-500/40 rounded-full px-2.5 py-0.5 text-[10px] font-medium text-red-300">
+        Canceled
+      </span>
+    )
+  }
+
   if (plan === 'elite') {
     return (
       <span className="inline-flex items-center gap-1 bg-brand-900/40 border border-brand-700/40 rounded-full px-2.5 py-0.5 text-[10px] font-medium text-brand-300">
