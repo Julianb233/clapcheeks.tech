@@ -2,6 +2,8 @@ import type Stripe from 'stripe'
 import { NextRequest, NextResponse } from 'next/server'
 import { stripe } from '@/lib/stripe'
 import { createClient } from '@supabase/supabase-js'
+import { sendEmail } from '@/lib/email'
+import { paymentFailedEmail, subscriptionCanceledEmail } from '@/lib/dunning-emails'
 
 export const runtime = 'nodejs'
 
@@ -104,12 +106,28 @@ export async function POST(request: NextRequest) {
     case 'customer.subscription.deleted': {
       const subscription = event.data.object as Stripe.Subscription
       const customerId = subscription.customer as string
+
+      const { data: canceledProfile } = await supabaseAdmin
+        .from('profiles')
+        .select('id, email')
+        .eq('stripe_customer_id', customerId)
+        .single()
+
       await supabaseAdmin.from('profiles').update({
         subscription_status: 'canceled',
         subscription_tier: 'free',
         access_expires_at: null,
         trial_end: null,
       }).eq('stripe_customer_id', customerId)
+
+      // Send cancellation email
+      if (canceledProfile?.email) {
+        const tpl = subscriptionCanceledEmail()
+        await sendEmail({ to: canceledProfile.email, subject: tpl.subject, html: tpl.html })
+          .catch((err: unknown) => console.error('[BILLING] Failed to send cancellation email:', err))
+      }
+
+      console.log(`[BILLING] Subscription canceled for ${canceledProfile?.email || customerId}`)
       break
     }
 
@@ -133,7 +151,15 @@ export async function POST(request: NextRequest) {
           access_expires_at: graceExpiry.toISOString(),
         }).eq('id', failedProfile.id)
 
-        console.log(`[BILLING] Payment failed for ${failedProfile.email} — access expires ${graceExpiry.toISOString()}`)
+        // Send dunning email with attempt number
+        const attempt = invoice.attempt_count ?? 1
+        if (failedProfile.email) {
+          const tpl = paymentFailedEmail(attempt)
+          await sendEmail({ to: failedProfile.email, subject: tpl.subject, html: tpl.html })
+            .catch((err: unknown) => console.error('[BILLING] Failed to send dunning email:', err))
+        }
+
+        console.log(`[BILLING] Payment failed for ${failedProfile.email} (attempt ${attempt}) — access expires ${graceExpiry.toISOString()}`)
       }
       break
     }
