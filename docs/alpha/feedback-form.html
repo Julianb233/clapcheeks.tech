@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Clapcheeks Alpha Feedback</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #0a0a0a;
+      color: #e5e5e5;
+      min-height: 100vh;
+      padding: 2rem 1rem;
+    }
+
+    .container {
+      max-width: 640px;
+      margin: 0 auto;
+    }
+
+    h1 {
+      font-size: 1.75rem;
+      font-weight: 700;
+      margin-bottom: 0.25rem;
+      background: linear-gradient(135deg, #a855f7, #ec4899);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .subtitle {
+      color: #737373;
+      font-size: 0.875rem;
+      margin-bottom: 2rem;
+    }
+
+    .section {
+      margin-bottom: 1.75rem;
+    }
+
+    label {
+      display: block;
+      font-weight: 600;
+      font-size: 0.9rem;
+      margin-bottom: 0.5rem;
+    }
+
+    .hint {
+      color: #737373;
+      font-size: 0.8rem;
+      margin-bottom: 0.5rem;
+    }
+
+    input[type="text"],
+    input[type="email"],
+    input[type="number"],
+    textarea,
+    select {
+      width: 100%;
+      padding: 0.625rem 0.75rem;
+      background: #171717;
+      border: 1px solid #2e2e2e;
+      border-radius: 8px;
+      color: #e5e5e5;
+      font-size: 0.9rem;
+      font-family: inherit;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+
+    input:focus, textarea:focus, select:focus {
+      border-color: #a855f7;
+    }
+
+    textarea { resize: vertical; min-height: 80px; }
+    select { cursor: pointer; }
+
+    .radio-group, .checkbox-group {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+    }
+
+    .radio-option, .checkbox-option {
+      display: flex;
+      align-items: center;
+      gap: 0.375rem;
+      padding: 0.5rem 0.875rem;
+      background: #171717;
+      border: 1px solid #2e2e2e;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 0.85rem;
+      transition: border-color 0.15s, background 0.15s;
+    }
+
+    .radio-option:has(input:checked),
+    .checkbox-option:has(input:checked) {
+      border-color: #a855f7;
+      background: #1a0a2e;
+    }
+
+    .radio-option input, .checkbox-option input {
+      accent-color: #a855f7;
+    }
+
+    .star-rating {
+      display: flex;
+      gap: 0.25rem;
+      flex-direction: row-reverse;
+      justify-content: flex-end;
+    }
+
+    .star-rating input { display: none; }
+
+    .star-rating label {
+      font-size: 1.75rem;
+      cursor: pointer;
+      color: #2e2e2e;
+      transition: color 0.1s;
+      margin-bottom: 0;
+    }
+
+    .star-rating label:hover,
+    .star-rating label:hover ~ label,
+    .star-rating input:checked ~ label {
+      color: #facc15;
+    }
+
+    .divider {
+      border: none;
+      border-top: 1px solid #1f1f1f;
+      margin: 2rem 0;
+    }
+
+    button[type="submit"] {
+      width: 100%;
+      padding: 0.75rem;
+      background: linear-gradient(135deg, #a855f7, #ec4899);
+      color: white;
+      font-size: 1rem;
+      font-weight: 600;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: opacity 0.15s;
+    }
+
+    button[type="submit"]:hover { opacity: 0.9; }
+    button[type="submit"]:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .success {
+      display: none;
+      text-align: center;
+      padding: 3rem 1rem;
+    }
+
+    .success h2 {
+      font-size: 1.5rem;
+      margin-bottom: 0.5rem;
+    }
+
+    .success p { color: #737373; }
+
+    .required::after {
+      content: " *";
+      color: #ec4899;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Clapcheeks Alpha Feedback</h1>
+    <p class="subtitle">Help us build a better dating co-pilot. Takes ~3 minutes.</p>
+
+    <form id="feedback-form">
+
+      <!-- Installation -->
+      <div class="section">
+        <label class="required">Did the install work on the first try?</label>
+        <div class="radio-group">
+          <label class="radio-option">
+            <input type="radio" name="install_success" value="yes" required> Yes
+          </label>
+          <label class="radio-option">
+            <input type="radio" name="install_success" value="no"> No
+          </label>
+          <label class="radio-option">
+            <input type="radio" name="install_success" value="needed_help"> Needed help
+          </label>
+        </div>
+      </div>
+
+      <div class="section" id="install-issues-section" style="display:none">
+        <label>What went wrong during install?</label>
+        <textarea name="install_issues" placeholder="e.g. Python version error, permission denied, browser didn't launch..."></textarea>
+      </div>
+
+      <div class="section">
+        <label>How long did install + setup take?</label>
+        <div class="radio-group">
+          <label class="radio-option">
+            <input type="radio" name="install_time" value="<5min"> Under 5 min
+          </label>
+          <label class="radio-option">
+            <input type="radio" name="install_time" value="5-15min"> 5–15 min
+          </label>
+          <label class="radio-option">
+            <input type="radio" name="install_time" value="15-30min"> 15–30 min
+          </label>
+          <label class="radio-option">
+            <input type="radio" name="install_time" value=">30min"> 30+ min
+          </label>
+        </div>
+      </div>
+
+      <hr class="divider">
+
+      <!-- Platforms -->
+      <div class="section">
+        <label class="required">Which platforms did you test?</label>
+        <p class="hint">Select all that apply</p>
+        <div class="checkbox-group">
+          <label class="checkbox-option"><input type="checkbox" name="platforms" value="tinder"> Tinder</label>
+          <label class="checkbox-option"><input type="checkbox" name="platforms" value="bumble"> Bumble</label>
+          <label class="checkbox-option"><input type="checkbox" name="platforms" value="hinge"> Hinge</label>
+          <label class="checkbox-option"><input type="checkbox" name="platforms" value="grindr"> Grindr</label>
+          <label class="checkbox-option"><input type="checkbox" name="platforms" value="okcupid"> OKCupid</label>
+          <label class="checkbox-option"><input type="checkbox" name="platforms" value="bumble"> Badoo</label>
+          <label class="checkbox-option"><input type="checkbox" name="platforms" value="happn"> Happn</label>
+          <label class="checkbox-option"><input type="checkbox" name="platforms" value="feeld"> Feeld</label>
+          <label class="checkbox-option"><input type="checkbox" name="platforms" value="cmb"> Coffee Meets Bagel</label>
+          <label class="checkbox-option"><input type="checkbox" name="platforms" value="pof"> Plenty of Fish</label>
+        </div>
+      </div>
+
+      <div class="section">
+        <label>Which automation mode did you use?</label>
+        <div class="radio-group">
+          <label class="radio-option"><input type="radio" name="mode" value="cloud"> Cloud browser</label>
+          <label class="radio-option"><input type="radio" name="mode" value="usb"> USB iPhone</label>
+          <label class="radio-option"><input type="radio" name="mode" value="wifi"> WiFi iPhone</label>
+        </div>
+      </div>
+
+      <hr class="divider">
+
+      <!-- Dashboard -->
+      <div class="section">
+        <label class="required">Is the web dashboard working for you?</label>
+        <div class="radio-group">
+          <label class="radio-option"><input type="radio" name="dashboard_working" value="yes" required> Yes</label>
+          <label class="radio-option"><input type="radio" name="dashboard_working" value="no"> No</label>
+          <label class="radio-option"><input type="radio" name="dashboard_working" value="didnt_try"> Didn't try</label>
+        </div>
+      </div>
+
+      <hr class="divider">
+
+      <!-- AI Quality -->
+      <div class="section">
+        <label class="required">How would you rate the AI reply quality?</label>
+        <p class="hint">1 = terrible, 5 = sounds just like me</p>
+        <div class="star-rating">
+          <input type="radio" id="star5" name="ai_quality" value="5" required>
+          <label for="star5">&#9733;</label>
+          <input type="radio" id="star4" name="ai_quality" value="4">
+          <label for="star4">&#9733;</label>
+          <input type="radio" id="star3" name="ai_quality" value="3">
+          <label for="star3">&#9733;</label>
+          <input type="radio" id="star2" name="ai_quality" value="2">
+          <label for="star2">&#9733;</label>
+          <input type="radio" id="star1" name="ai_quality" value="1">
+          <label for="star1">&#9733;</label>
+        </div>
+      </div>
+
+      <div class="section">
+        <label>Any specific AI reply that was great or awful?</label>
+        <textarea name="ai_examples" placeholder="Paste or describe a message the AI sent that stood out (good or bad)..."></textarea>
+      </div>
+
+      <hr class="divider">
+
+      <!-- Friction & Feedback -->
+      <div class="section">
+        <label class="required">What was the biggest friction point?</label>
+        <p class="hint">The #1 thing that slowed you down or frustrated you</p>
+        <textarea name="biggest_friction" placeholder="Be honest — we want to hear it" required></textarea>
+      </div>
+
+      <div class="section">
+        <label>What feature would you want most?</label>
+        <textarea name="feature_request" placeholder="e.g. better openers, more platforms, photo scoring, date scheduling..."></textarea>
+      </div>
+
+      <div class="section">
+        <label>Anything else we should know?</label>
+        <textarea name="other_feedback" placeholder="Bugs, ideas, compliments, roasts — all welcome"></textarea>
+      </div>
+
+      <hr class="divider">
+
+      <!-- Willingness to Pay -->
+      <div class="section">
+        <label class="required">Would you pay for this?</label>
+        <div class="radio-group">
+          <label class="radio-option"><input type="radio" name="would_pay" value="yes" required> Yes</label>
+          <label class="radio-option"><input type="radio" name="would_pay" value="maybe"> Maybe</label>
+          <label class="radio-option"><input type="radio" name="would_pay" value="no"> No</label>
+        </div>
+      </div>
+
+      <div class="section" id="price-section" style="display:none">
+        <label>What monthly price feels right?</label>
+        <div class="radio-group">
+          <label class="radio-option"><input type="radio" name="price_point" value="$10-19"> $10–19/mo</label>
+          <label class="radio-option"><input type="radio" name="price_point" value="$20-29"> $20–29/mo</label>
+          <label class="radio-option"><input type="radio" name="price_point" value="$30-49"> $30–49/mo</label>
+          <label class="radio-option"><input type="radio" name="price_point" value="$50-99"> $50–99/mo</label>
+          <label class="radio-option"><input type="radio" name="price_point" value="$100+"> $100+/mo</label>
+        </div>
+      </div>
+
+      <div class="section" id="no-pay-section" style="display:none">
+        <label>What would change your mind?</label>
+        <textarea name="no_pay_reason" placeholder="e.g. needs more features, too expensive, prefer free alternatives..."></textarea>
+      </div>
+
+      <hr class="divider">
+
+      <!-- Contact -->
+      <div class="section">
+        <label>Your name (optional)</label>
+        <input type="text" name="name" placeholder="So we can follow up">
+      </div>
+
+      <div class="section">
+        <label>Email or Telegram handle (optional)</label>
+        <input type="text" name="contact" placeholder="For follow-up questions">
+      </div>
+
+      <button type="submit">Submit Feedback</button>
+    </form>
+
+    <div class="success" id="success-message">
+      <h2>Thanks for the feedback!</h2>
+      <p>Your input directly shapes what we build next.</p>
+      <p style="margin-top: 1rem; color: #a855f7;">— The Clapcheeks Team</p>
+    </div>
+  </div>
+
+  <script>
+    // Show/hide conditional sections
+    document.querySelectorAll('input[name="install_success"]').forEach(radio => {
+      radio.addEventListener('change', () => {
+        document.getElementById('install-issues-section').style.display =
+          radio.value !== 'yes' && radio.checked ? 'block' : 'none';
+      });
+    });
+
+    document.querySelectorAll('input[name="would_pay"]').forEach(radio => {
+      radio.addEventListener('change', () => {
+        const val = document.querySelector('input[name="would_pay"]:checked')?.value;
+        document.getElementById('price-section').style.display =
+          (val === 'yes' || val === 'maybe') ? 'block' : 'none';
+        document.getElementById('no-pay-section').style.display =
+          val === 'no' ? 'block' : 'none';
+      });
+    });
+
+    // Form submission
+    document.getElementById('feedback-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const form = e.target;
+      const btn = form.querySelector('button[type="submit"]');
+      btn.disabled = true;
+      btn.textContent = 'Submitting...';
+
+      const data = new FormData(form);
+      const payload = {};
+
+      for (const [key, value] of data.entries()) {
+        if (key === 'platforms') {
+          if (!payload.platforms) payload.platforms = [];
+          payload.platforms.push(value);
+        } else {
+          payload[key] = value;
+        }
+      }
+
+      payload.submitted_at = new Date().toISOString();
+      payload.user_agent = navigator.userAgent;
+
+      try {
+        // POST to Clapcheeks API — falls back to localStorage if API is unavailable
+        const res = await fetch('https://clapcheeks.tech/api/alpha-feedback', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      } catch {
+        // Store locally as fallback — can be exported later
+        const stored = JSON.parse(localStorage.getItem('clapcheeks_feedback') || '[]');
+        stored.push(payload);
+        localStorage.setItem('clapcheeks_feedback', JSON.stringify(stored));
+        console.log('Feedback saved locally (API unavailable). Payload:', payload);
+      }
+
+      form.style.display = 'none';
+      document.getElementById('success-message').style.display = 'block';
+    });
+  </script>
+</body>
+</html>
