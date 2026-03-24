@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
+import { analytics, identifyUser } from '@/lib/posthog'
 import { PLAN_LIMITS, type PlanLevel } from '@/lib/plan'
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
@@ -123,6 +124,11 @@ export function OnboardingWizard({ userId, plan }: OnboardingWizardProps) {
         selected_platforms: selectedPlatforms,
       })
       .eq('id', userId)
+    identifyUser(userId, {
+      platforms_used: selectedPlatforms,
+      signup_date: new Date().toISOString(),
+    })
+    analytics.onboardingComplete()
     router.push('/dashboard')
   }
 
