@@ -4,3 +4,5 @@ anthropic>=0.34
 python-dotenv>=1.0
 pydantic>=2.0
 httpx>=0.27
+pillow>=10.0
+numpy>=1.24
