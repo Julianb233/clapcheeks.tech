@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { analytics } from '@/lib/posthog'
 
 interface CheckoutButtonProps {
   plan: string
@@ -14,6 +15,7 @@ export default function CheckoutButton({ plan, addons, children, className }: Ch
 
   async function handleCheckout() {
     setLoading(true)
+    analytics.checkoutStarted(plan, 0)
     try {
       const res = await fetch('/api/stripe/checkout', {
         method: 'POST',

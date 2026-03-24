@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { signup, loginWithGoogle } from '@/app/auth/actions'
+import { analytics } from '@/lib/posthog'
 
 export default function SignupForm() {
   const [isLoading, setIsLoading] = useState(false)
@@ -55,6 +56,7 @@ export default function SignupForm() {
     } else {
       // Clear stored referral code after successful signup
       localStorage.removeItem('clapcheeks_ref')
+      analytics.signUpComplete('email')
       setSuccess(true)
     }
   }
