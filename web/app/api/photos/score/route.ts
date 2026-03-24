@@ -16,11 +16,14 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Missing image data' }, { status: 400 })
     }
 
+    // Strip data URL prefix (e.g. "data:image/jpeg;base64,") to get raw base64
+    const base64Data = image.includes(',') ? image.split(',')[1] : image
+
     const aiUrl = process.env.NEXT_PUBLIC_AI_URL || 'http://localhost:8000'
     const res = await fetch(`${aiUrl}/photos/score`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ image, filename }),
+      body: JSON.stringify({ image_base64: base64Data, filename }),
     })
 
     if (!res.ok) {
