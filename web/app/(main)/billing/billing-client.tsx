@@ -66,7 +66,10 @@ export default function BillingClient({ plan, subscriptionStatus, hasStripeCusto
     }
   }
 
+  const [checkoutError, setCheckoutError] = useState<string | null>(null)
+
   async function handleCheckout(selectedPlan: string) {
+    setCheckoutError(null)
     try {
       const res = await fetch('/api/stripe/checkout', {
         method: 'POST',
@@ -76,9 +79,11 @@ export default function BillingClient({ plan, subscriptionStatus, hasStripeCusto
       const data = await res.json()
       if (data.url) {
         window.location.href = data.url
+      } else {
+        setCheckoutError(data.error || 'Failed to start checkout. Please try again.')
       }
     } catch {
-      // ignore
+      setCheckoutError('Network error. Please try again.')
     }
   }
 
@@ -122,6 +127,11 @@ export default function BillingClient({ plan, subscriptionStatus, hasStripeCusto
           </div>
           <h2 className="text-xl font-bold text-white mb-2">Get started with Clapcheeks</h2>
           <p className="text-white/40 text-sm mb-6">Choose a plan to unlock your AI dating co-pilot.</p>
+          {checkoutError && (
+            <div className="bg-red-500/10 border border-red-500/20 rounded-lg px-4 py-2 mb-4">
+              <p className="text-red-300 text-sm">{checkoutError}</p>
+            </div>
+          )}
           <div className="flex flex-col sm:flex-row items-center justify-center gap-3 sm:gap-4">
             <button
               onClick={() => handleCheckout('base')}

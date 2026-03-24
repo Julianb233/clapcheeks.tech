@@ -47,14 +47,28 @@ export async function POST(request: NextRequest) {
     const interval = annual ? 'annual' : 'monthly'
     const lookupKey = `${plan}_${interval}`
 
+    // Try lookup key first, fall back to env var price IDs
+    const FALLBACK_PRICES: Record<string, string | undefined> = {
+      base: process.env.STRIPE_BASE_PRICE_ID,
+      starter: process.env.STRIPE_BASE_PRICE_ID, // starter maps to base
+      pro: process.env.STRIPE_PRO_PRICE_ID,
+      elite: process.env.STRIPE_ELITE_PRICE_ID,
+    }
+
     const prices = await stripe.prices.list({ lookup_keys: [lookupKey], limit: 1 })
-    if (!prices.data.length) {
-      return NextResponse.json({ error: 'Price not found' }, { status: 404 })
+    let priceId: string
+
+    if (prices.data.length) {
+      priceId = prices.data[0].id
+    } else if (FALLBACK_PRICES[plan]) {
+      priceId = FALLBACK_PRICES[plan]!
+    } else {
+      return NextResponse.json({ error: 'Price not found for this plan' }, { status: 404 })
     }
 
     const lineItems: Stripe.Checkout.SessionCreateParams.LineItem[] = [
       {
-        price: prices.data[0].id,
+        price: priceId,
         quantity: 1,
       },
     ]
