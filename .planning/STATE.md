@@ -1,19 +1,20 @@
 # Project State: Clapcheeks
 
-**Last Updated:** 2026-03-03
-**Current Milestone:** v0.7 Production Hardening — ALL PHASES COMPLETE
-**Current Phase:** Phase 31 — Frontend Polish (COMPLETE)
+**Last Updated:** 2026-04-14
+**Current Milestone:** v0.9 Personal Dating Command Center
+**Current Phase:** Not started (run /gsd:define-requirements)
 
 ---
 
 ## Current Position
 
-- Milestone: 7 of 7 (Production Hardening)
-- Phase: 31 of 31 — ALL COMPLETE
-- Plan: 15 of 15 plans complete
-- Status: Milestone 7 complete — ready for audit and deploy
+- Milestone: 9 of 9 (Personal Dating Command Center)
+- Phase: Not started — defining requirements
+- Plan: —
+- Status: Milestone initialized, needs requirements → roadmap
+- Last activity: 2026-04-14 — Milestone 9 started
 
-Progress: ████████████████████████████████ (All 7 milestones complete)
+Progress: ████████████████████████████████ (M1-M7 complete, M8 planned, M9 active)
 
 ---
 
@@ -27,82 +28,42 @@ Progress: ███████████████████████�
 | Analytics & AI Coaching | v0.4 | 16-19 | SHIPPED | 2026-02 |
 | Monetization | v0.5 | 20-23 | SHIPPED | 2026-02 |
 | Growth | v0.6 | 24-26 | SHIPPED | 2026-03-02 |
-| Production Hardening | v0.7 | 27-31 | ✓ COMPLETE | 2026-03-03 |
+| Production Hardening | v0.7 | 27-31 | COMPLETE | 2026-03-03 |
+| GTM Testing & Launch | v0.8 | 32-38 | PLANNED | — |
+| Personal Dating Command Center | v0.9 | 39-45 | ACTIVE | — |
 
 ---
 
-## Active Milestone: v0.7 Production Hardening
+## Active Milestone: v0.9 Personal Dating Command Center
 
-**Goal:** Close all 28 production-blocking gaps identified by 5-agent audit before accepting real users and real payments.
+**Goal:** Build Julian's personal dating command center with zodiac intelligence, Instagram scraping, communication profiling, match pipeline, scheduled messaging, date planning, and full autonomy.
 
-**Audit Date:** 2026-03-03
-**Audit Coverage:** API security, DB schema, frontend UX, agent reliability, Stripe billing
-
-| Phase | Name | Requirements | Status |
-|-------|------|-------------|--------|
-| 27 | DB Schema Fixes | DB-01 through DB-08 | COMPLETE |
-| 28 | Security & API Hardening | SEC-01 through SEC-07 | COMPLETE |
-| 29 | Billing Completion | BILL-01 through BILL-06 | COMPLETE |
-| 30 | Agent Reliability | AGENT-01 through AGENT-05 | COMPLETE |
-| 31 | Frontend Polish | FE-01 through FE-05 | COMPLETE |
-
----
-
-## Active Blockers
-
-1. ~~**DB-01 CRITICAL:** `clapcheeks_agent_tokens` table missing~~ RESOLVED (24b0b40)
-2. ~~**DB-02 CRITICAL:** `analytics_daily` vs `clapcheeks_analytics_daily` name mismatch~~ RESOLVED (07d7e80)
-3. ~~**SEC-02 CRITICAL:** No server-side plan gating — free users access Elite features~~ RESOLVED (69b62f1)
-4. ~~**BILL-01 CRITICAL:** Failed payments don't revoke access — revenue leak~~ RESOLVED (ea631f1)
-5. ~~**BILL-02 CRITICAL:** Trial periods not implemented in webhook handler~~ RESOLVED (ea631f1)
+| Phase | Name | Status |
+|-------|------|--------|
+| 39 | Match Profile Engine | Not started |
+| 40 | Pipeline Dashboard | Not started |
+| 41 | Conversation Intelligence | Not started |
+| 42 | Scheduled Messaging | Not started |
+| 43 | Date Planner | Not started |
+| 44 | Autonomy Engine | Not started |
+| 45 | Polish & Integration | Not started |
 
 ---
 
 ## Next Actions
 
-1. **Run `/gsd:audit-milestone`** — verify all 28 requirements against codebase before shipping
-2. **Apply DB migrations** — 9 migration files need to be applied in Supabase dashboard
-3. **Deploy to Vercel + Railway** — `cd web && npx vercel --prod` and redeploy API
-4. **Run `/gsd:complete-milestone`** — archive M7, prepare for v0.8 if needed
-
----
-
-## Decisions Log (v0.7)
-
-| ID | Decision | Context |
-|----|----------|---------|
-| audit-first | Run 5-agent audit before coding fixes | Identified 28 gaps systematically before touching code |
-| milestone-not-hotfix | Structure fixes as a milestone with phases | Maintains GSD workflow discipline, enables parallel execution |
-| analytics-consolidation | Drop old clapcheeks_analytics_daily, rename analytics_daily | Two tables existed with different schemas; consolidated into one using richer migration 009 schema |
-| profiles-rls-restrict | Restrict profiles to own-row reads only | scripts/001 had USING(true) policy — security vulnerability |
-| requirePlan-middleware | Create requirePlan middleware for server-side plan gating | Free users could access pro/elite API endpoints; now blocked with 403 |
-| rate-limiting-3tier | Three-tier rate limiting (auth 5/min, AI 20/min, general 100/min) | Zero rate limiting existed; express-rate-limit added |
-| async-error-handling | asyncHandler + global errorHandler for all async routes | Unhandled rejections crashed server; now caught globally |
-| agent-degraded-via-supabase | Push degraded status to clapcheeks_agent_tokens table | Dashboard polls agent token row for degraded_platform/reason |
-| queue-exponential-backoff | Replace fixed retry with exponential backoff (5s-5min) | Prevents hammering Supabase during outages, MAX_RETRIES 50 |
-| fda-runtime-recheck | Re-check FDA every 5 min in background thread | Auto-re-enables iMessage when user grants permission back |
-| subscription-tier-canonical | Consolidate plan/subscription_tier to subscription_tier only | Two fields stored same data; all code now uses subscription_tier exclusively |
-| grace-period-7day | 7-day grace period on payment failure before access revocation | access_expires_at column tracks when past_due users lose access |
-| stripe-key-guard | Fatal exit if sk_test_ key used in production | Prevents accidental test-mode billing in prod for both Express and Next.js |
-
----
-
-## Key Files
-
-| File | Purpose |
-|------|---------|
-| `.planning/milestone-7/REQUIREMENTS.md` | All 28 requirements with IDs and acceptance criteria |
-| `.planning/milestone-7/MILESTONE.md` | Milestone overview, phase details, success criteria |
-| `.planning/ROADMAP.md` | Full roadmap including M7 phases 27-31 |
+1. **Run `/gsd:define-requirements`** — define testable acceptance criteria for all 7 phases
+2. **Run `/gsd:plan-phase 39`** — plan the Match Profile Engine (zodiac + IG + comms profiles)
+3. **Run `/gsd:execute-phase 39`** — build it
 
 ---
 
 ## Session Continuity
 
-Last session: 2026-03-03
-Stopped at: Completed all 5 phases (27-31) — Milestone 7 fully executed via 5-agent parallel team
+Last session: 2026-04-14
+Stopped at: Milestone 9 initialized, requirements pending
 Resume file: None
 
 ---
 
-*State updated: 2026-03-03 — Milestone 7 Production Hardening complete. All 5 phases (27-31), 15 plans, 28 requirements resolved. Ready for audit and deployment.*
+*State updated: 2026-04-14 — Milestone 9 (Personal Dating Command Center) initialized. Ready for requirements definition.*

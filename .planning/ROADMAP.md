@@ -58,3 +58,25 @@ Close all production-blocking gaps before real user traffic. 28 fixes across DB,
 - Phase 29: Billing Completion — Payment failure handling, trials, plan field consolidation (BILL-01 through BILL-06)
 - Phase 30: Agent Reliability — Degraded state surfacing, env validation, queue backoff, log rotation (AGENT-01 through AGENT-05)
 - Phase 31: Frontend Polish — Remove fake metrics, auth redirects, SEO metadata (FE-01 through FE-05)
+
+## Milestone 8: GTM Testing & Launch (v0.8)
+Deploy, dogfood, alpha test, and soft-launch the SaaS product.
+
+- Phase 32: Infrastructure Deploy — Apply DB migrations, deploy Express API + FastAPI + Next.js
+- Phase 33: Founder Dogfooding — Install agent, test swiping, conversation AI, Stripe checkout, coaching
+- Phase 34: Closed Alpha — Onboarding materials, Sentry, analytics, 2-week alpha with 5-10 friends
+- Phase 35: Anti-Detection & Safety — Platform ban testing, rate limit rules per platform
+- Phase 36: Beta Readiness — Production Stripe, dunning flow, load test, security audit
+- Phase 37: Launch Prep — Demo video, email onboarding sequence, weekly reports, landing page optimization
+- Phase 38: Soft Launch — First 50 users, referral program, admin monitoring
+
+## Milestone 9: Personal Dating Command Center (v0.9)
+Julian's personal dating power tool — zodiac intelligence, Instagram scraping, communication profiling, match pipeline, scheduled messaging, date planning, and full autonomy.
+
+- Phase 39: Match Profile Engine — Supabase schema for matches, zodiac calculation from birthday, Instagram profile scraper via Browserbase, DISC/VAK communication profiling adapted for dating
+- Phase 40: Pipeline Dashboard — Kanban UI (New → Talking → Number Got → Date Planned → Dated → Ranked), match cards with zodiac/photo/score, mobile-first responsive design
+- Phase 41: Conversation Intelligence — Message analysis engine, strategy generation per match, reply drafting in Julian's voice, topic recommendations from IG + conversation data
+- Phase 42: Scheduled Messaging — Follow-up sequences with configurable delays, god draft integration, optimal send timing based on response patterns, app-to-iMessage transition prompts
+- Phase 43: Date Planner — Google Calendar integration, date idea suggestions from match interests, budget tracking per date, post-date rating and notes, San Diego venue database
+- Phase 44: Autonomy Engine — Auto-swipe based on preference learning, auto-respond in Julian's voice, auto-follow-up on stale conversations, approval gates for date booking only
+- Phase 45: Polish & Integration — End-to-end flow testing, Obsidian dating profile sync, notification system, mobile UX refinement, edge case handling
