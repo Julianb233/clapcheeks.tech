@@ -308,6 +308,53 @@ def _drip_worker(config: dict, interval_seconds: int = 300) -> None:
         _shutdown.wait(interval_seconds)
 
 
+def _dogfood_health_worker(daemon_cfg: dict) -> None:
+    """Record health heartbeats for dogfooding streak tracking.
+
+    Runs every 60s to write local heartbeat. At midnight (or first tick
+    after midnight), records the daily summary and syncs to Supabase.
+    """
+    try:
+        from clapcheeks.dogfood.health_monitor import HealthMonitor
+    except ImportError:
+        log.warning("dogfood module not installed �� health monitoring disabled")
+        return
+
+    monitor = HealthMonitor()
+    last_daily_date = ""
+    start_time = time.time()
+
+    while not _shutdown.is_set():
+        try:
+            active_platforms = [
+                p for p in daemon_cfg.get("platforms", [])
+                if p in PLATFORM_CLIENTS
+            ]
+            monitor.record_heartbeat(platforms_active=active_platforms)
+
+            # Once per day: record daily status
+            today = datetime.now().strftime("%Y-%m-%d")
+            if today != last_daily_date:
+                crashes_today = sum(
+                    len([t for t in ts_list if time.time() - t < 86400])
+                    for ts_list in worker_crashes.values()
+                )
+                uptime_hrs = (time.time() - start_time) / 3600
+                monitor.record_daily_status(
+                    platforms_ran=active_platforms,
+                    crashes=crashes_today,
+                    uptime_hours=uptime_hrs,
+                )
+                monitor.sync_to_supabase()
+                last_daily_date = today
+                log.info("Dogfood daily status recorded (streak: %d)",
+                         monitor.get_consecutive_days())
+        except Exception as exc:
+            log.error("Dogfood health worker error: %s", exc)
+
+        _shutdown.wait(60)
+
+
 def _platform_worker(
     platform: str,
     config: dict,
@@ -458,6 +505,16 @@ def run_daemon() -> None:
         target=_drip_worker,
         args=(config, drip_interval),
         name="drip",
+        daemon=True,
+    )
+    t.start()
+    threads.append(t)
+
+    # Dogfooding health monitor — records heartbeats + daily status
+    t = threading.Thread(
+        target=_dogfood_health_worker,
+        args=(daemon_cfg,),
+        name="dogfood-health",
         daemon=True,
     )
     t.start()
