@@ -143,7 +143,6 @@ export default function SignUpPage() {
           <Link href="/" className="flex items-center gap-2 group">
             <span className="text-2xl font-bold gradient-text">Clapcheeks</span>
             <span className="text-xs text-white/30 font-mono bg-white/5 px-2 py-0.5 rounded">
-              beta
             </span>
           </Link>
         </div>

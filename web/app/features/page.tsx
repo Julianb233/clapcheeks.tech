@@ -186,7 +186,7 @@ export default function FeaturesPage() {
               Start Your Free Trial
             </Link>
             <p className="mt-4 text-white/25 text-sm">
-              All features included during beta &mdash; no credit card required
+              Start free, upgrade anytime &mdash; cancel whenever you want
             </p>
           </div>
 

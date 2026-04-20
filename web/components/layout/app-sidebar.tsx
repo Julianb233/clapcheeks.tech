@@ -16,6 +16,7 @@ type NavItem = {
 const PRIMARY: NavItem[] = [
   { href: '/dashboard', label: 'Dashboard', icon: <HomeIcon /> },
   { href: '/leads', label: 'Leads', icon: <PipelineIcon /> },
+  { href: '/matches', label: 'Match Intel', icon: <ProfileIcon />, badge: 'new' },
   { href: '/conversation', label: 'Conversations', icon: <ChatIcon /> },
   { href: '/intelligence', label: 'Intelligence', icon: <SparkIcon /> },
   { href: '/analytics', label: 'Analytics', icon: <ChartIcon /> },
@@ -24,10 +25,12 @@ const PRIMARY: NavItem[] = [
 ]
 
 const SECONDARY: NavItem[] = [
+  { href: '/referrals', label: 'Referrals', icon: <GiftIcon />, badge: 'new' },
   { href: '/settings/ai', label: 'AI Settings', icon: <GearIcon />, badge: 'new' },
   { href: '/settings', label: 'Reports', icon: <BellIcon /> },
   { href: '/billing', label: 'Billing', icon: <CardIcon /> },
   { href: '/device', label: 'Device', icon: <LaptopIcon /> },
+  { href: '/support', label: 'Support', icon: <HelpIcon /> },
 ]
 
 export default function AppSidebar() {
@@ -213,5 +216,8 @@ function GearIcon()     { return IconBase('M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z M
 function BellIcon()     { return IconBase('M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 0 1-3.46 0') }
 function CardIcon()     { return IconBase('M3 5h18v14H3z M3 10h18') }
 function LaptopIcon()   { return IconBase('M4 4h16v12H4z M2 20h20') }
+function ProfileIcon()  { return IconBase('M16 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2M12 3a4 4 0 1 0 0 8 4 4 0 0 0 0-8zM17 11l2 2 4-4') }
+function GiftIcon()     { return IconBase('M20 12v10H4V12M2 7h20v5H2zM12 22V7') }
+function HelpIcon()     { return IconBase('M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3M12 17h.01') }
 function MenuIcon()     { return IconBase('M3 12h18M3 6h18M3 18h18') }
 function CloseIcon()    { return IconBase('M18 6L6 18M6 6l12 12') }
