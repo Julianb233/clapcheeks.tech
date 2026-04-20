@@ -1,0 +1,53 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+      background: #0A0A0A; color: #fff;
+      width: 320px; padding: 14px; margin: 0;
+    }
+    h1 { font-size: 14px; margin: 0 0 10px 0; }
+    .row { margin-bottom: 10px; }
+    label { font-size: 11px; text-transform: uppercase;
+            letter-spacing: 0.06em; color: rgba(255,255,255,0.55); display: block; margin-bottom: 4px; }
+    input { width: 100%; box-sizing: border-box;
+            background: rgba(255,255,255,0.06); color: #fff;
+            border: 1px solid rgba(255,255,255,0.12);
+            padding: 7px 9px; border-radius: 5px; font-size: 12px; }
+    button { background: linear-gradient(135deg, #C9A427, #E8291E);
+             color: #000; border: 0; padding: 9px 13px; border-radius: 6px;
+             font-weight: 600; cursor: pointer; width: 100%; margin-top: 4px; }
+    .status { font-size: 11px; color: rgba(255,255,255,0.6); margin-top: 10px;
+              background: rgba(255,255,255,0.03); padding: 8px;
+              border-radius: 5px; }
+    .ok { color: #4ade80; }
+    .warn { color: #facc15; }
+  </style>
+</head>
+<body>
+  <h1>Clapcheeks Token Harvester</h1>
+
+  <div class="row">
+    <label>Device token</label>
+    <input id="device_token" placeholder="Paste from /settings/ai -> Devices" />
+  </div>
+
+  <div class="row">
+    <label>Device name</label>
+    <input id="device_name" placeholder="e.g. macbook-julian" value="chrome-ext" />
+  </div>
+
+  <div class="row">
+    <label>API origin</label>
+    <input id="api_origin" value="https://clapcheeks.tech" />
+  </div>
+
+  <button id="save">Save</button>
+
+  <div class="status" id="status">Loading status...</div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
