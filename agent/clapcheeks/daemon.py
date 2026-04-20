@@ -276,6 +276,137 @@ def _sync_worker(config: dict, interval_minutes: int) -> None:
         _shutdown.wait(interval_sec)
 
 
+def _scoring_worker(config: dict, interval_seconds: int = 300) -> None:
+    """Rule-based match scoring (Phase I).
+
+    Every ``interval_seconds`` (default 5m), find every clapcheeks_matches
+    row with ``final_score IS NULL`` for the configured user and score it
+    using the persona's ranking_weights. Also re-scores rows where the
+    vision_summary was updated more recently than scored_at (cheap way
+    to handle the Phase B -> Phase I rescore trigger without a DB trigger).
+
+    Lightweight — no network calls outside Supabase REST. Safe to run
+    alongside the other workers.
+    """
+    from clapcheeks.scoring import load_persona, score_all_unscored
+
+    # Resolve user_id from config. If the agent is multi-user in the future,
+    # this becomes a loop over users.
+    user_id = (
+        config.get("user_id")
+        or config.get("clapcheeks_user_id")
+        or os.environ.get("CLAPCHEEKS_USER_ID")
+    )
+    if not user_id:
+        log.warning("scoring worker: no user_id in config/env, disabled")
+        return
+
+    # Cache the persona; refresh every hour to pick up dashboard edits.
+    persona = None
+    last_persona_fetch = 0.0
+    persona_ttl = 3600.0
+
+    while not _shutdown.is_set():
+        try:
+            now = time.time()
+            if persona is None or (now - last_persona_fetch) > persona_ttl:
+                persona = load_persona(user_id)
+                last_persona_fetch = now
+
+            stats = score_all_unscored(user_id, persona=persona, limit=200)
+            if stats["scored"] or stats["errors"]:
+                log.info(
+                    "Scoring tick: scanned=%d scored=%d errors=%d",
+                    stats["scanned"], stats["scored"], stats["errors"],
+                )
+
+            # Rescore matches whose vision_summary changed after scored_at.
+            # Uses REST with filter `updated_at=gt.scored_at` (not supported
+            # server-side by PostgREST for column comparisons), so we pull a
+            # small window of recently-updated rows and check locally.
+            _rescore_updated_matches(user_id, persona)
+        except Exception as exc:
+            log.error("Scoring tick failed: %s", exc)
+        _shutdown.wait(interval_seconds)
+
+
+def _rescore_updated_matches(user_id: str, persona: dict) -> None:
+    """Rescore matches whose row was updated after it was scored.
+
+    Cheap polling alternative to a Postgres trigger — pulls matches where
+    scored_at IS NOT NULL and updated_at is in the last 15 minutes, then
+    locally filters rows where updated_at > scored_at before rescoring.
+    """
+    from datetime import datetime, timedelta, timezone
+    from clapcheeks.scoring import _supabase_creds, score_match
+    import requests
+
+    try:
+        url, key = _supabase_creds()
+    except Exception as exc:
+        log.debug("rescore: creds unavailable (%s)", exc)
+        return
+
+    cutoff = (datetime.now(timezone.utc) - timedelta(minutes=15)).isoformat()
+    params = {
+        "user_id": f"eq.{user_id}",
+        "scored_at": "not.is.null",
+        "updated_at": f"gte.{cutoff}",
+        "select": (
+            "id,user_id,platform,match_id,match_name,name,age,bio,"
+            "photos_jsonb,prompts_jsonb,job,school,instagram_handle,"
+            "match_intel,vision_summary,instagram_intel,scored_at,updated_at,"
+            "distance_miles"
+        ),
+        "limit": "50",
+    }
+    resp = requests.get(
+        f"{url}/rest/v1/clapcheeks_matches",
+        params=params,
+        headers={"apikey": key, "Authorization": f"Bearer {key}"},
+        timeout=15,
+    )
+    if resp.status_code >= 300:
+        log.debug("rescore: fetch failed %s", resp.status_code)
+        return
+
+    rescored = 0
+    for row in resp.json():
+        updated = row.get("updated_at")
+        scored = row.get("scored_at")
+        if not updated or not scored or updated <= scored:
+            continue
+        try:
+            result = score_match(row, persona)
+            patch = {
+                "location_score": result["location_score"],
+                "criteria_score": result["criteria_score"],
+                "final_score": result["final_score"],
+                "dealbreaker_flags": result["dealbreaker_flags"],
+                "scoring_reason": result["scoring_reason"],
+                "distance_miles": result["distance_miles"],
+                "scored_at": datetime.now(timezone.utc).isoformat(),
+            }
+            r = requests.patch(
+                f"{url}/rest/v1/clapcheeks_matches",
+                params={"id": f"eq.{row['id']}"},
+                headers={
+                    "apikey": key,
+                    "Authorization": f"Bearer {key}",
+                    "Content-Type": "application/json",
+                    "Prefer": "return=minimal",
+                },
+                json=patch,
+                timeout=15,
+            )
+            if r.status_code < 300:
+                rescored += 1
+        except Exception as exc:
+            log.debug("rescore: row %s failed: %s", row.get("id"), exc)
+    if rescored:
+        log.info("Rescored %d updated matches", rescored)
+
+
 def _drip_worker(config: dict, interval_seconds: int = 300) -> None:
     """Evaluate drip rules across all tracked conversations every N seconds.
 
@@ -458,6 +589,18 @@ def run_daemon() -> None:
         target=_drip_worker,
         args=(config, drip_interval),
         name="drip",
+        daemon=True,
+    )
+    t.start()
+    threads.append(t)
+
+    # Scoring thread (Phase I) — scores every new match against persona
+    # ranking_weights, and re-scores matches whose vision_summary changed.
+    scoring_interval = int(daemon_cfg.get("scoring_interval_seconds", 300))
+    t = threading.Thread(
+        target=_scoring_worker,
+        args=(config, scoring_interval),
+        name="scoring",
         daemon=True,
     )
     t.start()
