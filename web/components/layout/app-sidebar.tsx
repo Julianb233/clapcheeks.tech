@@ -17,6 +17,7 @@ const PRIMARY: NavItem[] = [
   { href: '/dashboard', label: 'Dashboard', icon: <HomeIcon /> },
   { href: '/leads', label: 'Leads', icon: <PipelineIcon /> },
   { href: '/conversation', label: 'Conversations', icon: <ChatIcon /> },
+  { href: '/dates', label: 'Date Planner', icon: <HeartIcon /> },
   { href: '/intelligence', label: 'Intelligence', icon: <SparkIcon /> },
   { href: '/analytics', label: 'Analytics', icon: <ChartIcon /> },
   { href: '/photos', label: 'Photos', icon: <CameraIcon /> },
@@ -213,5 +214,6 @@ function GearIcon()     { return IconBase('M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z M
 function BellIcon()     { return IconBase('M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 0 1-3.46 0') }
 function CardIcon()     { return IconBase('M3 5h18v14H3z M3 10h18') }
 function LaptopIcon()   { return IconBase('M4 4h16v12H4z M2 20h20') }
+function HeartIcon()    { return IconBase('M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z') }
 function MenuIcon()     { return IconBase('M3 12h18M3 6h18M3 18h18') }
 function CloseIcon()    { return IconBase('M18 6L6 18M6 6l12 12') }
