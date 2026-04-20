@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import { Bebas_Neue, DM_Sans, Geist_Mono } from 'next/font/google'
 import { Analytics } from '@vercel/analytics/next'
+import PWAProvider from '@/components/pwa/pwa-provider'
 import './globals.css'
 import './landing.css'
 
@@ -72,6 +73,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en" className={`dark scroll-smooth ${bebasNeue.variable} ${dmSans.variable}`}>
       <body className="font-body antialiased bg-black text-white">
         {children}
+        <PWAProvider />
         <Analytics />
       </body>
     </html>

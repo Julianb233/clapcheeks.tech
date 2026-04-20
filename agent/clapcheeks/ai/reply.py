@@ -39,11 +39,17 @@ def generate_reply(
     conversation_history: list[dict],
     platform: str,
     style: str = "casual",
+    match_profile: dict | None = None,
 ) -> str:
     """Generate a reply given conversation history and platform.
 
     Fallback chain: Ollama -> Claude API -> Kimi API -> safe string.
+    Injects user persona + match intel (zodiac, interests) into the system
+    prompt. Pass `match_profile` (raw rec/user dict) to enable intel.
     """
+    from clapcheeks import persona as _persona
+    from clapcheeks import match_intel as _intel
+
     config = load_config()
     model = config.get("ai_model", "llama3.2")
 
@@ -53,6 +59,13 @@ def generate_reply(
     system = REPLY_SYSTEM
     if tone:
         system += f"\nPlatform tone for {platform}: {tone}"
+    system = _persona.merge_into_system(system)
+
+    if match_profile:
+        intel = _intel.extract(match_profile)
+        intel_block = _intel.format_for_system_prompt(intel)
+        if intel_block:
+            system = f"{system}\n\n{intel_block}"
 
     # Format conversation into a readable prompt
     convo_lines = []

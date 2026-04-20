@@ -1,6 +1,19 @@
 """Clapcheeks local agent CLI — AI-powered dating co-pilot."""
 from __future__ import annotations
 
+from pathlib import Path
+
+try:
+    from dotenv import load_dotenv
+    # Load ~/.clapcheeks/.env so HINGE_AUTH_TOKEN etc. are available before
+    # any platform factory runs. Also pick up a repo-local .env if present.
+    _ENV_PATH = Path.home() / ".clapcheeks" / ".env"
+    if _ENV_PATH.exists():
+        load_dotenv(_ENV_PATH)
+    load_dotenv()  # repo-local fallback
+except ImportError:
+    pass
+
 import click
 from rich.console import Console
 from rich.panel import Panel
@@ -70,6 +83,228 @@ def setup() -> None:
     """Interactive first-time setup wizard."""
     from clapcheeks.setup.wizard import run_setup
     run_setup()
+
+
+# ---------------------------------------------------------------------------
+# iPhone-API token setup (Hinge + Tinder)
+# ---------------------------------------------------------------------------
+
+_ENV_DIR = Path.home() / ".clapcheeks"
+_ENV_FILE = _ENV_DIR / ".env"
+
+
+def _read_env_file() -> dict[str, str]:
+    """Parse the agent's .env into a plain dict."""
+    if not _ENV_FILE.exists():
+        return {}
+    out: dict[str, str] = {}
+    for line in _ENV_FILE.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        k, v = line.split("=", 1)
+        out[k.strip()] = v.strip().strip('"').strip("'")
+    return out
+
+
+def _write_env_file(updates: dict[str, str]) -> None:
+    """Merge updates into ~/.clapcheeks/.env with 0600 perms."""
+    _ENV_DIR.mkdir(parents=True, exist_ok=True)
+    current = _read_env_file()
+    current.update({k: v for k, v in updates.items() if v})
+    lines = [f"{k}={v}" for k, v in current.items()]
+    _ENV_FILE.write_text("\n".join(lines) + "\n")
+    try:
+        _ENV_FILE.chmod(0o600)
+    except Exception:
+        pass
+
+
+@main.command(name="setup-hinge-token")
+def setup_hinge_token() -> None:
+    """Interactive capture for the Hinge iPhone-API bearer token.
+
+    Walks through the Charles/HTTP Toolkit flow (see docs/SETUP_HINGE_TOKEN.md),
+    prompts for the token + optional device IDs, writes them to
+    ~/.clapcheeks/.env, and probes the API to verify.
+    """
+    console.print(Panel(
+        "[bold]Hinge iPhone-API token setup[/bold]\n\n"
+        "Follow [cyan]docs/SETUP_HINGE_TOKEN.md[/cyan] to capture your token\n"
+        "via Charles Proxy (iPhone) or HTTP Toolkit (Android). Hinge does not\n"
+        "pin TLS certs, so no jailbreak or Frida is needed.",
+        border_style="magenta",
+    ))
+
+    token = click.prompt(
+        "Paste your Hinge Bearer token (the long JWT, no 'Bearer ' prefix)",
+        hide_input=True,
+    ).strip()
+    if not token:
+        console.print("[red]No token provided — aborting.[/red]")
+        raise SystemExit(1)
+
+    install_id = click.prompt(
+        "Optional: X-Install-Id header (press enter to skip)",
+        default="", show_default=False,
+    ).strip()
+    session_id = click.prompt(
+        "Optional: X-Session-Id header (press enter to skip)",
+        default="", show_default=False,
+    ).strip()
+    device_id = click.prompt(
+        "Optional: X-Device-Id header (press enter to skip)",
+        default="", show_default=False,
+    ).strip()
+
+    _write_env_file({
+        "HINGE_AUTH_TOKEN": token,
+        "HINGE_INSTALL_ID": install_id,
+        "HINGE_SESSION_ID": session_id,
+        "HINGE_DEVICE_ID": device_id,
+    })
+    console.print(f"[green]✓[/green] Wrote credentials to {_ENV_FILE}")
+
+    # Verify with a live probe
+    console.print("\n[bold]Verifying token against prod-api.hingeaws.net…[/bold]")
+    import os
+    for k, v in {
+        "HINGE_AUTH_TOKEN": token,
+        "HINGE_INSTALL_ID": install_id,
+        "HINGE_SESSION_ID": session_id,
+        "HINGE_DEVICE_ID": device_id,
+    }.items():
+        if v:
+            os.environ[k] = v
+    try:
+        from clapcheeks.platforms.hinge_api import HingeAPIClient, HingeAuthError
+        client = HingeAPIClient()
+        client.login()
+        console.print("[bold green]✓ Token works — Hinge API backend is live.[/bold green]")
+        console.print(
+            "\n[dim]The factory will now use the API path automatically on \n"
+            "[cyan]clapcheeks swipe hinge[/cyan]. Token lasts ~7 days; rerun this\n"
+            "command to refresh when you see 401 errors.[/dim]"
+        )
+    except HingeAuthError as exc:
+        console.print(f"[red]✗ Token rejected by Hinge API:[/red] {exc}")
+        raise SystemExit(1)
+    except Exception as exc:
+        console.print(f"[yellow]⚠ Could not verify (network?):[/yellow] {exc}")
+        console.print("[dim]Token was saved. Run [cyan]clapcheeks swipe hinge[/cyan] to test.[/dim]")
+
+
+@main.command(name="setup-tinder-token")
+@click.option(
+    "--wire",
+    type=click.Choice(["json", "protobuf"]),
+    default="json",
+    show_default=True,
+    help="json = web-captured token (recommended). protobuf = iOS + Frida path.",
+)
+def setup_tinder_token(wire: str) -> None:
+    """Interactive capture for the Tinder API auth token.
+
+    Default flow uses JSON wire format with a token captured from tinder.com
+    in Chrome DevTools — no jailbreak or cert pinning bypass needed. See
+    docs/SETUP_TINDER_TOKEN.md (Path A).
+    """
+    if wire == "protobuf":
+        console.print(Panel(
+            "[bold]Tinder iPhone-API token setup (protobuf)[/bold]\n\n"
+            "Prereqs: TLS-pinning bypass (jailbreak + SSL Kill Switch 2, or\n"
+            "re-signed IPA with Frida-Gadget) + generated .proto modules.\n"
+            "See [cyan]docs/SETUP_TINDER_TOKEN.md[/cyan] Path B.",
+            border_style="magenta",
+        ))
+    else:
+        console.print(Panel(
+            "[bold]Tinder API token setup (web → JSON)[/bold]\n\n"
+            "1. Open [cyan]tinder.com[/cyan] in Chrome, log in.\n"
+            "2. DevTools → Network → Fetch/XHR → refresh.\n"
+            "3. Click any [cyan]api.gotinder.com[/cyan] request.\n"
+            "4. Copy the [bold]X-Auth-Token[/bold] header and paste below.",
+            border_style="magenta",
+        ))
+
+    token = click.prompt(
+        "Paste your Tinder X-Auth-Token",
+        hide_input=True,
+    ).strip()
+    if not token:
+        console.print("[red]No token provided — aborting.[/red]")
+        raise SystemExit(1)
+
+    persistent_id = click.prompt(
+        "persistent-device-id header (UUID, optional — press enter to skip)",
+        default="", show_default=False,
+    ).strip()
+
+    updates: dict[str, str] = {
+        "TINDER_AUTH_TOKEN": token,
+        "TINDER_WIRE_FORMAT": wire,
+        "TINDER_PERSISTENT_ID": persistent_id,
+    }
+
+    if wire == "protobuf":
+        app_version = click.prompt(
+            "iOS app version (e.g. 14.26.0)",
+            default="14.26.0",
+        ).strip()
+        updates["TINDER_APP_VERSION"] = app_version
+
+        # Only flip API mode if the proto modules are present
+        proto_dir = Path(__file__).parent / "platforms" / "tinder_proto"
+        has_proto = proto_dir.exists() and any(
+            p.name.endswith("_pb2.py") for p in proto_dir.iterdir() if p.is_file()
+        )
+        updates["CLAPCHEEKS_TINDER_MODE"] = "api" if has_proto else "browser"
+        _write_env_file(updates)
+        console.print(f"[green]✓[/green] Wrote credentials to {_ENV_FILE}")
+
+        if has_proto:
+            console.print(
+                "[bold green]✓[/bold green] Protobuf modules detected — API mode ENABLED."
+            )
+        else:
+            console.print(
+                f"[yellow]⚠[/yellow] No *_pb2.py under {proto_dir}. "
+                "Token saved but API mode is OFF (browser fallback).\n"
+                "Generate proto modules per docs/SETUP_TINDER_TOKEN.md then "
+                "flip [cyan]CLAPCHEEKS_TINDER_MODE=api[/cyan]."
+            )
+        return
+
+    # --- JSON (web) path — verify live ---------------------------------
+    updates["CLAPCHEEKS_TINDER_MODE"] = "api"
+    _write_env_file(updates)
+    console.print(f"[green]✓[/green] Wrote credentials to {_ENV_FILE}")
+
+    console.print("\n[bold]Verifying token against api.gotinder.com…[/bold]")
+    import os
+    for k, v in updates.items():
+        if v:
+            os.environ[k] = v
+    try:
+        from clapcheeks.platforms.tinder_api import TinderAPIClient, TinderAuthError
+        client = TinderAPIClient()
+        if client.login():
+            console.print("[bold green]✓ Token works — Tinder API backend is live.[/bold green]")
+            console.print(
+                "\n[dim]Run [cyan]clapcheeks swipe tinder[/cyan] to start. Web tokens\n"
+                "last ~30 days; rerun this command when you hit 401.[/dim]"
+            )
+        else:
+            console.print(
+                "[yellow]⚠ Login probe returned false.[/yellow] Token was saved; "
+                "try running a swipe to see the actual error."
+            )
+    except TinderAuthError as exc:
+        console.print(f"[red]✗ Token rejected:[/red] {exc}")
+        raise SystemExit(1)
+    except Exception as exc:
+        console.print(f"[yellow]⚠ Could not verify (network?):[/yellow] {exc}")
+        console.print("[dim]Token was saved. Run [cyan]clapcheeks swipe tinder[/cyan] to test.[/dim]")
 
 
 @main.command()
@@ -199,15 +434,12 @@ def swipe(mode: str | None, platform: str, swipes: int, like_ratio: float) -> No
             try:
                 driver = mgr.get_driver(plat)
 
-                if plat == "tinder":
-                    from clapcheeks.platforms.tinder import TinderClient
-                    client = TinderClient(driver=driver)
-                elif plat == "bumble":
-                    from clapcheeks.platforms.bumble import BumbleClient
-                    client = BumbleClient(driver=driver)
-                elif plat == "hinge":
-                    from clapcheeks.platforms.hinge import HingeClient
-                    client = HingeClient(driver=driver, ai_service_url=config.get('ai_service_url'))
+                from clapcheeks.platforms import get_platform_client
+                client = get_platform_client(
+                    plat,
+                    driver=driver,
+                    ai_service_url=config.get('ai_service_url'),
+                )
 
                 with (driver if hasattr(driver, '__enter__') else _nullctx(driver)):
                     results = client.run_swipe_session(
@@ -345,16 +577,16 @@ def converse(platform: str, dry_run: bool) -> None:
                 console.print(f'[bold red]Error:[/bold red] {e}')
                 raise SystemExit(1)
 
-        # Get platform client
-        if platform == 'tinder':
-            from clapcheeks.platforms.tinder import TinderClient
-            client = TinderClient(driver=driver)
-        elif platform == 'hinge':
-            from clapcheeks.platforms.hinge import HingeClient
-            client = HingeClient(driver=driver, ai_service_url=config.get('ai_service_url'))
-        else:
+        # Get platform client (factory routes to API or browser backend)
+        if platform == 'bumble':
             console.print(f'[yellow]Bumble conversation management uses the driver directly.[/yellow]')
             raise SystemExit(0)
+        from clapcheeks.platforms import get_platform_client
+        client = get_platform_client(
+            platform,
+            driver=driver,
+            ai_service_url=config.get('ai_service_url'),
+        )
 
         mgr = ConversationManager(client, platform, config)
 
@@ -430,15 +662,12 @@ def reengagement_run(platform: str | None, dry_run: bool) -> None:
             from clapcheeks.session.manager import SessionManager
             session = SessionManager(config)
             driver = session.get_driver(plat)
-            if plat == 'tinder':
-                from clapcheeks.platforms.tinder import TinderClient
-                platform_clients[plat] = TinderClient(driver=driver)
-            elif plat == 'hinge':
-                from clapcheeks.platforms.hinge import HingeClient
-                platform_clients[plat] = HingeClient(driver=driver, ai_service_url=config.get('ai_service_url'))
-            elif plat == 'bumble':
-                from clapcheeks.platforms.bumble import BumbleClient
-                platform_clients[plat] = BumbleClient(driver=driver)
+            from clapcheeks.platforms import get_platform_client
+            platform_clients[plat] = get_platform_client(
+                plat,
+                driver=driver,
+                ai_service_url=config.get('ai_service_url'),
+            )
         except Exception as exc:
             console.print(f'[dim]Skipping {plat}: {exc}[/dim]')
 

@@ -1,7 +1,8 @@
 import type { Metadata } from 'next'
-import Navbar from '@/components/layout/navbar'
-import Footer from '@/components/layout/footer'
+import AppSidebar from '@/components/layout/app-sidebar'
 import PageOrbs from '@/components/page-orbs'
+import { createClient } from '@/lib/supabase/server'
+import { redirect } from 'next/navigation'
 
 export const metadata: Metadata = {
   title: {
@@ -10,14 +11,20 @@ export const metadata: Metadata = {
   },
 }
 
-export default function MainLayout({ children }: { children: React.ReactNode }) {
+export default async function MainLayout({ children }: { children: React.ReactNode }) {
+  // Gate the entire authed surface. Unauthed visits bounce to /login.
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+
   return (
     <>
       <PageOrbs subtle />
-      <div className="relative" style={{ zIndex: 1 }}>
-        <Navbar />
-        <main>{children}</main>
-        <Footer />
+      <div className="relative min-h-screen" style={{ zIndex: 1 }}>
+        <AppSidebar />
+        <div className="lg:pl-[260px]">
+          <main className="min-h-screen">{children}</main>
+        </div>
       </div>
     </>
   )

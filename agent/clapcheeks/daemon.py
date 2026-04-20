@@ -242,18 +242,54 @@ def _heartbeat_worker(api_url: str, token: str) -> None:
 
 
 def _sync_worker(config: dict, interval_minutes: int) -> None:
-    """Call push_metrics() on a fixed interval."""
-    from clapcheeks.sync import push_metrics, record_sync_time
+    """Call push_metrics() + push_leads() on a fixed interval."""
+    from clapcheeks.sync import push_leads, push_metrics, record_sync_time
 
     interval_sec = interval_minutes * 60
     while not _shutdown.is_set():
         try:
             synced, queued = push_metrics(config)
+            lead_up, lead_skip = push_leads(config)
             record_sync_time()
-            log.info("Sync complete: %d synced, %d queued", synced, queued)
+            log.info(
+                "Sync complete: metrics %d/%dq · leads %d/%dskip",
+                synced, queued, lead_up, lead_skip,
+            )
         except Exception as exc:
             log.error("Sync failed: %s", exc)
         _shutdown.wait(interval_sec)
+
+
+def _drip_worker(config: dict, interval_seconds: int = 300) -> None:
+    """Evaluate drip rules across all tracked conversations every N seconds.
+
+    Builds a per-platform client map so rule actions can send messages
+    directly without requiring a swipe session to be active.
+    """
+    from clapcheeks.conversation.drip import tick, ensure_rules_file
+    from clapcheeks.platforms import get_platform_client
+
+    ensure_rules_file()
+
+    while not _shutdown.is_set():
+        try:
+            # Build platform clients opportunistically — skip platforms
+            # without tokens / drivers to avoid crashes when the user
+            # hasn't onboarded one yet.
+            platform_clients: dict = {}
+            for plat in ("tinder", "hinge", "bumble"):
+                try:
+                    platform_clients[plat] = get_platform_client(plat, driver=None)
+                except Exception as exc:
+                    log.debug("drip: skipping %s (%s)", plat, exc)
+
+            stats = tick(platform_clients=platform_clients,
+                         dry_run=config.get("dry_run", False))
+            if stats.get("fired"):
+                log.info("Drip tick: %s", stats)
+        except Exception as exc:
+            log.error("Drip tick failed: %s", exc)
+        _shutdown.wait(interval_seconds)
 
 
 def _platform_worker(
@@ -292,10 +328,14 @@ def _platform_worker(
         # --- Swipe session ---
         swipe_result = {}
         try:
-            ClientClass = _load_platform_client(platform)
+            from clapcheeks.platforms import get_platform_client
             session_mgr = SessionManager(config)
             driver = session_mgr.get_driver(platform)
-            client = ClientClass(driver)
+            client = get_platform_client(
+                platform,
+                driver=driver,
+                ai_service_url=config.get("ai_service_url"),
+            )
 
             log.info("[%s] Starting swipe session", platform)
             swipe_result = client.run_swipe_session()
@@ -391,6 +431,17 @@ def run_daemon() -> None:
         target=_sync_worker,
         args=(config, sync_interval),
         name="sync",
+        daemon=True,
+    )
+    t.start()
+    threads.append(t)
+
+    # Drip engine thread — fires follow-ups, reengagement, and stage archives
+    drip_interval = int(daemon_cfg.get("drip_interval_seconds", 300))
+    t = threading.Thread(
+        target=_drip_worker,
+        args=(config, drip_interval),
+        name="drip",
         daemon=True,
     )
     t.start()

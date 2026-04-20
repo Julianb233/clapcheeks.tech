@@ -67,9 +67,12 @@ def generate_opener(
     """Generate a personalized opener for a new match.
 
     Tries Ollama (local) first, then Claude API fallback, then a safe default.
-    All local inference stays on-device — no data leaves unless Ollama is unavailable
-    and ANTHROPIC_API_KEY is set.
+    Injects the user's persona + extracted match intel (zodiac, interests, etc.)
+    into the system + user prompts so every message is on-voice and personal.
     """
+    from clapcheeks import persona as _persona
+    from clapcheeks import match_intel as _intel
+
     config = load_config()
     model = model or config.get("ai_model", "llama3.2")
 
@@ -80,17 +83,24 @@ def generate_opener(
         if gif_url:
             return gif_url  # Platform clients send this as a GIF message
 
-    # Build user message from available profile data
-    if profile_data and any(profile_data.get(k) for k in ("name", "age", "bio", "interests", "prompt")):
-        details = ", ".join(
-            f"{k}: {v}" for k, v in profile_data.items() if v
-        )
-        user_msg = f"Write an opener for {match_name}. Their profile mentions: {details}. Reference something specific."
-    else:
-        user_msg = f"Write a fun, playful opener for someone named {match_name} on a dating app. No generic greetings."
+    intel = _intel.extract(profile_data) if profile_data else {}
+    intel_block = _intel.format_for_system_prompt(intel)
+
+    system = _persona.merge_into_system(SYSTEM_PROMPT)
+    if intel_block:
+        system = f"{system}\n\n{intel_block}"
+
+    # Build user message (persona + intel already live in system — keep this tight)
+    user_msg = f"Write an opener for {match_name}."
+    if intel.get("prompt_themes"):
+        user_msg += f" Reference: \"{intel['prompt_themes'][0]}\"."
+    elif profile_data:
+        details = ", ".join(f"{k}: {v}" for k, v in profile_data.items() if v)
+        if details:
+            user_msg += f" Profile: {details}."
 
     messages = [
-        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "system", "content": system},
         {"role": "user", "content": user_msg},
     ]
 

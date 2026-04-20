@@ -10,7 +10,13 @@ import requests
 
 from clapcheeks.ai.date_ask import should_ask_for_date, generate_date_ask, generate_reengagement
 from clapcheeks.ai.reply import generate_reply
-from clapcheeks.conversation.state import get_conversation, update_conversation, get_stale_conversations
+from clapcheeks.conversation.state import (
+    Stage,
+    get_conversation,
+    get_stale_conversations,
+    set_stage,
+    update_conversation,
+)
 from clapcheeks.session.rate_limiter import sleep_jitter
 
 logger = logging.getLogger(__name__)
@@ -182,6 +188,18 @@ class ConversationManager:
             sent = self._client.send_message(match_id, opener)
             if sent:
                 self._log_opener(name, self._platform, opener)
+                # Record lifecycle transition MATCHED -> OPENED
+                update_conversation(
+                    match_id,
+                    platform=self._platform,
+                    name=name,
+                    last_ts=time.time(),
+                    last_sender="us",
+                )
+                try:
+                    set_stage(match_id, Stage.OPENED)
+                except ValueError:
+                    pass  # already past OPENED
             return sent
         except Exception as exc:
             logger.error("send_opener failed: %s", exc)
@@ -203,7 +221,19 @@ class ConversationManager:
 
             # Update conversation state tracking
             last_ts = time.time()
-            update_conversation(match_id, message_count=len(messages), last_ts=last_ts, platform=self._platform)
+            update_conversation(
+                match_id,
+                message_count=len(messages),
+                last_ts=last_ts,
+                last_sender="them",
+                platform=self._platform,
+                name=name,
+            )
+            # They replied — promote to REPLYING if we're still at OPENED
+            try:
+                set_stage(match_id, Stage.REPLYING)
+            except ValueError:
+                pass  # already past REPLYING (e.g. DATE_PROPOSED) — fine
 
             last = messages[-1]
             if last.get("from_id") == "me" or last.get("role") == "assistant":
@@ -225,8 +255,21 @@ class ConversationManager:
             state = prev_state or {}
             if not state.get("date_asked") and should_ask_for_date(len(messages), last_ts):
                 profile = match.get("person", {})
-                reply = generate_date_ask(match_name=name, platform=self._platform, profile_data=profile)
+                # Pull concrete slot proposals from the configured calendar
+                try:
+                    from clapcheeks.calendar.slots import propose_slots_for_ai
+                    slot_context = propose_slots_for_ai(n=3)
+                except Exception:
+                    slot_context = None
+                reply = generate_date_ask(
+                    match_name=name, platform=self._platform,
+                    profile_data=profile, slot_context=slot_context,
+                )
                 update_conversation(match_id, date_asked=True)
+                try:
+                    set_stage(match_id, Stage.DATE_PROPOSED)
+                except ValueError:
+                    pass
                 results["dates_proposed"] += 1
             else:
                 stage = curr_stage

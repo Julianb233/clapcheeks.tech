@@ -162,3 +162,117 @@ def record_sync_time() -> None:
     tmp = SYNC_STATE_FILE.with_suffix(".tmp")
     tmp.write_text(json.dumps(data))
     tmp.rename(SYNC_STATE_FILE)
+
+
+# ---------------------------------------------------------------------------
+# Lead pipeline sync — pushes conversation state rows to clapcheeks_leads
+# ---------------------------------------------------------------------------
+
+def _epoch_to_iso(ts: float | int | None) -> str | None:
+    if not ts:
+        return None
+    try:
+        return datetime.fromtimestamp(float(ts)).isoformat(timespec="seconds") + "Z"
+    except Exception:
+        return None
+
+
+def _get_user_id_from_token() -> str | None:
+    """Resolve the logged-in user's UUID from the agent token.
+
+    We rely on the agent-tokens table to have user_id linked to the token.
+    Falls back to env (CLAPCHEEKS_USER_ID) to support bench testing.
+    """
+    fallback = os.environ.get("CLAPCHEEKS_USER_ID")
+    if fallback:
+        return fallback
+    try:
+        from supabase import create_client
+        url, key = _load_supabase_env()
+        if not url or not key:
+            return None
+        client = create_client(url, key)
+        device_id = os.environ.get("DEVICE_ID", "default")
+        resp = client.table("clapcheeks_agent_tokens") \
+            .select("user_id") \
+            .eq("device_id", device_id) \
+            .limit(1) \
+            .execute()
+        rows = resp.data or []
+        return rows[0]["user_id"] if rows and rows[0].get("user_id") else None
+    except Exception:
+        return None
+
+
+def collect_lead_rows(user_id: str, privacy: str = "full") -> list[dict]:
+    """Project conversation state into clapcheeks_leads row shape.
+
+    privacy: "full" includes name/bio/prompts; "metadata_only" redacts names
+    and keeps only stage + counts + timestamps.
+    """
+    from clapcheeks.conversation.state import list_conversations
+
+    rows: list[dict] = []
+    for conv in list_conversations():
+        base = {
+            "user_id": user_id,
+            "platform": conv.get("platform", ""),
+            "match_id": conv.get("match_id", ""),
+            "stage": conv.get("stage", "matched"),
+            "stage_entered_at": _epoch_to_iso(conv.get("stage_entered_at")),
+            "last_message_at": _epoch_to_iso(conv.get("last_ts")),
+            "last_message_by": conv.get("last_sender") or None,
+            "message_count": conv.get("message_count", 0) or 0,
+            "date_asked_at": _epoch_to_iso(conv.get("last_ts"))
+                                if conv.get("date_asked") else None,
+            "date_slot_iso": conv.get("slot_iso") or None,
+            "outcome": conv.get("outcome") or None,
+            "drip_fired": conv.get("drip_fired") or {},
+        }
+        if privacy == "full":
+            base.update({
+                "name": conv.get("name") or None,
+                "tag": conv.get("tag") or None,
+                "notes": conv.get("notes") or None,
+            })
+        if not base["platform"] or not base["match_id"]:
+            continue  # can't upsert without the composite key
+        rows.append(base)
+    return rows
+
+
+def push_leads(config: dict | None = None) -> tuple[int, int]:
+    """Upsert every tracked lead into clapcheeks_leads.
+
+    Returns (upserted, skipped). Skipped includes rows we couldn't route
+    (no user_id) or errors.
+    """
+    try:
+        from supabase import create_client
+    except ImportError:
+        return 0, 0
+
+    url, key = _load_supabase_env()
+    if not url or not key:
+        return 0, 0
+
+    user_id = _get_user_id_from_token()
+    if not user_id:
+        return 0, 0
+
+    privacy = os.environ.get("CLAPCHEEKS_SYNC_LEADS", "full").strip().lower()
+    if privacy == "off":
+        return 0, 0
+
+    rows = collect_lead_rows(user_id, privacy=privacy)
+    if not rows:
+        return 0, 0
+
+    try:
+        client = create_client(url, key)
+        result = client.table("clapcheeks_leads") \
+            .upsert(rows, on_conflict="user_id,platform,match_id") \
+            .execute()
+        return len(result.data or []), 0
+    except Exception:
+        return 0, len(rows)

@@ -1,24 +1,63 @@
 {
   "name": "Clapcheeks — AI Dating Co-Pilot",
   "short_name": "Clapcheeks",
-  "description": "AI that automates your dating apps",
+  "description": "Your AI dating co-pilot. Swipes, replies, and date bookings on autopilot.",
   "start_url": "/dashboard",
+  "scope": "/",
   "display": "standalone",
+  "display_override": ["window-controls-overlay", "standalone", "minimal-ui"],
   "background_color": "#000000",
-  "theme_color": "#000000",
-  "orientation": "portrait",
+  "theme_color": "#0A0A0A",
+  "orientation": "any",
+  "categories": ["lifestyle", "productivity", "social"],
   "icons": [
     {
       "src": "/icons/icon-192.png",
       "sizes": "192x192",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
     },
     {
       "src": "/icons/icon-512.png",
       "sizes": "512x512",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
     }
-  ]
+  ],
+  "shortcuts": [
+    {
+      "name": "Leads",
+      "short_name": "Leads",
+      "description": "Kanban of every match",
+      "url": "/leads",
+      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "AI Settings",
+      "short_name": "AI",
+      "description": "Persona, drip rules, calendar",
+      "url": "/settings/ai",
+      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Dashboard",
+      "short_name": "Home",
+      "description": "Your stats and activity",
+      "url": "/dashboard",
+      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }]
+    }
+  ],
+  "prefer_related_applications": false
 }

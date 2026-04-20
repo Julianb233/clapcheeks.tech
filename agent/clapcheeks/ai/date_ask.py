@@ -52,9 +52,17 @@ def should_ask_for_date(message_count: int, last_message_ts: float) -> bool:
 
 
 def _call_llm(system: str, user_msg: str, model: str | None = None) -> str | None:
-    """Ollama first, Kimi fallback. Returns generated text or None."""
+    """Ollama first, Kimi fallback. Returns generated text or None.
+
+    Auto-injects the user persona into the system prompt — callers can still
+    add match-intel blocks by composing the `system` arg themselves.
+    """
+    from clapcheeks import persona as _persona
+
     config = load_config()
     model = model or config.get("ai_model", "llama3.2")
+
+    system = _persona.merge_into_system(system)
 
     # Attempt 1: Ollama
     messages = [
@@ -105,28 +113,47 @@ def generate_date_ask(
     match_name: str,
     platform: str = "tinder",
     profile_data: dict | None = None,
+    slot_context: str | None = None,
 ) -> str:
-    """Generate a direct date-ask message. Never asks for a phone number."""
+    """Generate a direct date-ask message. Never asks for a phone number.
+
+    If `slot_context` is provided (from calendar.slots.propose_slots_for_ai),
+    the AI is instructed to offer those exact time windows. Also extracts
+    match intel (zodiac, interests) from profile_data and injects it.
+    """
+    from clapcheeks import match_intel as _intel
+
     tone = _PLATFORM_TONE.get(platform, "")
-    details = ""
-    if profile_data:
-        details = ", ".join(f"{k}: {v}" for k, v in profile_data.items() if v)
+    intel = _intel.extract(profile_data) if profile_data else {}
+    intel_block = _intel.format_for_system_prompt(intel)
+
+    system = DATE_ASK_SYSTEM
+    if intel_block:
+        system = f"{system}\n\n{intel_block}"
 
     user_msg = (
         f"Write a date invitation for {match_name} on {platform}. "
         f"{tone} "
-        f"Suggest drinks or coffee this week with specific day options. "
     )
-    if details:
-        user_msg += f"Their profile: {details}. "
+    if slot_context:
+        user_msg += (
+            f"Offer exactly these time windows (pick the 2-3 best ones, phrase\n"
+            f"them naturally): {slot_context}. Ask which one works for them. "
+        )
+    else:
+        user_msg += "Suggest drinks or coffee this week with specific day options. "
 
-    result = _call_llm(DATE_ASK_SYSTEM, user_msg)
+    result = _call_llm(system, user_msg)
     if result:
         return result
 
     # Safe fallback — always return something usable
     logger.info("Using fallback date ask for %s.", match_name)
-    return f"We should grab drinks this week - are you free Thursday or Friday?"
+    if slot_context:
+        # Strip the "Available: " prefix the slots module adds
+        stripped = slot_context.replace("Available: ", "", 1)
+        return f"We should grab a drink. I'm free {stripped} — any of those work?"
+    return "We should grab drinks this week - are you free Thursday or Friday?"
 
 
 def generate_reengagement(match_name: str, days_silent: int) -> str:

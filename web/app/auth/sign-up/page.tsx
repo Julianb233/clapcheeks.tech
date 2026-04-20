@@ -5,7 +5,7 @@ import type React from "react"
 import { createClient } from "@/lib/supabase/client"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { useState } from "react"
+import { useState, useRef } from "react"
 
 export default function SignUpPage() {
   const [email, setEmail] = useState("")
@@ -15,7 +15,24 @@ export default function SignUpPage() {
   const [error, setError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [showSuccess, setShowSuccess] = useState(false)
+  const [photoPreview, setPhotoPreview] = useState<string | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const router = useRouter()
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (file) {
+      if (file.size > 5 * 1024 * 1024) {
+        setError("Photo must be under 5MB")
+        return
+      }
+      const reader = new FileReader()
+      reader.onloadend = () => {
+        setPhotoPreview(reader.result as string)
+      }
+      reader.readAsDataURL(file)
+    }
+  }
 
   const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -43,6 +60,7 @@ export default function SignUpPage() {
           emailRedirectTo: process.env.NEXT_PUBLIC_DEV_SUPABASE_REDIRECT_URL || `${window.location.origin}/auth/login`,
           data: {
             full_name: fullName,
+            avatar_url: photoPreview || undefined,
           },
         },
       })
