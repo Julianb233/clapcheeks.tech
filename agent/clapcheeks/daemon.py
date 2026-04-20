@@ -13,6 +13,19 @@ import threading
 import time
 from collections import defaultdict
 from datetime import datetime
+from pathlib import Path
+
+# Load ~/.clapcheeks/.env before anything else so the factory + platform
+# clients see HINGE_AUTH_TOKEN, TINDER_AUTH_TOKEN, GOOGLE_*, etc. The CLI
+# entry point does this, but `python -m clapcheeks.daemon` (launchd path)
+# skips it, so do it explicitly here.
+try:
+    from dotenv import load_dotenv
+    _env_file = Path.home() / ".clapcheeks" / ".env"
+    if _env_file.exists():
+        load_dotenv(_env_file, override=False)
+except ImportError:
+    pass
 
 import requests
 
