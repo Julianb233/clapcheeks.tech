@@ -1,0 +1,50 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Clapcheeks — Extension Configured</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+      background: #0A0A0A; color: #fff; margin: 0; padding: 40px;
+      display: flex; align-items: center; justify-content: center;
+      min-height: 100vh;
+    }
+    .card {
+      max-width: 520px; background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.1); border-radius: 16px;
+      padding: 32px;
+    }
+    h1 {
+      font-size: 24px; margin: 0 0 8px 0;
+      background: linear-gradient(135deg, #C9A427, #E8291E);
+      -webkit-background-clip: text; background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    p { color: rgba(255,255,255,0.7); line-height: 1.5; margin: 8px 0; }
+    code { background: rgba(255,255,255,0.06); padding: 2px 6px;
+           border-radius: 4px; font-size: 12px; }
+    .status { margin-top: 20px; padding: 14px; border-radius: 10px;
+              background: rgba(74,222,128,0.08);
+              border: 1px solid rgba(74,222,128,0.3);
+              color: #4ade80; font-size: 14px; }
+    .error { background: rgba(239,68,68,0.08);
+             border-color: rgba(239,68,68,0.3); color: #ef4444; }
+    .next { margin-top: 24px; color: rgba(255,255,255,0.8); }
+    .next a { color: #C9A427; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Clapcheeks Token Harvester</h1>
+    <p id="msg">Configuring your device token...</p>
+    <div class="status" id="status" style="display:none"></div>
+    <div class="next" id="next" style="display:none">
+      Next: open <a href="https://tinder.com/app/recs" target="_blank">tinder.com</a>.
+      Log in if needed. Your token gets harvested on every page load and pushed
+      to the Clapcheeks daemon.
+    </div>
+  </div>
+  <script src="welcome.js"></script>
+</body>
+</html>
