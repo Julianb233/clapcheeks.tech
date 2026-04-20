@@ -22,8 +22,8 @@ def collect_daily_metrics() -> list[dict]:
     """
     from clapcheeks.session.rate_limiter import get_daily_summary, get_daily_spend
 
-    counts = get_daily_summary()
-    spend = get_daily_spend()
+    counts = get_daily_summary() or {}
+    spend = get_daily_spend() or {}
     today = date.today().isoformat()
 
     rows = []
