@@ -194,6 +194,63 @@ def setup_hinge_token() -> None:
         console.print("[dim]Token was saved. Run [cyan]clapcheeks swipe hinge[/cyan] to test.[/dim]")
 
 
+@main.command(name="refresh-hinge-token")
+@click.option(
+    "--phone",
+    default=None,
+    help="E.164 phone number (e.g. +14155551234). Defaults to CLAPCHEEKS_HINGE_PHONE.",
+)
+@click.option(
+    "--timeout",
+    default=90,
+    show_default=True,
+    help="Seconds to wait for the SMS to arrive in Messages.db.",
+)
+def refresh_hinge_token(phone: str | None, timeout: int) -> None:
+    """Trigger Hinge's SMS auth flow and write a fresh token to .env.
+
+    Reads the incoming code from macOS Messages.db, so any iPhone that
+    forwards iMessage/SMS to this Mac will work. Requires Full Disk Access
+    for the Python binary (System Settings -> Privacy & Security).
+    """
+    console.print(Panel(
+        "[bold]Hinge SMS token refresh[/bold]\n\n"
+        "Triggers Hinge to send an SMS, reads the code from Messages.db,\n"
+        "submits it, and writes the new token into ~/.clapcheeks/.env.",
+        border_style="magenta",
+    ))
+
+    if not phone:
+        import os as _os
+        phone = _os.environ.get("CLAPCHEEKS_HINGE_PHONE", "")
+    if not phone:
+        phone = click.prompt("Phone number (E.164, e.g. +14155551234)").strip()
+    if not phone.startswith("+"):
+        console.print("[red]Phone must be in E.164 format, e.g. +14155551234[/red]")
+        raise SystemExit(1)
+
+    with console.status("[bold green]Requesting SMS + waiting for the code...[/bold green]"):
+        try:
+            from clapcheeks.platforms.hinge_auth import refresh_token, HingeSMSAuthFailed
+            result = refresh_token(phone, timeout_seconds=timeout)
+        except HingeSMSAuthFailed as exc:
+            console.print(f"[red]Refresh failed:[/red] {exc}")
+            raise SystemExit(1)
+        except Exception as exc:
+            console.print(f"[red]Unexpected error:[/red] {exc}")
+            raise SystemExit(1)
+
+    token_preview = result['token'][:12] + "..." + result['token'][-4:]
+    console.print(f"[bold green]OK.[/bold green] New token written: {token_preview}")
+    extras = [k for k in ("install_id", "session_id", "device_id") if result.get(k)]
+    if extras:
+        console.print(f"[dim]Also saved: {', '.join(extras)}[/dim]")
+    console.print(
+        "[dim]Daemon picks it up on its next platform tick (or restart with\n"
+        "`launchctl unload/load ~/Library/LaunchAgents/tech.clapcheeks.daemon.plist`).[/dim]"
+    )
+
+
 @main.command(name="setup-tinder-token")
 @click.option(
     "--wire",

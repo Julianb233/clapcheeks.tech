@@ -114,6 +114,7 @@ class HingeAPIClient:
         self,
         method: str,
         path: str,
+        _retried: bool = False,
         **kwargs: Any,
     ) -> dict:
         url = path if path.startswith("http") else f"{self.base_url}{path}"
@@ -125,9 +126,14 @@ class HingeAPIClient:
             raise RuntimeError(f"Hinge API request failed: {exc}") from exc
 
         if resp.status_code == 401:
+            # Try the SMS auto-refresh once if a phone number is configured.
+            if not _retried and self._try_sms_refresh():
+                self.session.headers.update(self._default_headers())
+                return self._request(method, path, _retried=True, **kwargs)
             raise HingeAuthError(
-                "401 from Hinge API — token expired. Re-capture via "
-                "docs/SETUP_HINGE_TOKEN.md."
+                "401 from Hinge API. Token expired and SMS auto-refresh did not "
+                "recover. Capture manually via docs/SETUP_HINGE_TOKEN.md or run "
+                "`clapcheeks refresh-hinge-token`."
             )
         if resp.status_code >= 400:
             self.errors += 1
@@ -140,6 +146,33 @@ class HingeAPIClient:
             return resp.json()
         except ValueError:
             return {"raw": resp.text}
+
+    # ------------------------------------------------------------------
+    # 401 auto-refresh via SMS
+    # ------------------------------------------------------------------
+
+    def _try_sms_refresh(self) -> bool:
+        """Attempt the Hinge SMS auth flow. Returns True on success.
+
+        Triggered on first 401 from the API. Silently no-ops if no phone
+        number is configured (CLAPCHEEKS_HINGE_PHONE) or the SMS DB is
+        unreadable.
+        """
+        phone = os.environ.get("CLAPCHEEKS_HINGE_PHONE", "").strip()
+        if not phone:
+            logger.info(
+                "Skipping SMS refresh — set CLAPCHEEKS_HINGE_PHONE to enable."
+            )
+            return False
+        try:
+            from clapcheeks.platforms.hinge_auth import refresh_token
+            result = refresh_token(phone)
+        except Exception as exc:
+            logger.warning("Hinge SMS auto-refresh failed: %s", exc)
+            return False
+        self.token = result["token"]
+        logger.info("Hinge SMS auto-refresh succeeded.")
+        return True
 
     # ------------------------------------------------------------------
     # Lifecycle
