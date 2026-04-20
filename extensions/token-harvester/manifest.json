@@ -7,7 +7,8 @@
   "permissions": [
     "storage",
     "alarms",
-    "tabs"
+    "tabs",
+    "cookies"
   ],
   "host_permissions": [
     "https://tinder.com/*",
@@ -15,6 +16,8 @@
     "https://hinge.co/*",
     "https://*.hinge.co/*",
     "https://bumble.com/*",
+    "https://www.instagram.com/*",
+    "https://instagram.com/*",
     "https://*.clapcheeks.tech/*"
   ],
   "background": {
@@ -30,6 +33,11 @@
     {
       "matches": ["https://hinge.co/*", "https://*.hinge.co/*"],
       "js": ["content_hinge.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://www.instagram.com/*", "https://instagram.com/*"],
+      "js": ["content_instagram.js"],
       "run_at": "document_idle"
     }
   ],

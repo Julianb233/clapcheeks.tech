@@ -416,6 +416,147 @@ class HingeAPIClient:
         return matches[:count]
 
     # ------------------------------------------------------------------
+    # Full match intake (Phase A - AI-8315)
+    # ------------------------------------------------------------------
+
+    def list_all_matches(self, page_size: int = 100, max_pages: int = 20) -> list[dict]:
+        """Return every match. Paginates via offset."""
+        all_matches: list[dict] = []
+        offset = 0
+        for _ in range(max_pages):
+            try:
+                data = self._request(
+                    "GET",
+                    f"/match/v1?limit={page_size}&offset={offset}",
+                )
+            except Exception as exc:
+                logger.warning("Hinge list_all_matches page failed: %s", exc)
+                break
+            page = (data.get("matches") if isinstance(data, dict) else data) or []
+            if not page:
+                break
+            all_matches.extend(page)
+            if len(page) < page_size:
+                break
+            offset += page_size
+        logger.info("Hinge: pulled %d matches", len(all_matches))
+        return all_matches
+
+    def get_match_profile(self, subject_id: str) -> dict | None:
+        """Return the hydrated subject profile."""
+        if not subject_id:
+            return None
+        try:
+            data = self._request("GET", f"/subject/v1/{subject_id}")
+            if isinstance(data, dict):
+                return data.get("subject") or data
+            return None
+        except HingeAuthError:
+            raise
+        except Exception as exc:
+            logger.debug("Hinge get_match_profile(%s) failed: %s", subject_id, exc)
+            return None
+
+    @staticmethod
+    def parse_match_to_intel(match: dict, full_profile: dict | None = None) -> dict:
+        """Normalize a Hinge match + optional full profile into clapcheeks_matches shape."""
+        subject = full_profile or match.get("subject") or {}
+
+        photos: list[dict] = []
+        for idx, p in enumerate(subject.get("photos") or []):
+            url = p.get("cdnUrl") or p.get("url")
+            if not url:
+                continue
+            photos.append({
+                "idx": idx,
+                "url": url,
+                "width": p.get("width"),
+                "height": p.get("height"),
+            })
+
+        prompts: list[dict] = []
+        for p in subject.get("prompts") or []:
+            q = ((p.get("prompt") or {}).get("question")) or p.get("question")
+            a = p.get("answer")
+            if q or a:
+                prompts.append({"question": q or "", "answer": a or ""})
+
+        job = None
+        employments = subject.get("employments") or []
+        if employments and isinstance(employments[0], dict):
+            emp = employments[0]
+            if emp.get("jobTitle"):
+                job = emp.get("jobTitle")
+            elif isinstance(emp.get("employer"), dict):
+                job = emp.get("employer", {}).get("name")
+            else:
+                job = emp.get("employer")
+
+        school = None
+        educations = subject.get("educations") or []
+        if educations and isinstance(educations[0], dict):
+            edu = educations[0]
+            if edu.get("schoolName"):
+                school = edu.get("schoolName")
+            elif isinstance(edu.get("school"), dict):
+                school = edu.get("school", {}).get("name")
+            else:
+                school = edu.get("school")
+
+        instagram_handle = None
+        ig = subject.get("instagram") or subject.get("instagramData")
+        if isinstance(ig, dict):
+            instagram_handle = ig.get("username") or ig.get("handle")
+        elif isinstance(ig, str):
+            instagram_handle = ig
+
+        birth_date_raw = subject.get("birthday") or subject.get("birthDate")
+        birth_date = None
+        age = subject.get("age")
+        if birth_date_raw:
+            try:
+                from datetime import datetime as _dt
+                birth_date = _dt.fromisoformat(
+                    str(birth_date_raw).replace("Z", "+00:00")
+                ).date().isoformat()
+                if not age:
+                    from datetime import date as _d
+                    today = _d.today()
+                    bd = _dt.fromisoformat(
+                        str(birth_date_raw).replace("Z", "+00:00")
+                    ).date()
+                    age = today.year - bd.year - (
+                        (today.month, today.day) < (bd.month, bd.day)
+                    )
+            except Exception:
+                birth_date = None
+
+        return {
+            "external_id": (
+                match.get("matchId")
+                or match.get("id")
+                or subject.get("subjectId")
+                or subject.get("id")
+            ),
+            "name": (
+                subject.get("firstName")
+                or subject.get("name")
+                or (match.get("subject") or {}).get("firstName")
+                or ""
+            ),
+            "age": age,
+            "bio": subject.get("bio") or subject.get("intro") or "",
+            "birth_date": birth_date,
+            "photos": photos,
+            "prompts": prompts,
+            "job": job,
+            "school": school,
+            "instagram_handle": instagram_handle,
+            "spotify_artists": None,
+            "last_activity_at": match.get("createdAt") or match.get("matchedAt"),
+        }
+
+    # ------------------------------------------------------------------
     # AI comment generation (borrowed from the browser client)
     # ------------------------------------------------------------------
 
