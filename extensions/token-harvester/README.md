@@ -40,19 +40,30 @@ hit Save.
 
 Two layers that together solve "same config across all 7 Chromes":
 
-### 1. Chrome Sync (the config layer)
+### 1. Chrome config (the per-install layer)
 
-- Sign every Chrome into the SAME Google account.
-- Chrome > Settings > You and Google > Sync and Google services:
-  turn on Sync for **Extensions** and **Settings**.
-- Paste your device token once in the popup. It's stored in
-  `chrome.storage.sync`, so every Chrome on that Google account
-  inherits it. No retyping.
+Two cases depending on how your Chromes are signed in:
+
+**Case A — same Google account on all Chromes.** Turn on Sync
+(Settings > You and Google > Sync) for Extensions + Settings. Install
+the extension once, paste the device token once. Every other Chrome
+on that account inherits it via `chrome.storage.sync`.
+
+**Case B — DIFFERENT Google accounts on each Chrome** (common when
+you keep work/personal/throwaway accounts separate). `chrome.storage.sync`
+does NOT bridge accounts. You install the extension once per Chrome
+(`chrome://extensions` > Load unpacked), open the popup, and paste
+the SAME device token into each. One token string, N pastes. Takes
+about 10 seconds per Chrome.
+
+That's fine server-side: whatever Chrome harvests a token, the API
+resolves your device token to your single user_id, and the daemon
+sees one unified view. Last-writer-wins.
 
 If the extension is loaded "unpacked" (dev mode), Chrome won't sync
-the *install* itself across devices — you'd load-unpacked on each.
+the *install* itself even with Case A — you'd load-unpacked on each.
 Packaging as a `.crx` (or publishing to the Chrome Web Store) fixes
-that: install once, appears everywhere.
+that for Case A: install once, appears everywhere.
 
 ### 2. Tinder session (the account layer)
 
