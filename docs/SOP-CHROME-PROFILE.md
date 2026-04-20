@@ -14,7 +14,7 @@ The single source of truth for which Chrome profile Clapcheeks uses, on every Ma
 
 | Field | Value |
 |---|---|
-| **Profile display name** | `Clapcheeks` |
+| **Profile display name** | `cc.tech` (shorthand for clapcheeks.tech — NEVER `Clapcheeks`, `Default`, `.tech`, or anything else) |
 | **Chrome user_data_dir** | `$HOME/clapcheeks-chrome/chrome-profile` |
 | **Extension path** | `$HOME/clapcheeks-chrome/repo/extensions/token-harvester` |
 | **Repo checkout** | `$HOME/clapcheeks-chrome/repo` (clapcheeks.tech, branch: main) |
@@ -30,7 +30,29 @@ The single source of truth for which Chrome profile Clapcheeks uses, on every Ma
 
 - Running the Clapcheeks Token Harvester Chrome extension to capture tinder.com's `X-Auth-Token` from localStorage
 - Staying logged into tinder.com so the extension has something to harvest
-- Isolated from Julian's main browsing — a single-purpose Chrome window
+- Isolated from Julian's default browsing — a single-purpose second Chrome window
+
+## Isolation from Julian's Default Chrome Profile
+
+Julian's DEFAULT Chrome profile is signed into `julian@aiacrobatics.com` (AI Acrobatics business). It lives in `~/Library/Application Support/Google/Chrome/Default/` and shares NOTHING with the cc.tech profile.
+
+The cc.tech profile is a separate Chrome instance:
+
+- Lives at `~/clapcheeks-chrome/chrome-profile/` (outside Chrome's default `Application Support` tree)
+- Launched with `--user-data-dir` pointing at that dir, so Chrome treats it as an independent profile
+- Appears in the Dock as a second Chrome window, distinct from the default
+- Cookies, extensions, history, logins all isolated
+
+This is intentional. Clapcheeks never touches the business profile and vice versa.
+
+## Always-On Behavior
+
+The user-scope LaunchAgent runs at login (`RunAtLoad=true`) and auto-restarts on crash (`KeepAlive: Crashed=true`). So:
+
+- cc.tech Chrome window opens automatically when Julian logs in
+- If the window is closed or Chrome crashes, it relaunches within 2 minutes
+- One window is always visible in the Dock alongside the default Chrome
+- To stop it entirely: `launchctl unload ~/Library/LaunchAgents/tech.clapcheeks.chrome.plist`
 
 ## What It Is NOT For
 
