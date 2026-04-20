@@ -6,7 +6,8 @@
   "description": "Pushes dating-app auth tokens to your Clapcheeks daemon. Works on Tinder web (auto) and Bumble.",
   "permissions": [
     "storage",
-    "alarms"
+    "alarms",
+    "tabs"
   ],
   "host_permissions": [
     "https://tinder.com/*",

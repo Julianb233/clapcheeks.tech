@@ -36,11 +36,43 @@ hit Save.
   spam.
 - You can revoke the device token any time in `/settings/ai → Devices`.
 
-## Multi-device
+## Multi-device (recommended when you have many Chromes)
 
-Install the extension on every Chrome you're signed into tinder.com on.
-The last-writer-wins: whichever Chrome most recently harvested a token
-becomes the one the daemon uses.
+Two layers that together solve "same config across all 7 Chromes":
+
+### 1. Chrome Sync (the config layer)
+
+- Sign every Chrome into the SAME Google account.
+- Chrome > Settings > You and Google > Sync and Google services:
+  turn on Sync for **Extensions** and **Settings**.
+- Paste your device token once in the popup. It's stored in
+  `chrome.storage.sync`, so every Chrome on that Google account
+  inherits it. No retyping.
+
+If the extension is loaded "unpacked" (dev mode), Chrome won't sync
+the *install* itself across devices — you'd load-unpacked on each.
+Packaging as a `.crx` (or publishing to the Chrome Web Store) fixes
+that: install once, appears everywhere.
+
+### 2. Tinder session (the account layer)
+
+Tinder allows only ONE active web session per account at a time.
+Logging in on Chrome #2 silently kills Chrome #1's session. So:
+
+- Designate ONE Chrome per "bank of devices" as your Tinder Chrome.
+  Log into tinder.com there.
+- The extension on the OTHER Chromes will simply report no token
+  found — that's fine, they stay dormant.
+- If you move to a new machine, log in there and the extension
+  takes over. Last-writer-wins: whichever Chrome just harvested
+  a valid token becomes the authoritative one in Supabase.
+
+### Dedicated "Clapcheeks" profile (optional but clean)
+
+On each machine, create a dedicated Chrome profile ("Clapcheeks")
+just for tinder.com. Install the extension in that profile only.
+Keeps your main browsing isolated from the automation and makes the
+answer to "which Chrome harvested last?" deterministic.
 
 ## Future additions
 
