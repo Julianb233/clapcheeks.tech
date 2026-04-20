@@ -236,12 +236,30 @@ def refresh_tinder_token(phone: str | None, timeout: int, headful: bool) -> None
         console.print("[red]Phone must be E.164 (+14155551234).[/red]")
         raise SystemExit(1)
 
+    # Try local Chrome first (free, instant). Fall back to Browserbase SMS
+    # flow only if local fails and --phone is available.
+    with console.status("[bold green]Trying local Chrome first...[/bold green]"):
+        try:
+            from clapcheeks.platforms.tinder_local import (
+                refresh_token as local_refresh, TinderLocalAuthFailed,
+            )
+            result = local_refresh(timeout_seconds=timeout)
+            token_preview = result["token"][:12] + "..." + result["token"][-4:]
+            console.print(
+                f"[bold green]OK (local Chrome via {result['source']}).[/bold green] "
+                f"Token written: {token_preview}"
+            )
+            return
+        except TinderLocalAuthFailed as exc:
+            console.print(f"[yellow]Local Chrome path failed:[/yellow] {exc}")
+            console.print("[dim]Falling back to Browserbase + SMS login...[/dim]")
+
     with console.status("[bold green]Opening Browserbase + driving Tinder login...[/bold green]"):
         try:
             from clapcheeks.platforms.tinder_auth import (
-                refresh_token, TinderBrowserAuthFailed,
+                refresh_token as bb_refresh, TinderBrowserAuthFailed,
             )
-            result = refresh_token(
+            result = bb_refresh(
                 phone,
                 sms_timeout_seconds=timeout,
                 headless=not headful,
@@ -251,7 +269,7 @@ def refresh_tinder_token(phone: str | None, timeout: int, headful: bool) -> None
             raise SystemExit(1)
 
     token_preview = result["token"][:12] + "..." + result["token"][-4:]
-    console.print(f"[bold green]OK.[/bold green] Token written: {token_preview}")
+    console.print(f"[bold green]OK (Browserbase).[/bold green] Token written: {token_preview}")
     if result.get("bb_session_id"):
         console.print(f"[dim]Browserbase session: {result['bb_session_id']}[/dim]")
 

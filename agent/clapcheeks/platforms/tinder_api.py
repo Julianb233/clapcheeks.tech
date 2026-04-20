@@ -182,20 +182,40 @@ class TinderAPIClient:
     # ------------------------------------------------------------------
 
     def _try_browser_refresh(self) -> bool:
-        """Attempt the Browserbase SMS login flow. Returns True on success."""
+        """Attempt browser-based auto-refresh. Local Chrome first (free),
+        Browserbase second (fallback, costs ~$0.10)."""
+        # Strategy 1: local Mac Chrome via AppleScript / CDP. Free, fast,
+        # uses your existing logged-in session. No captcha.
+        try:
+            from clapcheeks.platforms.tinder_local import (
+                refresh_token as local_refresh,
+                TinderLocalAuthFailed,
+            )
+            result = local_refresh()
+            self.token = result["token"]
+            logger.info("Tinder local Chrome refresh succeeded.")
+            return True
+        except TinderLocalAuthFailed as exc:
+            logger.info(
+                "Local Chrome refresh did not work (%s) — trying Browserbase.", exc,
+            )
+        except Exception as exc:
+            logger.warning("Local Chrome refresh errored: %s", exc)
+
+        # Strategy 2: Browserbase cloud fallback (needs phone for SMS login).
         if not os.environ.get("CLAPCHEEKS_TINDER_PHONE", "").strip():
             logger.info(
-                "Skipping browser refresh — set CLAPCHEEKS_TINDER_PHONE to enable."
+                "Skipping Browserbase — set CLAPCHEEKS_TINDER_PHONE to enable."
             )
             return False
         try:
-            from clapcheeks.platforms.tinder_auth import refresh_token
-            result = refresh_token()
+            from clapcheeks.platforms.tinder_auth import refresh_token as bb_refresh
+            result = bb_refresh()
         except Exception as exc:
-            logger.warning("Tinder browser auto-refresh failed: %s", exc)
+            logger.warning("Tinder Browserbase refresh failed: %s", exc)
             return False
         self.token = result["token"]
-        logger.info("Tinder browser auto-refresh succeeded.")
+        logger.info("Tinder Browserbase refresh succeeded.")
         return True
 
     def _get_json(self, path: str, params: dict | None = None) -> dict:
