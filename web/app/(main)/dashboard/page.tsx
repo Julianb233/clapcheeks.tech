@@ -331,6 +331,12 @@ export default async function Dashboard() {
               <span className="text-white/30 text-xs hidden sm:block">{user.email}</span>
             )}
             <Link
+              href="/dashboard/matches"
+              className="text-white/70 hover:text-white text-xs bg-yellow-500/10 hover:bg-yellow-500/20 border border-yellow-500/30 px-3 py-1.5 rounded-lg transition-all font-semibold"
+            >
+              Matches
+            </Link>
+            <Link
               href="/photos"
               className="text-white/40 hover:text-white/70 text-xs bg-white/5 hover:bg-white/10 border border-white/10 px-3 py-1.5 rounded-lg transition-all"
             >
