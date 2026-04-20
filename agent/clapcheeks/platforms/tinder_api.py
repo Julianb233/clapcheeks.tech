@@ -471,6 +471,140 @@ class TinderAPIClient:
             logger.debug("get_matches failed: %s", exc)
             return []
 
+    # ------------------------------------------------------------------
+    # Full match intake (Phase A - AI-8315)
+    # ------------------------------------------------------------------
+
+    def list_all_matches(self, page_size: int = 60, max_pages: int = 20) -> list[dict]:
+        """Return every match, paginated via page_token.
+
+        Uses /v2/matches with message=0. The API returns a
+        `next_page_token` in `data.next_page_token` when more results are
+        available. Stop when the token is missing or max_pages is hit.
+        """
+        if self.wire == "protobuf":
+            return self.get_matches(count=page_size)
+
+        all_matches: list[dict] = []
+        page_token: str | None = None
+        for _ in range(max_pages):
+            params: dict = {
+                "count": page_size,
+                "locale": self.locale,
+                "message": 0,
+            }
+            if page_token:
+                params["page_token"] = page_token
+            try:
+                data = self._get_json("/v2/matches", params=params)
+            except Exception as exc:
+                logger.warning("Tinder list_all_matches page failed: %s", exc)
+                break
+            payload = data.get("data") or {}
+            page = payload.get("matches") or []
+            all_matches.extend(page)
+            page_token = payload.get("next_page_token")
+            if not page_token or not page:
+                break
+        logger.info("Tinder: pulled %d matches across paged list", len(all_matches))
+        return all_matches
+
+    def get_match_profile(self, match_id: str) -> dict | None:
+        """Return the hydrated user profile behind a match."""
+        if not match_id:
+            return None
+        try:
+            data = self._get_json(f"/user/{match_id}", params={"locale": self.locale})
+            return (data.get("results") if isinstance(data, dict) else None) or data
+        except TinderAuthError:
+            raise
+        except Exception as exc:
+            logger.debug("Tinder get_match_profile(%s) failed: %s", match_id, exc)
+            return None
+
+    @staticmethod
+    def parse_match_to_intel(match: dict, full_profile: dict | None = None) -> dict:
+        """Normalize a Tinder match + optional hydrated profile into the
+        shape the daemon upserts into clapcheeks_matches.
+        """
+        person = match.get("person") or {}
+        source = full_profile if full_profile else person
+
+        photos: list[dict] = []
+        for idx, p in enumerate(source.get("photos") or person.get("photos") or []):
+            url = (
+                p.get("url")
+                or (p.get("processedFiles") or [{}])[0].get("url")
+                or p.get("secure_url")
+            )
+            if not url:
+                continue
+            photos.append({
+                "idx": idx,
+                "url": url,
+                "width": (p.get("processedFiles") or [{}])[0].get("width")
+                         if p.get("processedFiles") else None,
+                "height": (p.get("processedFiles") or [{}])[0].get("height")
+                          if p.get("processedFiles") else None,
+            })
+
+        def _first_name(items: list | None, key: str = "name") -> str | None:
+            if not items:
+                return None
+            head = items[0] if isinstance(items, list) else None
+            if not isinstance(head, dict):
+                return None
+            if key in head:
+                v = head[key]
+                if isinstance(v, dict):
+                    return v.get("name")
+                return v
+            return head.get("title", {}).get("name") if isinstance(head.get("title"), dict) else None
+
+        job = _first_name(source.get("jobs"), key="title") or _first_name(source.get("jobs"))
+        school = _first_name(source.get("schools"))
+
+        spotify_artists = None
+        top = source.get("spotify_top_artists")
+        if isinstance(top, list):
+            spotify_artists = [
+                {"name": a.get("name"), "id": a.get("id")}
+                for a in top
+                if isinstance(a, dict) and a.get("name")
+            ]
+
+        birth_date_raw = source.get("birth_date")
+        birth_date: str | None = None
+        if birth_date_raw:
+            try:
+                from datetime import datetime as _dt
+                birth_date = _dt.fromisoformat(
+                    str(birth_date_raw).replace("Z", "+00:00")
+                ).date().isoformat()
+            except Exception:
+                birth_date = None
+
+        ig = source.get("instagram") or {}
+        if isinstance(ig, dict):
+            ig_handle = ig.get("username") or ig.get("handle")
+        else:
+            ig_handle = None
+
+        return {
+            "external_id": match.get("_id") or match.get("id") or source.get("_id"),
+            "name": source.get("name") or person.get("name") or "",
+            "age": _calc_age(birth_date_raw),
+            "bio": source.get("bio") or person.get("bio") or "",
+            "birth_date": birth_date,
+            "photos": photos,
+            "prompts": [],
+            "job": job,
+            "school": school,
+            "instagram_handle": ig_handle,
+            "spotify_artists": spotify_artists,
+            "last_activity_at": match.get("last_activity_date"),
+        }
+
 
 def _calc_age(birth_date: str | None) -> int | None:
     """Convert an ISO birth_date into an integer age; None on failure."""
