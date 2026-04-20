@@ -229,6 +229,7 @@ def _get_daemon_config(config: dict) -> dict:
         "active_hours": [9, 23],
         "conversation_after_swipe": True,
         "sync_interval_minutes": 30,
+        "match_sync_interval_minutes": 10,
     }
     daemon_cfg = config.get("daemon", {}) or {}
     return {**defaults, **daemon_cfg}
@@ -273,6 +274,27 @@ def _sync_worker(config: dict, interval_minutes: int) -> None:
             )
         except Exception as exc:
             log.error("Sync failed: %s", exc)
+        _shutdown.wait(interval_sec)
+
+
+def _match_sync_worker(interval_minutes: int = 30) -> None:
+    """Pull every match from every configured platform into Supabase.
+
+    Phase A - AI-8315. Default TIGHTENED to 30 min on 2026-04-20 after
+    a 10-min cadence tripped Tinder's anti-bot (selfie verification).
+    Until AI-8345 (Phase M) moves API calls through the Chrome
+    extension, keep this conservative to protect account health.
+    First tick fires immediately.
+    """
+    from clapcheeks.match_sync import sync_matches
+
+    interval_sec = interval_minutes * 60
+    while not _shutdown.is_set():
+        try:
+            summary = sync_matches()
+            log.info("match_sync summary: %s", summary)
+        except Exception as exc:
+            log.error("match_sync failed: %s", exc)
         _shutdown.wait(interval_sec)
 
 
@@ -463,6 +485,17 @@ def run_daemon() -> None:
     t.start()
     threads.append(t)
 
+    # Match-intake thread (Phase A - AI-8315)
+    match_sync_interval = int(daemon_cfg.get("match_sync_interval_minutes", 10))
+    t = threading.Thread(
+        target=_match_sync_worker,
+        args=(match_sync_interval,),
+        name="match-sync",
+        daemon=True,
+    )
+    t.start()
+    threads.append(t)
+
     # Per-platform threads
     for platform in platforms:
         if platform not in PLATFORM_CLIENTS:
@@ -495,5 +528,51 @@ def run_daemon() -> None:
     log.info("Daemon stopped")
 
 
-if __name__ == "__main__":
+def _run_single_task(task: str) -> int:
+    """Run a single task once and return an exit code.
+
+    Used by `python -m clapcheeks.daemon --task <task> --once` for ops,
+    testing, and CI. Doesn't start the full scheduler.
+    """
+    _setup_logging()
+    if task == "sync_matches":
+        from clapcheeks.match_sync import sync_matches
+        summary = sync_matches(once=True)
+        log.info("sync_matches one-shot summary: %s", summary)
+        if summary.get("errors") and summary.get("upserted", 0) == 0:
+            return 2
+        return 0
+    if task == "sync":
+        from clapcheeks.sync import pull_platform_tokens
+        n = pull_platform_tokens()
+        log.info("pull_platform_tokens: %d updated", n)
+        return 0
+    log.error("Unknown --task: %s", task)
+    return 1
+
+
+def _main() -> None:
+    import argparse
+
+    parser = argparse.ArgumentParser(prog="clapcheeks.daemon")
+    parser.add_argument(
+        "--task",
+        default=None,
+        help="Run a single task once and exit (e.g. sync_matches).",
+    )
+    parser.add_argument(
+        "--once",
+        action="store_true",
+        help="When --task is set, run it once and exit.",
+    )
+    args = parser.parse_args()
+
+    if args.task:
+        rc = _run_single_task(args.task)
+        sys.exit(rc)
+
     run_daemon()
+
+
+if __name__ == "__main__":
+    _main()
