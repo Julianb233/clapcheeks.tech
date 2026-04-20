@@ -11,6 +11,7 @@ import { router as referralRouter } from './routes/referral.js'
 import { router as intelligenceRouter } from './routes/intelligence.js'
 import { router as eventsRouter } from './routes/events.js'
 import { router as emailRouter } from './routes/email.js'
+import { router as contactsRouter } from './routes/contacts.js'
 import { authLimiter, aiLimiter, generalLimiter } from './middleware/rateLimiter.js'
 import { errorHandler } from './middleware/errorHandler.js'
 import { asyncHandler } from './utils/asyncHandler.js'
@@ -77,6 +78,7 @@ app.use('/agent', agentRouter)
 app.use('/stripe', stripeRouter)
 app.use('/referral', referralRouter)
 app.use('/intelligence', aiLimiter, intelligenceRouter)
+app.use('/contacts', aiLimiter, contactsRouter)
 app.use('/events', eventsRouter)
 // Email onboarding sequence (welcome, day3, day7, day14 via Resend)
 // To trigger welcome email automatically on signup, create a Supabase Database Webhook
