@@ -191,7 +191,13 @@ def _sync_tinder_for_user(
     # auth failures explicitly below.
     client._try_browser_refresh = lambda: False  # type: ignore[method-assign]
 
-    bucket = _TokenBucket(per_minute=30)
+    # TIGHTENED 2026-04-20 after selfie-verification trip: 6/min + cap at
+    # 3 profiles per run + 3-8s jitter. This is a temporary mitigation
+    # until AI-8345 (Phase M) moves API calls through the Chrome
+    # extension so requests carry Julian's real browser fingerprint.
+    bucket = _TokenBucket(per_minute=6)
+    MAX_PROFILES_PER_RUN = 3
+    profiles_fetched = 0
 
     # Count 401s. We skip the explicit login() probe — /v2/matches is
     # the endpoint we actually need, and it returns 401 if the token
@@ -215,12 +221,16 @@ def _sync_tinder_for_user(
 
             # Attempt profile hydration — match objects already carry
             # `person`, but /user/{id} has the full photo set.
+            # Cap profiles per run + add random jitter to look human.
             person_id = (m.get("person") or {}).get("_id")
             full_profile: dict | None = None
-            if person_id:
+            if person_id and profiles_fetched < MAX_PROFILES_PER_RUN:
                 bucket.wait()
+                import random
+                time.sleep(random.uniform(3.0, 8.0))
                 try:
                     full_profile = client.get_match_profile(person_id)
+                    profiles_fetched += 1
                 except TinderAuthError:
                     auth_strikes += 1
                     if auth_strikes >= AUTH_STRIKE_LIMIT:

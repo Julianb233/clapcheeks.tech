@@ -277,11 +277,14 @@ def _sync_worker(config: dict, interval_minutes: int) -> None:
         _shutdown.wait(interval_sec)
 
 
-def _match_sync_worker(interval_minutes: int = 10) -> None:
+def _match_sync_worker(interval_minutes: int = 30) -> None:
     """Pull every match from every configured platform into Supabase.
 
-    Phase A - AI-8315. Runs on its own timer (default 10 min) so match
-    intake is not gated on swipe cycles. First tick fires immediately.
+    Phase A - AI-8315. Default TIGHTENED to 30 min on 2026-04-20 after
+    a 10-min cadence tripped Tinder's anti-bot (selfie verification).
+    Until AI-8345 (Phase M) moves API calls through the Chrome
+    extension, keep this conservative to protect account health.
+    First tick fires immediately.
     """
     from clapcheeks.match_sync import sync_matches
 
