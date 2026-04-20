@@ -135,6 +135,7 @@ class TinderAPIClient:
         params: dict | None = None,
         json_body: Any = None,
         body_bytes: bytes | None = None,
+        _retried: bool = False,
     ) -> requests.Response:
         url = path if path.startswith("http") else f"{self.base_url}{path}"
 
@@ -153,9 +154,17 @@ class TinderAPIClient:
             raise RuntimeError(f"Tinder request failed: {exc}") from exc
 
         if resp.status_code in (401, 403):
+            if not _retried and self._try_browser_refresh():
+                self.session.headers.update(self._default_headers())
+                return self._request(
+                    method, path,
+                    params=params, json_body=json_body, body_bytes=body_bytes,
+                    _retried=True,
+                )
             raise TinderAuthError(
-                f"{resp.status_code} from Tinder API — X-Auth-Token rejected or "
-                f"expired. Recapture per docs/SETUP_TINDER_TOKEN.md."
+                f"{resp.status_code} from Tinder API. Token rejected and "
+                f"browser auto-refresh did not recover. Run "
+                f"`clapcheeks refresh-tinder-token` or re-capture manually."
             )
         if resp.status_code == 429:
             retry_after = resp.headers.get("Retry-After", "?")
@@ -167,6 +176,27 @@ class TinderAPIClient:
                 f"{(resp.text or resp.content)[:200]!r}"
             )
         return resp
+
+    # ------------------------------------------------------------------
+    # 401/403 auto-refresh via Browserbase + SMS
+    # ------------------------------------------------------------------
+
+    def _try_browser_refresh(self) -> bool:
+        """Attempt the Browserbase SMS login flow. Returns True on success."""
+        if not os.environ.get("CLAPCHEEKS_TINDER_PHONE", "").strip():
+            logger.info(
+                "Skipping browser refresh — set CLAPCHEEKS_TINDER_PHONE to enable."
+            )
+            return False
+        try:
+            from clapcheeks.platforms.tinder_auth import refresh_token
+            result = refresh_token()
+        except Exception as exc:
+            logger.warning("Tinder browser auto-refresh failed: %s", exc)
+            return False
+        self.token = result["token"]
+        logger.info("Tinder browser auto-refresh succeeded.")
+        return True
 
     def _get_json(self, path: str, params: dict | None = None) -> dict:
         resp = self._request("GET", path, params=params)

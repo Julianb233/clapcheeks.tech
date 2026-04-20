@@ -194,6 +194,68 @@ def setup_hinge_token() -> None:
         console.print("[dim]Token was saved. Run [cyan]clapcheeks swipe hinge[/cyan] to test.[/dim]")
 
 
+@main.command(name="refresh-tinder-token")
+@click.option(
+    "--phone",
+    default=None,
+    help="E.164 phone (e.g. +14155551234). Defaults to CLAPCHEEKS_TINDER_PHONE.",
+)
+@click.option(
+    "--timeout",
+    default=120,
+    show_default=True,
+    help="Seconds to wait for the SMS code.",
+)
+@click.option(
+    "--headful",
+    is_flag=True,
+    default=False,
+    help="Run the Browserbase session visibly (for debugging).",
+)
+def refresh_tinder_token(phone: str | None, timeout: int, headful: bool) -> None:
+    """Tinder token refresh via Browserbase + Messages.db SMS.
+
+    Uses a stealth Chrome via Browserbase to pass Arkose, reads the SMS
+    code from the Mac's Messages.db, and writes the fresh X-Auth-Token
+    to ~/.clapcheeks/.env.
+    """
+    console.print(Panel(
+        "[bold]Tinder Browserbase token refresh[/bold]\n\n"
+        "Drives tinder.com in a stealth Chrome, pulls the SMS code from\n"
+        "Messages.db (any paired iPhone works), submits, and saves the\n"
+        "X-Auth-Token. Budget ~90 seconds.",
+        border_style="magenta",
+    ))
+
+    if not phone:
+        import os as _os
+        phone = _os.environ.get("CLAPCHEEKS_TINDER_PHONE", "")
+    if not phone:
+        phone = click.prompt("Phone number (E.164, e.g. +14155551234)").strip()
+    if not phone.startswith("+"):
+        console.print("[red]Phone must be E.164 (+14155551234).[/red]")
+        raise SystemExit(1)
+
+    with console.status("[bold green]Opening Browserbase + driving Tinder login...[/bold green]"):
+        try:
+            from clapcheeks.platforms.tinder_auth import (
+                refresh_token, TinderBrowserAuthFailed,
+            )
+            result = refresh_token(
+                phone,
+                sms_timeout_seconds=timeout,
+                headless=not headful,
+            )
+        except TinderBrowserAuthFailed as exc:
+            console.print(f"[red]Refresh failed:[/red] {exc}")
+            raise SystemExit(1)
+
+    token_preview = result["token"][:12] + "..." + result["token"][-4:]
+    console.print(f"[bold green]OK.[/bold green] Token written: {token_preview}")
+    if result.get("bb_session_id"):
+        console.print(f"[dim]Browserbase session: {result['bb_session_id']}[/dim]")
+
+
 @main.command(name="refresh-hinge-token")
 @click.option(
     "--phone",
