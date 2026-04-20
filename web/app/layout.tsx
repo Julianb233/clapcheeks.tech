@@ -2,6 +2,7 @@ import type { Metadata } from 'next'
 import { Bebas_Neue, DM_Sans, Geist_Mono } from 'next/font/google'
 import { Analytics } from '@vercel/analytics/next'
 import PWAProvider from '@/components/pwa/pwa-provider'
+import PostHogProvider from '@/components/providers/posthog-provider'
 import './globals.css'
 import './landing.css'
 
@@ -74,6 +75,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body className="font-body antialiased bg-black text-white">
         {children}
         <PWAProvider />
+        <PostHogProvider />
         <Analytics />
       </body>
     </html>
