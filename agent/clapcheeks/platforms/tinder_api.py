@@ -37,6 +37,11 @@ from clapcheeks.session.rate_limiter import (
     check_limit,
     record_swipe,
 )
+from clapcheeks.session.ban_detector import (
+    BanDetector,
+    BanSignalException,
+    check_response_for_ban,
+)
 
 logger = logging.getLogger("clapcheeks.tinder_api")
 
@@ -175,6 +180,18 @@ class TinderAPIClient:
                 f"Tinder {method} {path} -> {resp.status_code}: "
                 f"{(resp.text or resp.content)[:200]!r}"
             )
+        # Scan successful responses for ban keywords in the body
+        try:
+            _body = resp.json() if resp.content else {}
+        except ValueError:
+            _body = resp.text or ""
+        try:
+            check_response_for_ban("tinder", resp.status_code, _body)
+        except BanSignalException as ban_exc:
+            _det = BanDetector()
+            _det.record_signal(ban_exc.platform, ban_exc.signal_type, ban_exc.details)
+            raise
+
         return resp
 
     # ------------------------------------------------------------------
@@ -370,6 +387,15 @@ class TinderAPIClient:
         like_ratio: float = 0.5,
         max_swipes: int = 30,
     ) -> dict:
+        # Pre-session ban check: auto-resume expired soft bans, block if active
+        _ban_det = BanDetector()
+        _ban_det.auto_resume_check("tinder")
+        if _ban_det.is_paused("tinder"):
+            _reason = _ban_det.get_pause_reason("tinder") or "banned"
+            logger.warning("Tinder paused: %s", _reason)
+            return {"liked": 0, "passed": 0, "errors": 0, "new_matches": [],
+                    "ban_status": _reason}
+
         if not self.login():
             return {"liked": 0, "passed": 0, "errors": 1, "new_matches": []}
 
@@ -411,16 +437,28 @@ class TinderAPIClient:
                 time.sleep(random.uniform(0.8, 2.6))
             except TinderAuthError:
                 raise
+            except BanSignalException as ban_exc:
+                logger.warning("Tinder ban signal at swipe %d: %s", idx, ban_exc)
+                self.errors += 1
+                break
             except Exception as exc:
                 logger.warning("Tinder swipe %d failed: %s", idx, exc)
                 self.errors += 1
 
-        return {
+        _result = {
             "liked": self.liked,
             "passed": self.passed,
             "errors": self.errors,
             "new_matches": new_matches,
         }
+
+        # Post-session ban analysis
+        _ban_det.check_session_result("tinder", _result)
+        if _ban_det.is_paused("tinder"):
+            _result["ban_status"] = _ban_det.get_pause_reason("tinder")
+            logger.warning("Tinder ban detected post-session: %s", _result["ban_status"])
+
+        return _result
 
     # ---- matches + messaging -------------------------------------------
 
