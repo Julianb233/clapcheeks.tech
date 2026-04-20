@@ -113,7 +113,9 @@ def _google_service():
     client_secret = os.environ.get("GOOGLE_CLIENT_SECRET")
     refresh_token = os.environ.get("GOOGLE_REFRESH_TOKEN")
     if not (client_id and client_secret and refresh_token):
-        logger.info("GOOGLE_* creds not set — slot booking disabled.")
+        # Fallback path lives in _gws_*() — gws handles calendar ops
+        # directly via subprocess. Returning None here makes the slot
+        # functions check for the gws path before giving up.
         return None
 
     creds = Credentials(
@@ -125,6 +127,53 @@ def _google_service():
         scopes=["https://www.googleapis.com/auth/calendar"],
     )
     return build("calendar", "v3", credentials=creds, cache_discovery=False)
+
+
+# ---------------------------------------------------------------------------
+# gws fallback — uses the local `gws` CLI for FreeBusy + insert when the
+# user hasn't set GOOGLE_* env vars but IS authed via gws (e.g. on the VPS
+# where julian@aiacrobatics.com has a live workspace profile).
+# ---------------------------------------------------------------------------
+
+def _gws_profile_dir() -> str | None:
+    profile = os.environ.get("CLAPCHEEKS_GWS_PROFILE", "workspace")
+    candidates = [
+        os.environ.get("GOOGLE_WORKSPACE_CLI_CONFIG_DIR"),
+        f"/opt/agency-workspace/.fleet-config/google-cloud/gws/profiles/{profile}",
+        f"{os.path.expanduser('~')}/.config/gws/profiles/{profile}",
+    ]
+    for p in candidates:
+        if p and os.path.isdir(p):
+            return p
+    return None
+
+
+def _gws_available() -> bool:
+    if not _gws_profile_dir():
+        return False
+    import shutil
+    return shutil.which("gws") is not None
+
+
+def _gws_call(args: list[str], json_body: dict | None = None) -> dict | None:
+    import json as _json
+    import subprocess
+    cfg = _gws_profile_dir()
+    if not cfg:
+        return None
+    env = {**os.environ, "GOOGLE_WORKSPACE_CLI_CONFIG_DIR": cfg}
+    cmd = ["gws", "--format=json", *args]
+    if json_body is not None:
+        cmd += ["--json", _json.dumps(json_body)]
+    try:
+        r = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=30)
+        if r.returncode != 0:
+            logger.debug("gws %s failed: %s", " ".join(args), r.stderr[:200])
+            return None
+        return _json.loads(r.stdout or "{}")
+    except Exception as exc:
+        logger.debug("gws call exception: %s", exc)
+        return None
 
 
 def _get_tz(tz_name: str):
@@ -195,13 +244,16 @@ def get_next_available_slots(n: int = 3) -> list[dict]:
     if not candidates:
         return []
 
+    tz = _get_tz(cfg.tz_name)
+    window_start = datetime.now(tz)
+    window_end = candidates[-1] + timedelta(hours=cfg.duration_hours)
+
     service = _google_service()
     busy: list[tuple[datetime, datetime]] = []
     if service is not None:
-        tz = _get_tz(cfg.tz_name)
-        window_start = datetime.now(tz)
-        window_end = candidates[-1] + timedelta(hours=cfg.duration_hours)
         busy = _busy_intervals(service, cfg.calendar_email, window_start, window_end)
+    elif _gws_available():
+        busy = _busy_intervals_gws(cfg.calendar_email, window_start, window_end)
 
     available: list[dict] = []
     dur = timedelta(hours=cfg.duration_hours)
@@ -220,6 +272,32 @@ def get_next_available_slots(n: int = 3) -> list[dict]:
         if len(available) >= n:
             break
     return available
+
+
+def _busy_intervals_gws(
+    calendar_email: str,
+    window_start: datetime,
+    window_end: datetime,
+) -> list[tuple[datetime, datetime]]:
+    """FreeBusy via the gws CLI."""
+    body = {
+        "timeMin": window_start.astimezone(timezone.utc).isoformat(),
+        "timeMax": window_end.astimezone(timezone.utc).isoformat(),
+        "items": [{"id": calendar_email}],
+    }
+    resp = _gws_call(["calendar", "freebusy", "query"], json_body=body)
+    if not resp:
+        return []
+    cal = (resp.get("calendars") or {}).get(calendar_email, {})
+    busy: list[tuple[datetime, datetime]] = []
+    for b in cal.get("busy", []):
+        try:
+            s = datetime.fromisoformat(b["start"].replace("Z", "+00:00"))
+            e = datetime.fromisoformat(b["end"].replace("Z", "+00:00"))
+            busy.append((s, e))
+        except Exception:
+            continue
+    return busy
 
 
 def _overlaps_any(
@@ -270,16 +348,11 @@ def book_slot(
     Returns the event dict (with htmlLink, hangoutLink) or None on failure.
     """
     cfg = get_slot_config()
-    service = _google_service()
-    if service is None:
-        logger.error("Cannot book — Google credentials missing.")
-        return None
-
     start_dt = datetime.fromisoformat(start_iso.replace("Z", "+00:00"))
-    if end_iso:
-        end_dt = datetime.fromisoformat(end_iso.replace("Z", "+00:00"))
-    else:
-        end_dt = start_dt + timedelta(hours=cfg.duration_hours)
+    end_dt = (
+        datetime.fromisoformat(end_iso.replace("Z", "+00:00"))
+        if end_iso else start_dt + timedelta(hours=cfg.duration_hours)
+    )
 
     body: dict[str, Any] = {
         "summary": f"Date with {match_name}",
@@ -297,7 +370,6 @@ def book_slot(
     }
     if match_email:
         body["attendees"] = [{"email": match_email}]
-    insert_kwargs: dict[str, Any] = {"calendarId": cfg.calendar_email, "body": body}
     if add_meet_link:
         import uuid
         body["conferenceData"] = {
@@ -306,18 +378,36 @@ def book_slot(
                 "conferenceSolutionKey": {"type": "hangoutsMeet"},
             },
         }
-        insert_kwargs["conferenceDataVersion"] = 1
-    if match_email:
-        insert_kwargs["sendUpdates"] = "all"
 
-    try:
-        event = service.events().insert(**insert_kwargs).execute()
-        logger.info(
-            "Booked date with %s on %s at %s (%s)",
-            match_name, cfg.calendar_email, start_dt.isoformat(),
-            event.get("htmlLink", ""),
-        )
-        return event
-    except Exception as exc:
-        logger.error("Slot booking failed: %s", exc)
+    service = _google_service()
+    if service is not None:
+        insert_kwargs: dict[str, Any] = {"calendarId": cfg.calendar_email, "body": body}
+        if add_meet_link:
+            insert_kwargs["conferenceDataVersion"] = 1
+        if match_email:
+            insert_kwargs["sendUpdates"] = "all"
+        try:
+            event = service.events().insert(**insert_kwargs).execute()
+            logger.info("Booked (OAuth) with %s on %s at %s",
+                        match_name, cfg.calendar_email, start_dt.isoformat())
+            return event
+        except Exception as exc:
+            logger.error("OAuth booking failed: %s", exc)
+            return None
+
+    if _gws_available():
+        args = ["calendar", "events", "insert", "--params",
+                f'{{"calendarId":"{cfg.calendar_email}"' +
+                (',"conferenceDataVersion":1' if add_meet_link else "") +
+                (',"sendUpdates":"all"' if match_email else "") +
+                '}']
+        event = _gws_call(args, json_body=body)
+        if event:
+            logger.info("Booked (gws) with %s on %s at %s",
+                        match_name, cfg.calendar_email, start_dt.isoformat())
+            return event
+        logger.error("gws booking returned no event.")
         return None
+
+    logger.error("Cannot book — no Google creds and no gws auth available.")
+    return None
