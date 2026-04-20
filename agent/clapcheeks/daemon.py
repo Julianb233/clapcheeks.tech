@@ -255,18 +255,21 @@ def _heartbeat_worker(api_url: str, token: str) -> None:
 
 
 def _sync_worker(config: dict, interval_minutes: int) -> None:
-    """Call push_metrics() + push_leads() on a fixed interval."""
-    from clapcheeks.sync import push_leads, push_metrics, record_sync_time
+    """Metrics push, leads push, and platform-token pull each tick."""
+    from clapcheeks.sync import (
+        pull_platform_tokens, push_leads, push_metrics, record_sync_time,
+    )
 
     interval_sec = interval_minutes * 60
     while not _shutdown.is_set():
         try:
             synced, queued = push_metrics(config)
             lead_up, lead_skip = push_leads(config)
+            token_refresh = pull_platform_tokens()
             record_sync_time()
             log.info(
-                "Sync complete: metrics %d/%dq · leads %d/%dskip",
-                synced, queued, lead_up, lead_skip,
+                "Sync complete: metrics %d/%dq, leads %d/%dskip, tokens %d",
+                synced, queued, lead_up, lead_skip, token_refresh,
             )
         except Exception as exc:
             log.error("Sync failed: %s", exc)

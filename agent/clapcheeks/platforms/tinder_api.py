@@ -182,31 +182,46 @@ class TinderAPIClient:
     # ------------------------------------------------------------------
 
     def _try_browser_refresh(self) -> bool:
-        """Attempt browser-based auto-refresh. Local Chrome first (free),
-        Browserbase second (fallback, costs ~$0.10)."""
-        # Strategy 1: local Mac Chrome via AppleScript / CDP. Free, fast,
-        # uses your existing logged-in session. No captcha.
+        """Token refresh strategies, tried in order. All zero-cost by default.
+
+        1. Supabase ingest — the Chrome extension posts tokens to
+           clapcheeks.tech; the sync loop pulls them here. This is the
+           canonical path.
+        2. Local Mac Chrome (AppleScript/CDP) on the Mac running the daemon.
+        3. Browserbase cloud fallback — only when CLAPCHEEKS_ENABLE_BROWSERBASE=1
+           AND CLAPCHEEKS_TINDER_PHONE is set. Paid, rarely needed.
+        """
+        # Strategy 1: extension-fed token in Supabase
+        try:
+            from clapcheeks.sync import pull_platform_tokens
+            if pull_platform_tokens() > 0:
+                self.token = os.environ.get("TINDER_AUTH_TOKEN", self.token)
+                logger.info("Tinder token refreshed from Supabase (extension push).")
+                return True
+        except Exception as exc:
+            logger.debug("Supabase token pull failed: %s", exc)
+
+        # Strategy 2: local Chrome on same Mac as daemon
         try:
             from clapcheeks.platforms.tinder_local import (
-                refresh_token as local_refresh,
-                TinderLocalAuthFailed,
+                refresh_token as local_refresh, TinderLocalAuthFailed,
             )
             result = local_refresh()
             self.token = result["token"]
             logger.info("Tinder local Chrome refresh succeeded.")
             return True
         except TinderLocalAuthFailed as exc:
-            logger.info(
-                "Local Chrome refresh did not work (%s) — trying Browserbase.", exc,
-            )
+            logger.info("Local Chrome refresh unavailable (%s).", exc)
         except Exception as exc:
             logger.warning("Local Chrome refresh errored: %s", exc)
 
-        # Strategy 2: Browserbase cloud fallback (needs phone for SMS login).
-        if not os.environ.get("CLAPCHEEKS_TINDER_PHONE", "").strip():
+        # Strategy 3: Browserbase — explicit opt-in only
+        if os.environ.get("CLAPCHEEKS_ENABLE_BROWSERBASE", "") != "1":
             logger.info(
-                "Skipping Browserbase — set CLAPCHEEKS_TINDER_PHONE to enable."
+                "Browserbase disabled (set CLAPCHEEKS_ENABLE_BROWSERBASE=1 to enable)."
             )
+            return False
+        if not os.environ.get("CLAPCHEEKS_TINDER_PHONE", "").strip():
             return False
         try:
             from clapcheeks.platforms.tinder_auth import refresh_token as bb_refresh

@@ -241,6 +241,89 @@ def collect_lead_rows(user_id: str, privacy: str = "full") -> list[dict]:
     return rows
 
 
+def pull_platform_tokens() -> int:
+    """Fetch tinder/hinge tokens pushed by the Chrome extension and merge
+    them into ~/.clapcheeks/.env. Returns the number of tokens updated."""
+    try:
+        from supabase import create_client
+    except ImportError:
+        return 0
+    url, key = _load_supabase_env()
+    if not url or not key:
+        return 0
+    user_id = _get_user_id_from_token()
+    if not user_id:
+        return 0
+
+    try:
+        client = create_client(url, key)
+        r = client.table("clapcheeks_user_settings") \
+            .select(("tinder_auth_token,tinder_auth_token_updated_at,"
+                     "hinge_auth_token,hinge_auth_token_updated_at")) \
+            .eq("user_id", user_id).limit(1).execute()
+    except Exception:
+        return 0
+
+    if not r.data:
+        return 0
+    row = r.data[0]
+
+    # Only overwrite .env if Supabase token is newer than what we wrote last
+    state_file = Path.home() / ".clapcheeks" / "ingest_state.json"
+    last: dict = {}
+    if state_file.exists():
+        try:
+            last = json.loads(state_file.read_text())
+        except Exception:
+            pass
+
+    updated = 0
+    for plat, env_key in (("tinder", "TINDER_AUTH_TOKEN"),
+                           ("hinge", "HINGE_AUTH_TOKEN")):
+        token = row.get(f"{plat}_auth_token")
+        ts = row.get(f"{plat}_auth_token_updated_at")
+        if not token or not ts:
+            continue
+        if last.get(plat) == ts:
+            continue   # already consumed
+        # Merge into .env
+        _merge_env_line(env_key, token)
+        if plat == "tinder":
+            _merge_env_line("TINDER_WIRE_FORMAT", "json")
+            _merge_env_line("CLAPCHEEKS_TINDER_MODE", "api")
+        last[plat] = ts
+        updated += 1
+        os.environ[env_key] = token
+
+    if updated:
+        state_file.parent.mkdir(parents=True, exist_ok=True)
+        state_file.write_text(json.dumps(last))
+    return updated
+
+
+def _merge_env_line(key: str, value: str) -> None:
+    """Overwrite or append a single KEY=value line in ~/.clapcheeks/.env."""
+    p = Path.home() / ".clapcheeks" / ".env"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    lines: list[str] = []
+    seen = False
+    if p.exists():
+        for line in p.read_text().splitlines():
+            s = line.strip()
+            if s.startswith(f"{key}=") or s.startswith(f"{key} ="):
+                lines.append(f"{key}={value}")
+                seen = True
+            else:
+                lines.append(line)
+    if not seen:
+        lines.append(f"{key}={value}")
+    p.write_text("\n".join(lines) + "\n")
+    try:
+        p.chmod(0o600)
+    except Exception:
+        pass
+
+
 def push_leads(config: dict | None = None) -> tuple[int, int]:
     """Upsert every tracked lead into clapcheeks_leads.
 
