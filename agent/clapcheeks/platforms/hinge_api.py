@@ -27,6 +27,11 @@ from clapcheeks.session.rate_limiter import (
     check_limit,
     record_swipe,
 )
+from clapcheeks.session.ban_detector import (
+    BanDetector,
+    BanSignalException,
+    check_response_for_ban,
+)
 
 logger = logging.getLogger("clapcheeks.hinge_api")
 
@@ -143,9 +148,19 @@ class HingeAPIClient:
         if not resp.content:
             return {}
         try:
-            return resp.json()
+            _data = resp.json()
         except ValueError:
-            return {"raw": resp.text}
+            _data = {"raw": resp.text}
+
+        # Scan successful responses for ban keywords in the body
+        try:
+            check_response_for_ban("hinge", resp.status_code, _data)
+        except BanSignalException as ban_exc:
+            _det = BanDetector()
+            _det.record_signal(ban_exc.platform, ban_exc.signal_type, ban_exc.details)
+            raise
+
+        return _data
 
     # ------------------------------------------------------------------
     # 401 auto-refresh via SMS
@@ -316,6 +331,15 @@ class HingeAPIClient:
         like_ratio: float = 0.5,
         max_swipes: int = 30,
     ) -> dict:
+        # Pre-session ban check: auto-resume expired soft bans, block if active
+        _ban_det = BanDetector()
+        _ban_det.auto_resume_check("hinge")
+        if _ban_det.is_paused("hinge"):
+            _reason = _ban_det.get_pause_reason("hinge") or "banned"
+            logger.warning("Hinge paused: %s", _reason)
+            return {"liked": 0, "passed": 0, "errors": 0, "commented": 0,
+                    "most_compatible": 0, "ban_status": _reason}
+
         self.login()
 
         mc_count = self.check_most_compatible()
@@ -360,17 +384,29 @@ class HingeAPIClient:
                 time.sleep(random.uniform(1.5, 4.0))
             except HingeAuthError:
                 raise
+            except BanSignalException as ban_exc:
+                logger.warning("Hinge ban signal at iter %d: %s", idx, ban_exc)
+                self.errors += 1
+                break
             except Exception as exc:
                 logger.warning("Iter %d failed: %s", idx, exc)
                 self.errors += 1
 
-        return {
+        _result = {
             "liked": self.liked,
             "passed": self.passed,
             "errors": self.errors,
             "commented": self.commented,
             "most_compatible": mc_count,
         }
+
+        # Post-session ban analysis
+        _ban_det.check_session_result("hinge", _result)
+        if _ban_det.is_paused("hinge"):
+            _result["ban_status"] = _ban_det.get_pause_reason("hinge")
+            logger.warning("Hinge ban detected post-session: %s", _result["ban_status"])
+
+        return _result
 
     # ------------------------------------------------------------------
     # Matches + messaging (parity with browser client)
