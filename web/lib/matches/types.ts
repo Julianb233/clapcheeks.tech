@@ -43,6 +43,23 @@ export type InstagramIntel = {
   [k: string]: unknown
 }
 
+// Phase J (AI-8338) roster stages. Superset that includes the kanban
+// swim-lane values — exposed as a separate type so we don't break Phase D's
+// narrower `MatchStatus` while the two columns co-exist on the row.
+export type RosterStage =
+  | 'new_match'
+  | 'chatting'
+  | 'chatting_phone'
+  | 'date_proposed'
+  | 'date_booked'
+  | 'date_attended'
+  | 'hooked_up'
+  | 'recurring'
+  | 'faded'
+  | 'ghosted'
+  | 'archived'
+  | 'archived_cluster_dupe'
+
 export type ClapcheeksMatchRow = {
   id: string
   user_id: string
@@ -73,6 +90,24 @@ export type ClapcheeksMatchRow = {
   scoring_reason: string | null
   // future agent override (may not exist yet)
   julian_rank: number | null
+  // Phase J roster columns (may not exist yet — read/write guarded)
+  stage?: RosterStage | null
+  health_score?: number | null
+  close_probability?: number | null
+  messages_total?: number | null
+  messages_7d?: number | null
+  messages_30d?: number | null
+  his_to_her_ratio?: number | null
+  avg_reply_hours?: number | null
+  time_to_date_days?: number | null
+  flake_count?: number | null
+  sentiment_trajectory?: string | null
+  night_energy?: number | null
+  recurrence_score?: number | null
+  red_flags?: string[] | null
+  boundary_flags_count?: number | null
+  last_her_initiated_at?: string | null
+  geographic_cluster_id?: string | null
   // demo / dev flag for seeded data
   is_demo?: boolean | null
   // Phase K (AI-8339) — social graph collision detector
@@ -150,6 +185,20 @@ export const PLATFORM_COLORS: Record<MatchPlatform, string> = {
   bumble:  'bg-amber-500/15 text-amber-300 border-amber-500/30',
   offline: 'bg-slate-500/20 text-slate-300 border-slate-500/30',
 }
+
+// Phase J kanban stage definitions — ordered left to right in the roster view.
+export const ROSTER_STAGES: Array<{ key: RosterStage; label: string; tone: string }> = [
+  { key: 'new_match',       label: 'New',            tone: 'bg-blue-500/15 text-blue-300 border-blue-500/30' },
+  { key: 'chatting',        label: 'Chatting',       tone: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30' },
+  { key: 'chatting_phone',  label: 'Phone',          tone: 'bg-teal-500/15 text-teal-300 border-teal-500/30' },
+  { key: 'date_proposed',   label: 'Proposed',       tone: 'bg-fuchsia-500/15 text-fuchsia-300 border-fuchsia-500/30' },
+  { key: 'date_booked',     label: 'Booked',         tone: 'bg-pink-500/15 text-pink-300 border-pink-500/30' },
+  { key: 'date_attended',   label: 'Dated',          tone: 'bg-yellow-500/15 text-yellow-300 border-yellow-500/30' },
+  { key: 'hooked_up',       label: 'Hooked up',      tone: 'bg-rose-500/15 text-rose-300 border-rose-500/30' },
+  { key: 'recurring',       label: 'Recurring',      tone: 'bg-violet-500/15 text-violet-300 border-violet-500/30' },
+  { key: 'faded',           label: 'Faded',          tone: 'bg-amber-500/15 text-amber-300 border-amber-500/30' },
+  { key: 'ghosted',         label: 'Ghosted',        tone: 'bg-white/10 text-white/50 border-white/15' },
+]
 
 export function formatTimeAgo(iso: string | null | undefined): string {
   if (!iso) return '—'

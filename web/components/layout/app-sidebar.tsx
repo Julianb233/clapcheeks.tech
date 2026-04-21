@@ -16,6 +16,7 @@ type NavItem = {
 const PRIMARY: NavItem[] = [
   { href: '/dashboard', label: 'Dashboard', icon: <HomeIcon /> },
   { href: '/dashboard/matches', label: 'Matches', icon: <HeartIcon /> },
+  { href: '/dashboard/roster', label: 'Roster', icon: <RosterIcon />, badge: 'new' },
   { href: '/dashboard/content-library', label: 'Content Library', icon: <CameraIcon />, badge: 'new' },
   { href: '/leads', label: 'Leads', icon: <PipelineIcon /> },
   { href: '/conversation', label: 'Conversations', icon: <ChatIcon /> },
@@ -209,6 +210,7 @@ const IconBase = (d: string) => (
 )
 function HomeIcon()     { return IconBase('M3 10l9-7 9 7v11a2 2 0 0 1-2 2h-4v-7h-6v7H5a2 2 0 0 1-2-2V10z') }
 function HeartIcon()    { return IconBase('M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z') }
+function RosterIcon()   { return IconBase('M3 5h4v4H3zM10 5h11M3 12h4v4H3zM10 13h11M3 19h4v4H3zM10 20h11') }
 function PipelineIcon() { return IconBase('M3 6h6v4H3zM9 12h6v4H9zM15 18h6v-4h-6z M9 10v2 M15 16v-2') }
 function ChatIcon()     { return IconBase('M21 11.5a8.38 8.38 0 0 1-8.5 8.5 8.5 8.5 0 0 1-3.6-.8L3 21l1.9-5.6A8.5 8.5 0 1 1 21 11.5z') }
 function SparkIcon()    { return IconBase('M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83') }

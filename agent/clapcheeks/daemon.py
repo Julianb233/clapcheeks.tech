@@ -535,21 +535,36 @@ def _followup_drip_worker(config: dict, interval_seconds: int = 900) -> None:
         _shutdown.wait(interval_seconds)
 
 
-# PHASE-H — AI-8322 — Nightly preference learner (fits ML model on swipes).
-# Runs once/day at 04:00 America/Los_Angeles. Additive — never blocks other
-# workers, swallows all exceptions so a bad fit doesn't kill the daemon.
+# PHASE-J - AI-8338 - roster CRM: recompute health_score + close_probability
+# every hour so the kanban dashboard can sort without hitting a cron lambda.
+def _roster_health_worker(config: dict, interval_seconds: int = 3600) -> None:
+    """Hourly recompute of health_score + close_probability."""
+    from clapcheeks.roster.health import recompute_all
+
+    user_id = (
+        config.get("user_id")
+        or config.get("clapcheeks_user_id")
+        or os.environ.get("CLAPCHEEKS_USER_ID")
+    )
+    if not user_id:
+        log.warning("roster-health worker: no user_id in config/env, disabled")
+        return
+
+    while not _shutdown.is_set():
+        try:
+            stats = recompute_all(user_id, limit=500)
+            if stats.get("updated") or stats.get("errors"):
+                log.info("roster-health tick: %s", stats)
+            else:
+                log.debug("roster-health tick: %s", stats)
+        except Exception as exc:
+            log.error("roster-health tick failed: %s", exc)
+        _shutdown.wait(interval_seconds)
+
+
+# PHASE-H - AI-8322 - Nightly preference learner (fits ML model on swipes).
 def _preference_learner_worker(config: dict) -> None:
-    """Retrain the preference model once per day at 04:00 PT.
-
-    Pulls decisions from clapcheeks_swipe_decisions, fits logreg + GBM on
-    held-out split, writes the winner back to
-    clapcheeks_user_settings.preference_model_v. Phase I's scoring thread
-    picks it up on its next persona refresh (cached at 1h TTL) and blends
-    model + rule scores going forward.
-
-    If the user has fewer than 200 logged decisions the fit is skipped and
-    Phase I keeps running rule-only until the threshold clears.
-    """
+    """Retrain the preference model once per day at 04:00 PT."""
     from datetime import datetime as _dt
 
     user_id = (
@@ -561,58 +576,38 @@ def _preference_learner_worker(config: dict) -> None:
         log.info("preference-learner: no user_id configured, disabled")
         return
 
-    # Target local hour for the nightly fire. Default 4am PT.
     target_hour = int(config.get("preference_learner_hour", 4))
     log.info(
         "preference-learner worker started (user=%s, fires daily at %02d:00 local)",
         user_id, target_hour,
     )
 
-    # Fire once 60s after start if we're past the target hour today — handy
-    # for dev / testing. Afterwards only once per calendar day.
     last_fired_ymd: str | None = None
-
-    # Short initial delay so other workers settle.
     _shutdown.wait(60)
 
     while not _shutdown.is_set():
         try:
             now = _dt.now()
             today_ymd = now.strftime("%Y-%m-%d")
-
-            should_fire = (
-                last_fired_ymd != today_ymd
-                and now.hour >= target_hour
-            )
+            should_fire = last_fired_ymd != today_ymd and now.hour >= target_hour
 
             if should_fire:
-                log.info(
-                    "preference-learner: firing for user %s (hour=%d)",
-                    user_id, now.hour,
-                )
+                log.info("preference-learner: firing for user %s (hour=%d)", user_id, now.hour)
                 try:
                     from clapcheeks.ml.trainer import fit_preference_model
-
                     model_v = fit_preference_model(user_id, min_decisions=200)
                     if model_v is not None:
                         log.info(
                             "preference-learner: %s fit acc=%.3f n=%d",
-                            model_v["model_type"],
-                            model_v["accuracy"],
-                            model_v["n_samples"],
+                            model_v["model_type"], model_v["accuracy"], model_v["n_samples"],
                         )
                     else:
-                        log.info(
-                            "preference-learner: no model produced (insufficient data or fit degenerate)"
-                        )
+                        log.info("preference-learner: no model produced (insufficient data)")
                 except Exception as exc:
                     log.error("preference-learner: fit failed: %s", exc)
-
                 last_fired_ymd = today_ymd
         except Exception as exc:
             log.error("preference-learner tick failed: %s", exc)
-
-        # Wake every 15 min to re-check the clock (cheap).
         _shutdown.wait(900)
 
 
@@ -1573,6 +1568,19 @@ def run_daemon() -> None:
         target=_preference_learner_worker,
         args=(config,),
         name="preference-learner",
+        daemon=True,
+    )
+    t.start()
+    threads.append(t)
+
+    # PHASE-J - AI-8338 - roster CRM health recompute (hourly).
+    roster_health_interval = int(
+        daemon_cfg.get("roster_health_interval_seconds", 3600)
+    )
+    t = threading.Thread(
+        target=_roster_health_worker,
+        args=(config, roster_health_interval),
+        name="roster-health",
         daemon=True,
     )
     t.start()
