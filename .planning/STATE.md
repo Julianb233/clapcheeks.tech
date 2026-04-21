@@ -1,69 +1,49 @@
 # Project State: Clapcheeks
 
-**Last Updated:** 2026-04-14
-**Current Milestone:** v0.9 Personal Dating Command Center
-**Current Phase:** Not started (run /gsd:define-requirements)
+**Last Updated:** 2026-04-20 (15:47 PT)
+**Current Milestone:** v0.9 Personal Dating Command Center — letter-phases continuation
+**Current Phase:** 46 (Phase M / AI-8345) — next up
 
 ---
 
 ## Current Position
 
-- Milestone: 9 of 9 (Personal Dating Command Center)
-- Phase: 39 of 45 — Match Profile Engine (not started)
-- Plan: — (run /gsd:plan-phase 39)
-- Status: Roadmap complete, ready for phase planning
-- Last activity: 2026-04-14 — Roadmap created with 7 phases, 38 requirements mapped
+### Just landed (2026-04-20)
+- Phase A (AI-8315) — Match intake loop merged to main + deployed Vercel
+- Phase D (AI-8318) — Dashboard /matches view merged to main + deployed Vercel
+- Phase I (AI-8323) — Rule-based scoring merged to main + deployed Vercel
+- Extension + Supabase route for Instagram session harvest landed
 
-Progress: ████████████████████████████████ (M1-M7 complete, M8 planned, M9 active)
+### Blocked / needs Julian
+- Tinder account in selfie verification (triggered by Phase A 16-profile burst). Should auto-clear in 15-60 min. Do NOT run manual syncs until verified.
+- Hinge token wrong type (web-captured vs iOS API client). Needs mitmproxy iPhone capture per docs/SETUP_HINGE_TOKEN.md.
+- IG extension content-script not firing. Deferred.
 
----
+### Next action
+```bash
+/gsd:plan-phase 46
+```
 
-## Milestone History
-
-| Milestone | Version | Phases | Status | Shipped |
-|-----------|---------|--------|--------|---------|
-| Foundation & Web | v0.1 | 1-5 | SHIPPED | 2026-01 |
-| iMessage AI | v0.2 | 6-10 | SHIPPED | 2026-01 |
-| Dating App Automation | v0.3 | 11-15 | SHIPPED | 2026-02 |
-| Analytics & AI Coaching | v0.4 | 16-19 | SHIPPED | 2026-02 |
-| Monetization | v0.5 | 20-23 | SHIPPED | 2026-02 |
-| Growth | v0.6 | 24-26 | SHIPPED | 2026-03-02 |
-| Production Hardening | v0.7 | 27-31 | COMPLETE | 2026-03-03 |
-| GTM Testing & Launch | v0.8 | 32-38 | PLANNED | — |
-| Personal Dating Command Center | v0.9 | 39-45 | ACTIVE | — |
+(Phase M / AI-8345 — Chrome-extension API routing. Critical-path blocker.)
 
 ---
 
-## Active Milestone: v0.9 Personal Dating Command Center
+## Dependency-respecting phase order
 
-**Goal:** Build Julian's personal dating command center with zodiac intelligence, Instagram scraping, communication profiling, match pipeline, scheduled messaging, date planning, and full autonomy.
+1. Phase 46 (M) — anti-detection routing **[next]**
+2. Phase 47 (F) — offline handoff
+3. Phase 48 (B) — photo vision
+4. Phase 49 (E) — drafting tone rules
+5. Phase 50 (C) — IG enrichment
+6. Phase 51 (G) — drip daemon
+7. Phase 52 (L) — IG content library
+8. Phase 53 (H) — ML preference learner
+9. Phase 54 (J) — roster CRM
+10. Phase 55 (K) — social graph detection
 
-| Phase | Name | Status |
-|-------|------|--------|
-| 39 | Match Profile Engine | Not started |
-| 40 | Pipeline Dashboard | Not started |
-| 41 | Conversation Intelligence | Not started |
-| 42 | Scheduled Messaging | Not started |
-| 43 | Date Planner | Not started |
-| 44 | Autonomy Engine | Not started |
-| 45 | Polish & Integration | Not started |
-
----
-
-## Next Actions
-
-1. **Run `/gsd:plan-phase 39`** — plan the Match Profile Engine (zodiac + IG scraper + comms profiles + schema)
-2. **Run `/gsd:execute-phase 39`** — build it
-3. **Run `/gsd:plan-phase 40`** — plan Pipeline Dashboard (Kanban + cards + rankings)
-
----
-
-## Session Continuity
-
-Last session: 2026-04-14
-Stopped at: Milestone 9 initialized, requirements pending
-Resume file: None
-
----
-
-*State updated: 2026-04-14 — Milestone 9 (Personal Dating Command Center) initialized. Ready for requirements definition.*
+## Parallel-safe waves
+- Wave 1: 46 (M)
+- Wave 2: 47 (F) + 48 (B)
+- Wave 3: 49 (E) + 50 (C)
+- Wave 4: 51 (G) + 52 (L)
+- Wave 5: 53 (H) + 54 (J) + 55 (K)
