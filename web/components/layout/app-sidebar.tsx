@@ -17,6 +17,7 @@ const PRIMARY: NavItem[] = [
   { href: '/dashboard', label: 'Dashboard', icon: <HomeIcon /> },
   { href: '/dashboard/matches', label: 'Matches', icon: <HeartIcon /> },
   { href: '/dashboard/roster', label: 'Roster', icon: <RosterIcon />, badge: 'new' },
+  { href: '/dashboard/content-library', label: 'Content Library', icon: <CameraIcon />, badge: 'new' },
   { href: '/leads', label: 'Leads', icon: <PipelineIcon /> },
   { href: '/conversation', label: 'Conversations', icon: <ChatIcon /> },
   { href: '/intelligence', label: 'Intelligence', icon: <SparkIcon /> },

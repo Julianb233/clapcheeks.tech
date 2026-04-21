@@ -535,15 +535,10 @@ def _followup_drip_worker(config: dict, interval_seconds: int = 900) -> None:
         _shutdown.wait(interval_seconds)
 
 
-# PHASE-J — AI-8338 — roster CRM: recompute health_score + close_probability
+# PHASE-J - AI-8338 - roster CRM: recompute health_score + close_probability
 # every hour so the kanban dashboard can sort without hitting a cron lambda.
 def _roster_health_worker(config: dict, interval_seconds: int = 3600) -> None:
-    """Hourly recompute of health_score + close_probability.
-
-    Pulls non-terminal matches for the configured user, runs the pure
-    ``compute_health_breakdown`` + ``compute_close_probability`` helpers,
-    and patches each row. Cheap: one select + N patches per tick.
-    """
+    """Hourly recompute of health_score + close_probability."""
     from clapcheeks.roster.health import recompute_all
 
     user_id = (
@@ -565,6 +560,55 @@ def _roster_health_worker(config: dict, interval_seconds: int = 3600) -> None:
         except Exception as exc:
             log.error("roster-health tick failed: %s", exc)
         _shutdown.wait(interval_seconds)
+
+
+# PHASE-H - AI-8322 - Nightly preference learner (fits ML model on swipes).
+def _preference_learner_worker(config: dict) -> None:
+    """Retrain the preference model once per day at 04:00 PT."""
+    from datetime import datetime as _dt
+
+    user_id = (
+        config.get("user_id")
+        or config.get("clapcheeks_user_id")
+        or os.environ.get("CLAPCHEEKS_USER_ID")
+    )
+    if not user_id:
+        log.info("preference-learner: no user_id configured, disabled")
+        return
+
+    target_hour = int(config.get("preference_learner_hour", 4))
+    log.info(
+        "preference-learner worker started (user=%s, fires daily at %02d:00 local)",
+        user_id, target_hour,
+    )
+
+    last_fired_ymd: str | None = None
+    _shutdown.wait(60)
+
+    while not _shutdown.is_set():
+        try:
+            now = _dt.now()
+            today_ymd = now.strftime("%Y-%m-%d")
+            should_fire = last_fired_ymd != today_ymd and now.hour >= target_hour
+
+            if should_fire:
+                log.info("preference-learner: firing for user %s (hour=%d)", user_id, now.hour)
+                try:
+                    from clapcheeks.ml.trainer import fit_preference_model
+                    model_v = fit_preference_model(user_id, min_decisions=200)
+                    if model_v is not None:
+                        log.info(
+                            "preference-learner: %s fit acc=%.3f n=%d",
+                            model_v["model_type"], model_v["accuracy"], model_v["n_samples"],
+                        )
+                    else:
+                        log.info("preference-learner: no model produced (insufficient data)")
+                except Exception as exc:
+                    log.error("preference-learner: fit failed: %s", exc)
+                last_fired_ymd = today_ymd
+        except Exception as exc:
+            log.error("preference-learner tick failed: %s", exc)
+        _shutdown.wait(900)
 
 
 # ---------------------------------------------------------------------------
@@ -920,6 +964,352 @@ def _vision_worker(interval_seconds: int = 600) -> None:
         _shutdown.wait(interval_seconds)
 
 
+# ---------------------------------------------------------------------------
+# Phase K: social graph collision detector (AI-8339)                # PHASE-K
+# ---------------------------------------------------------------------------
+
+def _social_graph_worker(config: dict, interval_seconds: int = 3600) -> None:
+    """Phase K worker - detect mutual friends + manage clusters.       # PHASE-K
+
+    Every ``interval_seconds`` (default 1h), scan clapcheeks_matches rows
+    that have ``social_graph_scanned_at IS NULL`` OR have been updated
+    since the last scan. For each:
+
+      1. Run ``scan_match`` to compute mutual-friend count, risk band,
+         confidence, and source list.
+      2. PATCH the row.
+      3. If the row now shares >=2 female friends with another ACTIVE
+         match for the same user, assign a cluster_id + recompute ranks.
+      4. If the row landed in ``high_risk`` or ``auto_flag``, iMessage
+         Julian and pause Phase G openers for that match (by flipping
+         status -> 'stalled' with a reason tag).
+
+    No direct IG scrape from the VPS - we read whatever
+    ``instagram_intel`` Phase M has already persisted. If Julian's IG
+    follower snapshot is missing from persona, the IG overlap tier just
+    returns empty.
+    """
+    from clapcheeks.scoring import _supabase_creds, load_persona
+    from clapcheeks.social.clusters import (
+        assign_to_cluster,
+        find_cluster_candidates,
+    )
+    from clapcheeks.social.graph import scan_match
+    import requests
+
+    user_id = (
+        config.get("user_id")
+        or config.get("clapcheeks_user_id")
+        or os.environ.get("CLAPCHEEKS_USER_ID")
+    )
+    if not user_id:
+        log.warning("social-graph worker: no user_id in config/env, disabled")
+        return
+
+    log.info("social-graph worker started (interval=%ds)", interval_seconds)
+
+    while not _shutdown.is_set():
+        try:
+            try:
+                url, key = _supabase_creds()
+            except Exception as exc:
+                log.debug("social-graph: creds unavailable (%s)", exc)
+                _shutdown.wait(interval_seconds)
+                continue
+
+            # Refresh persona each tick (cheap enough at 1 hour cadence).
+            try:
+                persona = load_persona(user_id)
+            except Exception as exc:
+                log.warning("social-graph: persona load failed (%s)", exc)
+                persona = {}
+            persona_rules = (persona or {}).get("social_graph_rules") or {}
+            julian_ig_session = (persona or {}).get("julian_ig_session")
+            julian_contacts = (persona or {}).get("julian_contacts") or []
+
+            # Unscanned matches first, up to 50 per tick.
+            resp = requests.get(
+                f"{url}/rest/v1/clapcheeks_matches",
+                params={
+                    "user_id": f"eq.{user_id}",
+                    "social_graph_scanned_at": "is.null",
+                    "select": (
+                        "id,user_id,platform,name,match_name,match_intel,"
+                        "instagram_intel,mutual_friends_list,status,"
+                        "shared_female_friends,friend_cluster_id,final_score,"
+                        "phone,phone_number"
+                    ),
+                    "order": "created_at.desc",
+                    "limit": "50",
+                },
+                headers={"apikey": key, "Authorization": f"Bearer {key}"},
+                timeout=30,
+            )
+            if resp.status_code >= 300:
+                log.warning("social-graph: fetch %s", resp.status_code)
+                _shutdown.wait(interval_seconds)
+                continue
+
+            matches = resp.json() or []
+            if not matches:
+                _shutdown.wait(interval_seconds)
+                continue
+
+            # Active roster for cluster candidacy (other matches for this
+            # user that aren't ghosted / archived).
+            active_resp = requests.get(
+                f"{url}/rest/v1/clapcheeks_matches",
+                params={
+                    "user_id": f"eq.{user_id}",
+                    "status": "in.(new,opened,conversing,stalled,"
+                              "date_proposed,date_booked,dated)",
+                    "select": (
+                        "id,status,final_score,friend_cluster_id,"
+                        "mutual_friends_list,shared_female_friends"
+                    ),
+                    "limit": "500",
+                },
+                headers={"apikey": key, "Authorization": f"Bearer {key}"},
+                timeout=30,
+            )
+            active_rows = (
+                active_resp.json() if active_resp.status_code < 300 else []
+            )
+
+            headers = {
+                "apikey": key,
+                "Authorization": f"Bearer {key}",
+                "Content-Type": "application/json",
+                "Prefer": "return=minimal",
+            }
+
+            scanned = flagged = clustered = 0
+            for m in matches:
+                if _shutdown.is_set():
+                    break
+                try:
+                    result = scan_match(
+                        m,
+                        persona_rules=persona_rules,
+                        julian_ig_session=julian_ig_session,
+                        julian_contacts=julian_contacts,
+                    )
+                    # shared_female_friends is the subset of mutual_friends
+                    # that overlaps with another match - for now, we store
+                    # the full mutual list and let the cluster logic filter.
+                    patch = {
+                        **result,
+                        "shared_female_friends": result["mutual_friends_list"],
+                        "social_graph_scanned_at": datetime.utcnow()
+                        .replace(microsecond=0)
+                        .isoformat() + "Z",
+                    }
+                    p = requests.patch(
+                        f"{url}/rest/v1/clapcheeks_matches",
+                        params={"id": f"eq.{m['id']}"},
+                        headers=headers,
+                        json=patch,
+                        timeout=15,
+                    )
+                    if p.status_code >= 300:
+                        log.warning(
+                            "social-graph PATCH %s: %s",
+                            p.status_code, p.text[:200],
+                        )
+                        continue
+                    scanned += 1
+
+                    # Cluster detection against other active matches.
+                    m_with_friends = dict(m, **{
+                        "mutual_friends_list": result["mutual_friends_list"],
+                        "shared_female_friends": result["mutual_friends_list"],
+                    })
+                    candidates = find_cluster_candidates(
+                        m_with_friends, active_rows
+                    )
+                    if candidates:
+                        cid = assign_to_cluster(m["id"], candidates)
+                        if cid:
+                            clustered += 1
+
+                    # HIGH_RISK / auto_flag side-effects: pause Phase G
+                    # opener + iMessage Julian.
+                    band = result["social_risk_band"]
+                    if band in ("high_risk", "auto_flag"):
+                        flagged += 1
+                        _phase_k_high_risk_alert(m, band, result, headers, url)
+                except Exception as exc:
+                    log.error(
+                        "social-graph: match %s failed (%s)",
+                        m.get("id"), exc,
+                    )
+            log.info(
+                "social-graph tick: scanned=%d flagged=%d clustered=%d",
+                scanned, flagged, clustered,
+            )
+        except Exception as exc:
+            log.error("social-graph tick failed: %s", exc)
+
+        _shutdown.wait(interval_seconds)
+
+
+def _phase_k_high_risk_alert(
+    match: dict,
+    band: str,
+    result: dict,
+    headers: dict,
+    url: str,
+) -> None:                                                              # PHASE-K
+    """Pause openers + ping Julian when Phase K flags a high-risk match."""
+    import requests
+    # 1) Flip status to 'stalled' so Phase G drip skips it until Julian
+    #    clears the flag (the drip scanner treats stalled as terminal
+    #    for net-new openers but still allows re-engage nudges).
+    try:
+        requests.patch(
+            f"{url}/rest/v1/clapcheeks_matches",
+            params={"id": f"eq.{match['id']}"},
+            headers=headers,
+            json={"status": "stalled"},
+            timeout=15,
+        )
+    except Exception as exc:
+        log.warning("phase-k pause status patch failed: %s", exc)
+
+    # 2) iMessage Julian.
+    try:
+        import subprocess
+        name = match.get("name") or match.get("match_name") or "unknown"
+        msg = (
+            f"Clapcheeks Phase K alert: {name} has {result['count']} mutual "
+            f"friends (band={band}). Opener paused. Review in dashboard."
+        )
+        julian_number = os.environ.get("JULIAN_PHONE", "+16195090699")
+        subprocess.run(
+            ["god", "mac", "send", julian_number, msg],
+            timeout=30, capture_output=True, text=True,
+        )
+    except Exception as exc:
+        log.debug("phase-k iMessage failed: %s", exc)
+
+
+# ---------------------------------------------------------------------------
+# Phase L: content scheduler + publisher worker (AI-8340)
+# ---------------------------------------------------------------------------
+
+def _content_scheduler_worker(
+    config: dict,
+    schedule_interval_seconds: int = 24 * 3600,
+    drain_interval_seconds: int = 60,
+) -> None:
+    """Phase L worker - builds the weekly IG plan + drains due posts.
+
+    Two cadences in one worker to keep the thread count down:
+
+    * Once every ``schedule_interval_seconds`` (default 24h): read the
+      user's content_library + current pending posting_queue, rebuild
+      the 7-day plan, and insert any new pending rows.
+    * Every ``drain_interval_seconds`` (default 60s): call
+      ``publisher.drain_due`` to fire posts whose time has come and
+      reconcile in_progress rows against the agent_jobs table.
+    """
+    from clapcheeks.ai.persona_loader import load_persona
+    from clapcheeks.content.publisher import drain_due
+    from clapcheeks.content.scheduler import (
+        build_weekly_plan, save_plan_to_queue,
+    )
+
+    user_id = (
+        config.get("user_id")
+        or config.get("clapcheeks_user_id")
+        or os.environ.get("CLAPCHEEKS_USER_ID")
+    )
+    if not user_id:
+        log.warning("content scheduler: no user_id in config/env, disabled")
+        return
+
+    log.info(
+        "content scheduler worker started (schedule=%ds, drain=%ds)",
+        schedule_interval_seconds, drain_interval_seconds,
+    )
+
+    last_schedule = 0.0
+    while not _shutdown.is_set():
+        now_mono = time.time()
+
+        # 1) Rebuild plan occasionally.
+        if (now_mono - last_schedule) >= schedule_interval_seconds:
+            try:
+                _rebuild_weekly_plan(user_id, load_persona, build_weekly_plan, save_plan_to_queue)
+                last_schedule = now_mono
+            except Exception as exc:
+                log.error("content scheduler: plan rebuild failed: %s", exc)
+
+        # 2) Drain due rows every tick.
+        try:
+            stats = drain_due()
+            if stats.get("enqueued") or stats.get("posted") or stats.get("failed"):
+                log.info("content publisher tick: %s", stats)
+        except Exception as exc:
+            log.error("content publisher tick failed: %s", exc)
+
+        _shutdown.wait(drain_interval_seconds)
+
+
+def _rebuild_weekly_plan(
+    user_id: str,
+    load_persona_fn,
+    build_weekly_plan_fn,
+    save_plan_to_queue_fn,
+) -> None:
+    """Read library + pending queue, compute plan, insert new rows."""
+    from clapcheeks.job_queue import _client as _svc_client
+    c = _svc_client()
+
+    # Fetch unposted library rows.
+    try:
+        lib_resp = (
+            c.table("clapcheeks_content_library")
+            .select("id, category, target_time_of_day, post_type, posted_at")
+            .eq("user_id", user_id)
+            .is_("posted_at", "null")
+            .eq("post_type", "story")
+            .limit(500)
+            .execute()
+        )
+        library = getattr(lib_resp, "data", None) or []
+    except Exception as exc:
+        log.warning("content scheduler: library fetch failed: %s", exc)
+        return
+
+    if not library:
+        log.info("content scheduler: no library rows for user %s, skip", user_id)
+        return
+
+    # Fetch already-pending queue rows so we don't double-schedule.
+    try:
+        q_resp = (
+            c.table("clapcheeks_posting_queue")
+            .select("content_library_id, scheduled_for")
+            .eq("user_id", user_id)
+            .eq("status", "pending")
+            .limit(200)
+            .execute()
+        )
+        existing = getattr(q_resp, "data", None) or []
+    except Exception as exc:
+        log.debug("content scheduler: queue fetch failed: %s", exc)
+        existing = []
+
+    persona = load_persona_fn(user_id)
+    plan = build_weekly_plan_fn(library, persona, existing_pending=existing)
+    inserted = save_plan_to_queue_fn(plan, user_id, client=c)
+    log.info(
+        "content scheduler: plan built - entries=%d inserted=%d",
+        len(plan), inserted,
+    )
+
+
 def _platform_worker(
     platform: str,
     config: dict,
@@ -1141,7 +1531,49 @@ def run_daemon() -> None:
     t.start()
     threads.append(t)
 
-    # PHASE-J — AI-8338 — roster CRM health recompute (hourly).
+    # PHASE-K - AI-8339 - Social graph collision detector + cluster dedupe.
+    social_graph_interval = int(
+        daemon_cfg.get("social_graph_interval_seconds", 3600)
+    )
+    t = threading.Thread(
+        target=_social_graph_worker,
+        args=(config, social_graph_interval),
+        name="social-graph",
+        daemon=True,
+    )
+    t.start()
+    threads.append(t)
+
+    # Content scheduler + publisher (Phase L - AI-8340). Rebuilds the
+    # rolling 7-day IG plan once a day and drains due posts every
+    # minute via the Phase M extension queue.
+    if daemon_cfg.get("content_scheduler_enabled", True):
+        content_schedule_interval = int(
+            daemon_cfg.get("content_schedule_interval_seconds", 24 * 3600)
+        )
+        content_drain_interval = int(
+            daemon_cfg.get("content_drain_interval_seconds", 60)
+        )
+        t = threading.Thread(
+            target=_content_scheduler_worker,
+            args=(config, content_schedule_interval, content_drain_interval),
+            name="content-scheduler",
+            daemon=True,
+        )
+        t.start()
+        threads.append(t)
+
+    # PHASE-H - AI-8322 - Nightly preference learner thread.
+    t = threading.Thread(
+        target=_preference_learner_worker,
+        args=(config,),
+        name="preference-learner",
+        daemon=True,
+    )
+    t.start()
+    threads.append(t)
+
+    # PHASE-J - AI-8338 - roster CRM health recompute (hourly).
     roster_health_interval = int(
         daemon_cfg.get("roster_health_interval_seconds", 3600)
     )
