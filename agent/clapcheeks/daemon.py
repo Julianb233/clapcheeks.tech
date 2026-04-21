@@ -535,6 +535,87 @@ def _followup_drip_worker(config: dict, interval_seconds: int = 900) -> None:
         _shutdown.wait(interval_seconds)
 
 
+# PHASE-H — AI-8322 — Nightly preference learner (fits ML model on swipes).
+# Runs once/day at 04:00 America/Los_Angeles. Additive — never blocks other
+# workers, swallows all exceptions so a bad fit doesn't kill the daemon.
+def _preference_learner_worker(config: dict) -> None:
+    """Retrain the preference model once per day at 04:00 PT.
+
+    Pulls decisions from clapcheeks_swipe_decisions, fits logreg + GBM on
+    held-out split, writes the winner back to
+    clapcheeks_user_settings.preference_model_v. Phase I's scoring thread
+    picks it up on its next persona refresh (cached at 1h TTL) and blends
+    model + rule scores going forward.
+
+    If the user has fewer than 200 logged decisions the fit is skipped and
+    Phase I keeps running rule-only until the threshold clears.
+    """
+    from datetime import datetime as _dt
+
+    user_id = (
+        config.get("user_id")
+        or config.get("clapcheeks_user_id")
+        or os.environ.get("CLAPCHEEKS_USER_ID")
+    )
+    if not user_id:
+        log.info("preference-learner: no user_id configured, disabled")
+        return
+
+    # Target local hour for the nightly fire. Default 4am PT.
+    target_hour = int(config.get("preference_learner_hour", 4))
+    log.info(
+        "preference-learner worker started (user=%s, fires daily at %02d:00 local)",
+        user_id, target_hour,
+    )
+
+    # Fire once 60s after start if we're past the target hour today — handy
+    # for dev / testing. Afterwards only once per calendar day.
+    last_fired_ymd: str | None = None
+
+    # Short initial delay so other workers settle.
+    _shutdown.wait(60)
+
+    while not _shutdown.is_set():
+        try:
+            now = _dt.now()
+            today_ymd = now.strftime("%Y-%m-%d")
+
+            should_fire = (
+                last_fired_ymd != today_ymd
+                and now.hour >= target_hour
+            )
+
+            if should_fire:
+                log.info(
+                    "preference-learner: firing for user %s (hour=%d)",
+                    user_id, now.hour,
+                )
+                try:
+                    from clapcheeks.ml.trainer import fit_preference_model
+
+                    model_v = fit_preference_model(user_id, min_decisions=200)
+                    if model_v is not None:
+                        log.info(
+                            "preference-learner: %s fit acc=%.3f n=%d",
+                            model_v["model_type"],
+                            model_v["accuracy"],
+                            model_v["n_samples"],
+                        )
+                    else:
+                        log.info(
+                            "preference-learner: no model produced (insufficient data or fit degenerate)"
+                        )
+                except Exception as exc:
+                    log.error("preference-learner: fit failed: %s", exc)
+
+                last_fired_ymd = today_ymd
+        except Exception as exc:
+            log.error("preference-learner tick failed: %s", exc)
+
+        # Wake every 15 min to re-check the clock (cheap).
+        _shutdown.wait(900)
+
+
 # ---------------------------------------------------------------------------
 # Phase B: Photo vision worker (AI-8316)
 # ---------------------------------------------------------------------------
@@ -1104,6 +1185,16 @@ def run_daemon() -> None:
         target=_ig_enrich_worker_thread,
         args=(ig_enrich_interval,),
         name="ig-enrich",
+        daemon=True,
+    )
+    t.start()
+    threads.append(t)
+
+    # PHASE-H — AI-8322 — Nightly preference learner thread.
+    t = threading.Thread(
+        target=_preference_learner_worker,
+        args=(config,),
+        name="preference-learner",
         daemon=True,
     )
     t.start()
