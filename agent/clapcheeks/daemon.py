@@ -298,6 +298,33 @@ def _match_sync_worker(interval_minutes: int = 30) -> None:
         _shutdown.wait(interval_sec)
 
 
+def _ig_enrich_worker_thread(interval_seconds: int = 900) -> None:
+    """Phase C (AI-8317) Instagram enrichment loop.
+
+    Every ``interval_seconds`` (default 15m) find matches with an
+    ``instagram_handle`` but no ``instagram_intel`` and enqueue an
+    ``ig_user_feed`` job via the Phase M Chrome-extension queue. The
+    extension fetches ``www.instagram.com/api/v1/users/web_profile_info``
+    inside Julian's real browser session, results round-trip via
+    ``/api/ingest/api-result``, and ``ig_enrich.enrich_one`` parses +
+    writes the intel back to ``clapcheeks_matches``.
+
+    Runs independently of the Phase B vision worker and Phase I scoring
+    worker. No direct VPS->instagram.com traffic.
+    """
+    from clapcheeks.ig_enrich import run_once
+
+    log.info("ig_enrich worker started (interval=%ds)", interval_seconds)
+    while not _shutdown.is_set():
+        try:
+            stats = run_once()
+            if stats["scanned"]:
+                log.info("ig_enrich tick: %s", stats)
+        except Exception as exc:
+            log.error("ig_enrich tick failed: %s", exc)
+        _shutdown.wait(interval_seconds)
+
+
 def _scoring_worker(config: dict, interval_seconds: int = 300) -> None:
     """Rule-based match scoring (Phase I).
 
@@ -458,6 +485,53 @@ def _drip_worker(config: dict, interval_seconds: int = 300) -> None:
                 log.info("Drip tick: %s", stats)
         except Exception as exc:
             log.error("Drip tick failed: %s", exc)
+        _shutdown.wait(interval_seconds)
+
+
+# PHASE-G — AI-8321 — Supabase-backed follow-up drip state machine.
+# Runs alongside the YAML drip engine above (different scope: YAML rules
+# operate on local ~/.clapcheeks state; this worker operates on Supabase
+# clapcheeks_matches + persona.followup_cadence and handles outcome prompts).
+def _followup_drip_worker(config: dict, interval_seconds: int = 900) -> None:
+    """Every 15 min: scan clapcheeks_matches, evaluate state, queue drips.
+
+    Cadence is read from persona.followup_cadence; drafts route through
+    Phase E's run_pipeline; outcome prompts iMessage Julian at +4h.
+    """
+    from clapcheeks.followup.drip import scan_and_fire
+    from clapcheeks.platforms import get_platform_client
+
+    user_id = (
+        config.get("user_id")
+        or config.get("clapcheeks_user_id")
+        or os.environ.get("CLAPCHEEKS_USER_ID")
+    )
+
+    log.info(
+        "followup-drip worker started (interval=%ds user=%s)",
+        interval_seconds, user_id or "<all>",
+    )
+
+    while not _shutdown.is_set():
+        try:
+            platform_clients: dict = {}
+            for plat in ("tinder", "hinge", "bumble"):
+                try:
+                    platform_clients[plat] = get_platform_client(plat, driver=None)
+                except Exception as exc:
+                    log.debug("followup-drip: skipping %s (%s)", plat, exc)
+
+            stats = scan_and_fire(
+                user_id=user_id,
+                platform_clients=platform_clients,
+                dry_run=bool(config.get("dry_run", False)),
+            )
+            if stats.get("fired") or stats.get("errors"):
+                log.info("followup-drip tick: %s", stats)
+            else:
+                log.debug("followup-drip tick: %s", stats)
+        except Exception as exc:
+            log.error("followup-drip tick failed: %s", exc)
         _shutdown.wait(interval_seconds)
 
 
@@ -1086,6 +1160,19 @@ def run_daemon() -> None:
     t.start()
     threads.append(t)
 
+    # PHASE-G — AI-8321 — Supabase follow-up drip daemon (state-machine).
+    followup_interval = int(
+        daemon_cfg.get("followup_drip_interval_seconds", 900)
+    )
+    t = threading.Thread(
+        target=_followup_drip_worker,
+        args=(config, followup_interval),
+        name="followup-drip",
+        daemon=True,
+    )
+    t.start()
+    threads.append(t)
+
     # Match-intake thread (Phase A - AI-8315). Tightened to 30 min on
     # 2026-04-20 after anti-bot trip. See AI-8345 for proper fix.
     match_sync_interval = int(daemon_cfg.get("match_sync_interval_minutes", 30))
@@ -1119,6 +1206,21 @@ def run_daemon() -> None:
         target=_vision_worker,
         args=(vision_interval,),
         name="vision",
+        daemon=True,
+    )
+    t.start()
+    threads.append(t)
+
+    # Instagram enrichment thread (Phase C - AI-8317). Drives her public
+    # feed through the Phase M extension-routed job queue so the VPS
+    # never hits instagram.com directly.
+    ig_enrich_interval = int(
+        daemon_cfg.get("ig_enrich_interval_seconds", 900)
+    )
+    t = threading.Thread(
+        target=_ig_enrich_worker_thread,
+        args=(ig_enrich_interval,),
+        name="ig-enrich",
         daemon=True,
     )
     t.start()
