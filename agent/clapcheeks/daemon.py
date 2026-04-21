@@ -298,6 +298,33 @@ def _match_sync_worker(interval_minutes: int = 30) -> None:
         _shutdown.wait(interval_sec)
 
 
+def _ig_enrich_worker_thread(interval_seconds: int = 900) -> None:
+    """Phase C (AI-8317) Instagram enrichment loop.
+
+    Every ``interval_seconds`` (default 15m) find matches with an
+    ``instagram_handle`` but no ``instagram_intel`` and enqueue an
+    ``ig_user_feed`` job via the Phase M Chrome-extension queue. The
+    extension fetches ``www.instagram.com/api/v1/users/web_profile_info``
+    inside Julian's real browser session, results round-trip via
+    ``/api/ingest/api-result``, and ``ig_enrich.enrich_one`` parses +
+    writes the intel back to ``clapcheeks_matches``.
+
+    Runs independently of the Phase B vision worker and Phase I scoring
+    worker. No direct VPS->instagram.com traffic.
+    """
+    from clapcheeks.ig_enrich import run_once
+
+    log.info("ig_enrich worker started (interval=%ds)", interval_seconds)
+    while not _shutdown.is_set():
+        try:
+            stats = run_once()
+            if stats["scanned"]:
+                log.info("ig_enrich tick: %s", stats)
+        except Exception as exc:
+            log.error("ig_enrich tick failed: %s", exc)
+        _shutdown.wait(interval_seconds)
+
+
 def _scoring_worker(config: dict, interval_seconds: int = 300) -> None:
     """Rule-based match scoring (Phase I).
 
@@ -1002,6 +1029,21 @@ def run_daemon() -> None:
         target=_vision_worker,
         args=(vision_interval,),
         name="vision",
+        daemon=True,
+    )
+    t.start()
+    threads.append(t)
+
+    # Instagram enrichment thread (Phase C - AI-8317). Drives her public
+    # feed through the Phase M extension-routed job queue so the VPS
+    # never hits instagram.com directly.
+    ig_enrich_interval = int(
+        daemon_cfg.get("ig_enrich_interval_seconds", 900)
+    )
+    t = threading.Thread(
+        target=_ig_enrich_worker_thread,
+        args=(ig_enrich_interval,),
+        name="ig-enrich",
         daemon=True,
     )
     t.start()
