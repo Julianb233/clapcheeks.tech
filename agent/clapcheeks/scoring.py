@@ -536,7 +536,13 @@ def score_criteria(match_row: dict, persona: dict) -> tuple[float, dict]:
 # Top-level score_match
 # ---------------------------------------------------------------------------
 
-def score_match(match_row: dict, persona: dict) -> dict:
+def score_match(
+    match_row: dict,
+    persona: dict,
+    *,
+    preference_model_v: dict | None = None,
+    n_decisions: int = 0,
+) -> dict:
     """Score a single match row against a persona's ranking_weights.
 
     Args:
@@ -547,6 +553,14 @@ def score_match(match_row: dict, persona: dict) -> dict:
         persona: dict from clapcheeks_user_settings.persona. Both shapes are
             accepted: persona["ranking_weights"]["location"|"criteria"] or
             persona["location"|"criteria"] directly.
+        preference_model_v: PHASE-H — serialized ML model from
+            clapcheeks_user_settings.preference_model_v. If provided AND
+            ``n_decisions`` puts the user into a non-zero blend band the
+            model score is mixed with the rule score via
+            clapcheeks.ml.trainer.blend_with_rules.
+        n_decisions: PHASE-H — how many decisions the user has logged.
+            Drives the blend band. Defaults to 0 so legacy callers get
+            pure rule-based scoring.
 
     Returns:
         {
@@ -556,6 +570,8 @@ def score_match(match_row: dict, persona: dict) -> dict:
             "dealbreaker_flags":  list[str],
             "scoring_reason":     str,               # human-readable
             "distance_miles":     float | None,
+            "model_score":        float | None,      # PHASE-H
+            "rule_score":         float,             # PHASE-H: unblended
         }
     """
     # Accept persona["ranking_weights"] wrapper or the weights dict directly.
@@ -574,10 +590,36 @@ def score_match(match_row: dict, persona: dict) -> dict:
     crit_weight = float((weights.get("criteria") or {}).get("criteria_weight", 0.65))
 
     if flags:
-        final = 0.0
+        rule_final = 0.0
     else:
-        final = loc_weight * loc_score + crit_weight * crit_score
-        final = max(0.0, min(1.0, final))
+        rule_final = loc_weight * loc_score + crit_weight * crit_score
+        rule_final = max(0.0, min(1.0, rule_final))
+
+    # PHASE-H — blend in the ML preference score when a model is available.
+    # Dealbreakers still hard-floor the final score so the model cannot undo
+    # kid / drug / smoking / tattoo auto-passes.
+    model_score: float | None = None
+    final = rule_final
+    if preference_model_v and not flags:
+        try:
+            # Lazy import keeps scoring.py light for callers that never need
+            # the ML path (unit tests, the rule-only rescore CLI, etc.).
+            from clapcheeks.ml.features import extract_features
+            from clapcheeks.ml.trainer import blend_with_rules, score_with_model
+
+            feats = extract_features(match_row)
+            # Feed the rule score into the feature dict so the model can learn
+            # "when rule says yes, I tend to like" without duplicating work.
+            feats["rule_final_score"] = rule_final
+            model_score = score_with_model(feats, preference_model_v)
+            if model_score is not None:
+                final = blend_with_rules(rule_final, model_score, n_decisions)
+        except Exception as exc:
+            # Never fail Phase I because the ML module blew up — degrade
+            # gracefully to the pure rule-based score.
+            log.debug("score_match: ML blend skipped (%s)", exc)
+            model_score = None
+            final = rule_final
 
     reason_parts: list[str] = []
     if distance is not None:
@@ -585,6 +627,8 @@ def score_match(match_row: dict, persona: dict) -> dict:
     reason_parts.extend(crit_detail["reasons"])
     if flags:
         reason_parts.append(f"DEALBREAKER: {', '.join(flags)}")
+    if model_score is not None:
+        reason_parts.append(f"ml={model_score:.2f}")
 
     if reason_parts:
         reason = " + ".join(reason_parts) + f" -> {final:.2f}"
@@ -598,6 +642,9 @@ def score_match(match_row: dict, persona: dict) -> dict:
         "dealbreaker_flags": flags,
         "scoring_reason": reason,
         "distance_miles": round(distance, 2) if distance is not None else None,
+        # PHASE-H blend fields — None when no model or insufficient decisions.
+        "model_score": round(model_score, 4) if model_score is not None else None,
+        "rule_score": round(rule_final, 4),
         # Debug-only; NOT persisted to DB unless the caller asks
         "_criteria_breakdown": crit_detail["breakdown"],
         "_criteria_points": crit_detail["points"],
@@ -665,6 +712,68 @@ def load_persona(user_id: str) -> dict:
     return persona
 
 
+# PHASE-H — Model + decision-count loader shared by the daemon + CLI.
+def load_preference_model(user_id: str) -> tuple[dict | None, int]:
+    """Fetch ``(preference_model_v, n_decisions)`` for ``user_id``.
+
+    Returns ``(None, 0)`` when no model has been trained yet or when any
+    Supabase round-trip fails — Phase I degrades to pure rules in that
+    case. Never raises; ML is strictly best-effort.
+    """
+    import requests
+
+    try:
+        url, key = _supabase_creds()
+    except Exception as exc:
+        log.debug("load_preference_model: creds unavailable (%s)", exc)
+        return None, 0
+
+    try:
+        resp = requests.get(
+            f"{url}/rest/v1/clapcheeks_user_settings",
+            params={
+                "user_id": f"eq.{user_id}",
+                "select": "preference_model_v",
+            },
+            headers={"apikey": key, "Authorization": f"Bearer {key}"},
+            timeout=10,
+        )
+        resp.raise_for_status()
+        rows = resp.json() or []
+        model_v = rows[0].get("preference_model_v") if rows else None
+    except Exception as exc:
+        log.debug("load_preference_model: settings fetch failed (%s)", exc)
+        model_v = None
+
+    try:
+        # HEAD + Prefer: count=exact returns the Content-Range header with total.
+        resp = requests.get(
+            f"{url}/rest/v1/clapcheeks_swipe_decisions",
+            params={"user_id": f"eq.{user_id}", "select": "id", "limit": "1"},
+            headers={
+                "apikey": key,
+                "Authorization": f"Bearer {key}",
+                "Prefer": "count=exact",
+            },
+            timeout=10,
+        )
+        total = 0
+        if resp.status_code < 300:
+            content_range = resp.headers.get("Content-Range") or ""
+            if "/" in content_range:
+                tail = content_range.rsplit("/", 1)[-1]
+                if tail and tail != "*":
+                    try:
+                        total = int(tail)
+                    except ValueError:
+                        total = 0
+    except Exception as exc:
+        log.debug("load_preference_model: decision count failed (%s)", exc)
+        total = 0
+
+    return model_v, total
+
+
 # ---------------------------------------------------------------------------
 # Batch scoring (used by daemon + CLI)
 # ---------------------------------------------------------------------------
@@ -674,8 +783,16 @@ def score_all_unscored(
     persona: dict | None = None,
     limit: int = 500,
     include_rescore: bool = False,
+    *,
+    preference_model_v: dict | None = None,
+    n_decisions: int | None = None,
 ) -> dict:
     """Score every match where final_score IS NULL (or all matches with include_rescore).
+
+    ``preference_model_v`` and ``n_decisions`` are PHASE-H hooks — when
+    omitted the scorer auto-loads them once per call. Callers that already
+    have them in memory (e.g. the scoring daemon thread caching the model)
+    can pass them in to skip the round-trip.
 
     Returns {scanned, scored, skipped, errors}.
     """
@@ -691,6 +808,16 @@ def score_all_unscored(
 
     if persona is None:
         persona = load_persona(user_id)
+
+    # PHASE-H — load the ML model + decision count if not pre-supplied.
+    if preference_model_v is None and n_decisions is None:
+        try:
+            preference_model_v, n_decisions = load_preference_model(user_id)
+        except Exception as exc:
+            log.debug("score_all_unscored: model load failed (%s)", exc)
+            preference_model_v, n_decisions = None, 0
+    if n_decisions is None:
+        n_decisions = 0
 
     query = {
         "user_id": f"eq.{user_id}",
@@ -718,7 +845,12 @@ def score_all_unscored(
 
     for m in matches:
         try:
-            result = score_match(m, persona)
+            result = score_match(
+                m,
+                persona,
+                preference_model_v=preference_model_v,
+                n_decisions=n_decisions,
+            )
             patch = {
                 "location_score": result["location_score"],
                 "criteria_score": result["criteria_score"],
@@ -791,7 +923,17 @@ def score_match_by_id(match_id: str, user_id: str | None = None) -> dict | None:
         return None
 
     persona = load_persona(target_user)
-    result = score_match(row, persona)
+    # PHASE-H — load ML model + decision count; falls back to pure rules.
+    try:
+        preference_model_v, n_decisions = load_preference_model(target_user)
+    except Exception:
+        preference_model_v, n_decisions = None, 0
+    result = score_match(
+        row,
+        persona,
+        preference_model_v=preference_model_v,
+        n_decisions=n_decisions,
+    )
 
     patch_headers = {
         **headers_get,
