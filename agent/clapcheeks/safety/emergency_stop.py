@@ -19,6 +19,7 @@ import json
 import logging
 import os
 import signal
+import sys
 import threading
 import time
 from datetime import datetime
@@ -26,6 +27,15 @@ from pathlib import Path
 from typing import Callable
 
 logger = logging.getLogger(__name__)
+
+
+def _running_under_pytest() -> bool:
+    """True when the current process was launched by pytest (or is inside a
+    pytest run). Used to avoid auto-adopting a stale on-disk EMERGENCY_STOP
+    file as "already triggered" at module import time — that file is typically
+    a leftover from a prior debug session and would block the whole test run.
+    """
+    return "pytest" in sys.modules or bool(os.environ.get("PYTEST_CURRENT_TEST"))
 
 STOP_FILE = Path.home() / ".clapcheeks" / "EMERGENCY_STOP"
 STOP_LOG = Path.home() / ".clapcheeks" / "emergency_stop.log"
@@ -66,8 +76,12 @@ class EmergencyStop:
         self._callbacks: list[Callable[[], None]] = []
         self._watchdog_thread: threading.Thread | None = None
 
-        # Check if stop file already exists (from a previous crash or manual trigger)
-        if STOP_FILE.exists():
+        # Adopt an existing stop file (from a previous crash or manual trigger),
+        # but NOT when running under pytest — a stale ~/.clapcheeks/EMERGENCY_STOP
+        # left behind by a prior debug session would latch the test process into
+        # a stopped state that fixtures can't recover from (they monkeypatch
+        # STOP_FILE *after* the singleton's __init__ has already run).
+        if STOP_FILE.exists() and not _running_under_pytest():
             self._stop_event.set()
             self._reason = "Stop file present from previous session"
             self._triggered_at = datetime.now()

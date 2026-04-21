@@ -19,12 +19,41 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import tempfile
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import Enum
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
+
+
+_DEFAULT_STATE_FILE = Path.home() / ".clapcheeks" / "ban_state.json"
+
+
+def _resolve_state_file(default: Path) -> Path:
+    """Resolve the ban state file location.
+
+    Priority:
+    1. CLAPCHEEKS_BAN_STATE_FILE env var (explicit override)
+    2. If the caller already patched STATE_FILE away from the default
+       (e.g. via `patch.object(BanDetector, "STATE_FILE", ...)`), honor it.
+    3. Per-test temp file when running under pytest with the default path —
+       prevents test-to-test pollution for tests that instantiate BanDetector
+       without patching STATE_FILE (TestBanMonitor, safety integration tests).
+    4. The provided default (~/.clapcheeks/ban_state.json) for prod.
+    """
+    override = os.environ.get("CLAPCHEEKS_BAN_STATE_FILE")
+    if override:
+        return Path(override)
+    if default != _DEFAULT_STATE_FILE:
+        return default
+    if os.environ.get("PYTEST_CURRENT_TEST"):
+        slug = os.environ.get("PYTEST_CURRENT_TEST", "session").split(" ")[0]
+        safe = "".join(c if c.isalnum() else "_" for c in slug)[:80]
+        return Path(tempfile.gettempdir()) / f"clapcheeks_ban_state_{safe}.json"
+    return default
 
 # Keywords in HTTP responses / DOM text that indicate a hard ban
 BAN_KEYWORDS = frozenset({
@@ -117,6 +146,11 @@ class BanDetector:
     STATE_FILE = Path.home() / ".clapcheeks" / "ban_state.json"
 
     def __init__(self) -> None:
+        # Resolve actual state file path — honors env overrides and auto-isolates
+        # under pytest so tests that instantiate BanDetector without patching
+        # the class attribute don't leak persistence into a shared ~/.clapcheeks
+        # file. Prod callers get the original STATE_FILE unchanged.
+        self._state_file: Path = _resolve_state_file(self.STATE_FILE)
         self._states: dict[str, PlatformBanState] = self.load_state()
 
     # ------------------------------------------------------------------
@@ -124,9 +158,9 @@ class BanDetector:
     # ------------------------------------------------------------------
 
     def load_state(self) -> dict[str, PlatformBanState]:
-        if self.STATE_FILE.exists():
+        if self._state_file.exists():
             try:
-                raw = json.loads(self.STATE_FILE.read_text())
+                raw = json.loads(self._state_file.read_text())
                 return {k: PlatformBanState.from_dict(v) for k, v in raw.items()}
             except Exception as exc:
                 logger.warning("Failed to load ban state: %s", exc)
@@ -135,9 +169,9 @@ class BanDetector:
     def save_state(self, states: dict[str, PlatformBanState] | None = None) -> None:
         if states is not None:
             self._states = states
-        self.STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        self._state_file.parent.mkdir(parents=True, exist_ok=True)
         raw = {k: v.to_dict() for k, v in self._states.items()}
-        self.STATE_FILE.write_text(json.dumps(raw, indent=2))
+        self._state_file.write_text(json.dumps(raw, indent=2))
 
     def _get_or_create(self, platform: str) -> PlatformBanState:
         if platform not in self._states:
@@ -333,6 +367,13 @@ class BanDetector:
         if not state:
             return []
         return [s.to_dict() for s in state.signals]
+
+    def get_status(self, platform: str) -> BanStatus:
+        """Return the current BanStatus for a platform (CLEAN if unknown)."""
+        state = self._states.get(platform)
+        if not state:
+            return BanStatus.CLEAN
+        return state.status
 
 
 def check_response_for_ban(platform: str, status_code: int, body: str | dict) -> None:
