@@ -13,6 +13,7 @@ import {
 } from '@/lib/matches/types'
 import PhotoGallery from './PhotoGallery'
 import ScoringPanel from './ScoringPanel'
+import SocialGraphPanel from './SocialGraphPanel'
 import ConversationThread from './ConversationThread'
 
 type Props = {
@@ -150,6 +151,16 @@ export default function MatchDetail({ match, messages, clusterRisk }: Props) {
           <div className="space-y-6">
             <PhotoGallery photos={current.photos_jsonb ?? []} name={current.name} />
             <ScoringPanel match={current} />
+            <SocialGraphPanel
+              matchId={current.id}
+              mutualFriendsCount={current.mutual_friends_count}
+              mutualFriendsList={current.mutual_friends_list}
+              socialRiskBand={current.social_risk_band}
+              friendClusterId={current.friend_cluster_id}
+              clusterRank={current.cluster_rank}
+              socialGraphConfidence={current.social_graph_confidence}
+              socialGraphSources={current.social_graph_sources}
+            />
 
             {/* Julian rank */}
             <div className="bg-white/[0.03] border border-white/10 rounded-xl p-5">

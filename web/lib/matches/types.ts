@@ -75,6 +75,26 @@ export type ClapcheeksMatchRow = {
   julian_rank: number | null
   // demo / dev flag for seeded data
   is_demo?: boolean | null
+  // Phase K (AI-8339) — social graph collision detector
+  mutual_friends_count?: number | null
+  mutual_friends_list?: Array<{
+    name?: string
+    handle?: string
+    source?: string
+    confidence?: number
+  }> | null
+  social_risk_band?: 'safe' | 'watch' | 'high_risk' | 'auto_flag' | null
+  friend_cluster_id?: string | null
+  cluster_rank?: number | null
+  shared_female_friends?: Array<{
+    name?: string
+    handle?: string
+    source?: string
+    confidence?: number
+  }> | null
+  social_graph_confidence?: number | null
+  social_graph_sources?: string[] | null
+  social_graph_scanned_at?: string | null
 }
 
 export type MatchListFilters = {

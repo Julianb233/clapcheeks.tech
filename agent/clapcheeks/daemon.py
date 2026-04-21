@@ -889,6 +889,235 @@ def _vision_worker(interval_seconds: int = 600) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Phase K: social graph collision detector (AI-8339)                # PHASE-K
+# ---------------------------------------------------------------------------
+
+def _social_graph_worker(config: dict, interval_seconds: int = 3600) -> None:
+    """Phase K worker - detect mutual friends + manage clusters.       # PHASE-K
+
+    Every ``interval_seconds`` (default 1h), scan clapcheeks_matches rows
+    that have ``social_graph_scanned_at IS NULL`` OR have been updated
+    since the last scan. For each:
+
+      1. Run ``scan_match`` to compute mutual-friend count, risk band,
+         confidence, and source list.
+      2. PATCH the row.
+      3. If the row now shares >=2 female friends with another ACTIVE
+         match for the same user, assign a cluster_id + recompute ranks.
+      4. If the row landed in ``high_risk`` or ``auto_flag``, iMessage
+         Julian and pause Phase G openers for that match (by flipping
+         status -> 'stalled' with a reason tag).
+
+    No direct IG scrape from the VPS - we read whatever
+    ``instagram_intel`` Phase M has already persisted. If Julian's IG
+    follower snapshot is missing from persona, the IG overlap tier just
+    returns empty.
+    """
+    from clapcheeks.scoring import _supabase_creds, load_persona
+    from clapcheeks.social.clusters import (
+        assign_to_cluster,
+        find_cluster_candidates,
+    )
+    from clapcheeks.social.graph import scan_match
+    import requests
+
+    user_id = (
+        config.get("user_id")
+        or config.get("clapcheeks_user_id")
+        or os.environ.get("CLAPCHEEKS_USER_ID")
+    )
+    if not user_id:
+        log.warning("social-graph worker: no user_id in config/env, disabled")
+        return
+
+    log.info("social-graph worker started (interval=%ds)", interval_seconds)
+
+    while not _shutdown.is_set():
+        try:
+            try:
+                url, key = _supabase_creds()
+            except Exception as exc:
+                log.debug("social-graph: creds unavailable (%s)", exc)
+                _shutdown.wait(interval_seconds)
+                continue
+
+            # Refresh persona each tick (cheap enough at 1 hour cadence).
+            try:
+                persona = load_persona(user_id)
+            except Exception as exc:
+                log.warning("social-graph: persona load failed (%s)", exc)
+                persona = {}
+            persona_rules = (persona or {}).get("social_graph_rules") or {}
+            julian_ig_session = (persona or {}).get("julian_ig_session")
+            julian_contacts = (persona or {}).get("julian_contacts") or []
+
+            # Unscanned matches first, up to 50 per tick.
+            resp = requests.get(
+                f"{url}/rest/v1/clapcheeks_matches",
+                params={
+                    "user_id": f"eq.{user_id}",
+                    "social_graph_scanned_at": "is.null",
+                    "select": (
+                        "id,user_id,platform,name,match_name,match_intel,"
+                        "instagram_intel,mutual_friends_list,status,"
+                        "shared_female_friends,friend_cluster_id,final_score,"
+                        "phone,phone_number"
+                    ),
+                    "order": "created_at.desc",
+                    "limit": "50",
+                },
+                headers={"apikey": key, "Authorization": f"Bearer {key}"},
+                timeout=30,
+            )
+            if resp.status_code >= 300:
+                log.warning("social-graph: fetch %s", resp.status_code)
+                _shutdown.wait(interval_seconds)
+                continue
+
+            matches = resp.json() or []
+            if not matches:
+                _shutdown.wait(interval_seconds)
+                continue
+
+            # Active roster for cluster candidacy (other matches for this
+            # user that aren't ghosted / archived).
+            active_resp = requests.get(
+                f"{url}/rest/v1/clapcheeks_matches",
+                params={
+                    "user_id": f"eq.{user_id}",
+                    "status": "in.(new,opened,conversing,stalled,"
+                              "date_proposed,date_booked,dated)",
+                    "select": (
+                        "id,status,final_score,friend_cluster_id,"
+                        "mutual_friends_list,shared_female_friends"
+                    ),
+                    "limit": "500",
+                },
+                headers={"apikey": key, "Authorization": f"Bearer {key}"},
+                timeout=30,
+            )
+            active_rows = (
+                active_resp.json() if active_resp.status_code < 300 else []
+            )
+
+            headers = {
+                "apikey": key,
+                "Authorization": f"Bearer {key}",
+                "Content-Type": "application/json",
+                "Prefer": "return=minimal",
+            }
+
+            scanned = flagged = clustered = 0
+            for m in matches:
+                if _shutdown.is_set():
+                    break
+                try:
+                    result = scan_match(
+                        m,
+                        persona_rules=persona_rules,
+                        julian_ig_session=julian_ig_session,
+                        julian_contacts=julian_contacts,
+                    )
+                    # shared_female_friends is the subset of mutual_friends
+                    # that overlaps with another match - for now, we store
+                    # the full mutual list and let the cluster logic filter.
+                    patch = {
+                        **result,
+                        "shared_female_friends": result["mutual_friends_list"],
+                        "social_graph_scanned_at": datetime.utcnow()
+                        .replace(microsecond=0)
+                        .isoformat() + "Z",
+                    }
+                    p = requests.patch(
+                        f"{url}/rest/v1/clapcheeks_matches",
+                        params={"id": f"eq.{m['id']}"},
+                        headers=headers,
+                        json=patch,
+                        timeout=15,
+                    )
+                    if p.status_code >= 300:
+                        log.warning(
+                            "social-graph PATCH %s: %s",
+                            p.status_code, p.text[:200],
+                        )
+                        continue
+                    scanned += 1
+
+                    # Cluster detection against other active matches.
+                    m_with_friends = dict(m, **{
+                        "mutual_friends_list": result["mutual_friends_list"],
+                        "shared_female_friends": result["mutual_friends_list"],
+                    })
+                    candidates = find_cluster_candidates(
+                        m_with_friends, active_rows
+                    )
+                    if candidates:
+                        cid = assign_to_cluster(m["id"], candidates)
+                        if cid:
+                            clustered += 1
+
+                    # HIGH_RISK / auto_flag side-effects: pause Phase G
+                    # opener + iMessage Julian.
+                    band = result["social_risk_band"]
+                    if band in ("high_risk", "auto_flag"):
+                        flagged += 1
+                        _phase_k_high_risk_alert(m, band, result, headers, url)
+                except Exception as exc:
+                    log.error(
+                        "social-graph: match %s failed (%s)",
+                        m.get("id"), exc,
+                    )
+            log.info(
+                "social-graph tick: scanned=%d flagged=%d clustered=%d",
+                scanned, flagged, clustered,
+            )
+        except Exception as exc:
+            log.error("social-graph tick failed: %s", exc)
+
+        _shutdown.wait(interval_seconds)
+
+
+def _phase_k_high_risk_alert(
+    match: dict,
+    band: str,
+    result: dict,
+    headers: dict,
+    url: str,
+) -> None:                                                              # PHASE-K
+    """Pause openers + ping Julian when Phase K flags a high-risk match."""
+    import requests
+    # 1) Flip status to 'stalled' so Phase G drip skips it until Julian
+    #    clears the flag (the drip scanner treats stalled as terminal
+    #    for net-new openers but still allows re-engage nudges).
+    try:
+        requests.patch(
+            f"{url}/rest/v1/clapcheeks_matches",
+            params={"id": f"eq.{match['id']}"},
+            headers=headers,
+            json={"status": "stalled"},
+            timeout=15,
+        )
+    except Exception as exc:
+        log.warning("phase-k pause status patch failed: %s", exc)
+
+    # 2) iMessage Julian.
+    try:
+        import subprocess
+        name = match.get("name") or match.get("match_name") or "unknown"
+        msg = (
+            f"Clapcheeks Phase K alert: {name} has {result['count']} mutual "
+            f"friends (band={band}). Opener paused. Review in dashboard."
+        )
+        julian_number = os.environ.get("JULIAN_PHONE", "+16195090699")
+        subprocess.run(
+            ["god", "mac", "send", julian_number, msg],
+            timeout=30, capture_output=True, text=True,
+        )
+    except Exception as exc:
+        log.debug("phase-k iMessage failed: %s", exc)
+
+
+# ---------------------------------------------------------------------------
 # Phase L: content scheduler + publisher worker (AI-8340)
 # ---------------------------------------------------------------------------
 
@@ -1221,6 +1450,19 @@ def run_daemon() -> None:
         target=_ig_enrich_worker_thread,
         args=(ig_enrich_interval,),
         name="ig-enrich",
+        daemon=True,
+    )
+    t.start()
+    threads.append(t)
+
+    # PHASE-K - AI-8339 - Social graph collision detector + cluster dedupe.
+    social_graph_interval = int(
+        daemon_cfg.get("social_graph_interval_seconds", 3600)
+    )
+    t = threading.Thread(
+        target=_social_graph_worker,
+        args=(config, social_graph_interval),
+        name="social-graph",
         daemon=True,
     )
     t.start()
