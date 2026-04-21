@@ -146,3 +146,45 @@ def generate_opener(
     # Fallback — never crash, always return something usable
     logger.info("Using fallback opener for %s.", match_name)
     return f"Hey {match_name}! How's your week going?"
+
+
+# PHASE-E — AI-8319 — pipeline-gated opener.
+def generate_opener_with_pipeline(
+    match_name: str,
+    profile_data: dict | None = None,
+    model: str | None = None,
+    use_gif: bool = True,
+    user_id: str | None = None,
+) -> list[str]:
+    """Generate an opener, then run it through the persona + sanitize + split pipeline.
+
+    Returns a list of 1-3 short messages ready to queue. If the raw draft fails
+    validation, returns a safe persona-compliant fallback.
+    """
+    from clapcheeks.ai import drafter as _drafter
+
+    raw = generate_opener(
+        match_name=match_name,
+        profile_data=profile_data,
+        model=model,
+        use_gif=use_gif,
+    )
+
+    # GIF URLs pass through untouched.
+    if raw.startswith("http"):
+        return [raw]
+
+    result = _drafter.run_pipeline(
+        raw_text=raw,
+        user_id=user_id,
+        conversation_stage="early",
+        on_discard=lambda txt, errs: _drafter.log_discard_to_supabase(
+            user_id, "opener", txt, errs
+        ),
+    )
+    if result.ok and result.messages:
+        return result.messages
+
+    # Discarded — return a safe, persona-compliant fallback.
+    logger.info("Opener discarded for %s: %s", match_name, result.errors)
+    return [f"hey {match_name.lower()} how's your week"]
