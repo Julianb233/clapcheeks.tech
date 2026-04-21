@@ -535,6 +535,38 @@ def _followup_drip_worker(config: dict, interval_seconds: int = 900) -> None:
         _shutdown.wait(interval_seconds)
 
 
+# PHASE-J — AI-8338 — roster CRM: recompute health_score + close_probability
+# every hour so the kanban dashboard can sort without hitting a cron lambda.
+def _roster_health_worker(config: dict, interval_seconds: int = 3600) -> None:
+    """Hourly recompute of health_score + close_probability.
+
+    Pulls non-terminal matches for the configured user, runs the pure
+    ``compute_health_breakdown`` + ``compute_close_probability`` helpers,
+    and patches each row. Cheap: one select + N patches per tick.
+    """
+    from clapcheeks.roster.health import recompute_all
+
+    user_id = (
+        config.get("user_id")
+        or config.get("clapcheeks_user_id")
+        or os.environ.get("CLAPCHEEKS_USER_ID")
+    )
+    if not user_id:
+        log.warning("roster-health worker: no user_id in config/env, disabled")
+        return
+
+    while not _shutdown.is_set():
+        try:
+            stats = recompute_all(user_id, limit=500)
+            if stats.get("updated") or stats.get("errors"):
+                log.info("roster-health tick: %s", stats)
+            else:
+                log.debug("roster-health tick: %s", stats)
+        except Exception as exc:
+            log.error("roster-health tick failed: %s", exc)
+        _shutdown.wait(interval_seconds)
+
+
 # ---------------------------------------------------------------------------
 # Phase B: Photo vision worker (AI-8316)
 # ---------------------------------------------------------------------------
@@ -1104,6 +1136,19 @@ def run_daemon() -> None:
         target=_ig_enrich_worker_thread,
         args=(ig_enrich_interval,),
         name="ig-enrich",
+        daemon=True,
+    )
+    t.start()
+    threads.append(t)
+
+    # PHASE-J — AI-8338 — roster CRM health recompute (hourly).
+    roster_health_interval = int(
+        daemon_cfg.get("roster_health_interval_seconds", 3600)
+    )
+    t = threading.Thread(
+        target=_roster_health_worker,
+        args=(config, roster_health_interval),
+        name="roster-health",
         daemon=True,
     )
     t.start()
