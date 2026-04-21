@@ -275,6 +275,155 @@ async function deliverResult(cfg, payload) {
   }
 }
 
+// Phase L (AI-8340): IG story upload job handler.
+// The daemon enqueues ig_post_story jobs with job_params.body containing
+// { image_url, caption, post_type }. The extension downloads the image
+// from image_url (signed Supabase Storage URL), uploads it to IG's
+// private story endpoint with credentials: 'include' so the session
+// cookies ride through, and returns the IG media id in the body.
+async function executeIgPostStory(cfg, job) {
+  const params = job.job_params || {};
+  const body = params.body || {};
+  const imageUrl = body.image_url;
+  if (!imageUrl) {
+    return {
+      status_code: 0,
+      body: null,
+      error: "missing_image_url",
+      headers: {},
+    };
+  }
+
+  // 1) Download the image from the signed Storage URL. Public fetch -
+  // no cookies needed here.
+  let imgBytes;
+  try {
+    const imgResp = await fetch(imageUrl, { method: "GET" });
+    if (!imgResp.ok) {
+      return {
+        status_code: imgResp.status,
+        body: null,
+        error: `signed_url_status_${imgResp.status}`,
+        headers: {},
+      };
+    }
+    imgBytes = await imgResp.arrayBuffer();
+  } catch (err) {
+    return {
+      status_code: 0,
+      body: null,
+      error: `signed_url_download:${String(err)}`,
+      headers: {},
+    };
+  }
+
+  // 2) Upload to IG's rupload endpoint. We use the browser session's
+  // credentials, so the sessionid cookie rides through. Failures here
+  // (401/403) usually mean the session has expired.
+  const uploadId = String(Date.now());
+  const uploadHeaders = {
+    "X-Instagram-Rupload-Params": JSON.stringify({
+      media_type: 1,
+      upload_id: uploadId,
+      upload_media_height: 1920,
+      upload_media_width: 1080,
+      is_sidecar: 0,
+    }),
+    "X-Entity-Type": "image/jpeg",
+    "X-Entity-Name": `fb_uploader_${uploadId}`,
+    "X-Entity-Length": String(imgBytes.byteLength),
+    "Offset": "0",
+    "Content-Type": "application/octet-stream",
+  };
+
+  let uploadStatus = 0;
+  let uploadBody = null;
+  try {
+    const uploadResp = await fetch(
+      `https://i.instagram.com/rupload_igphoto/fb_uploader_${uploadId}`,
+      {
+        method: "POST",
+        credentials: "include",
+        headers: uploadHeaders,
+        body: imgBytes,
+      },
+    );
+    uploadStatus = uploadResp.status;
+    try {
+      uploadBody = await uploadResp.json();
+    } catch {
+      uploadBody = null;
+    }
+  } catch (err) {
+    return {
+      status_code: 0,
+      body: null,
+      error: `ig_upload_network:${String(err)}`,
+      headers: {},
+    };
+  }
+
+  if (uploadStatus < 200 || uploadStatus >= 300) {
+    return {
+      status_code: uploadStatus,
+      body: uploadBody,
+      error: `ig_upload_http_${uploadStatus}`,
+      headers: {},
+    };
+  }
+
+  // 3) Configure the uploaded media as a story. This is the URL the
+  // daemon put in params.url.
+  const configureUrl = params.url ||
+    "https://i.instagram.com/api/v1/media/configure_to_story/";
+
+  const configureForm = new URLSearchParams();
+  configureForm.set("upload_id", uploadId);
+  configureForm.set("source_type", "4");
+  configureForm.set("configure_mode", "1");
+  if (body.caption) configureForm.set("caption", body.caption);
+
+  let cfgStatus = 0;
+  let cfgBody = null;
+  let cfgHeaders = {};
+  try {
+    const cfgResp = await fetch(configureUrl, {
+      method: "POST",
+      credentials: "include",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: configureForm.toString(),
+    });
+    cfgStatus = cfgResp.status;
+    try {
+      cfgBody = await cfgResp.json();
+    } catch {
+      cfgBody = null;
+    }
+    for (const k of ["x-ig-set-www-claim", "retry-after"]) {
+      const v = cfgResp.headers.get(k);
+      if (v) cfgHeaders[k] = v;
+    }
+  } catch (err) {
+    return {
+      status_code: 0,
+      body: null,
+      error: `ig_configure_network:${String(err)}`,
+      headers: {},
+    };
+  }
+
+  return {
+    status_code: cfgStatus,
+    body: cfgBody,
+    headers: cfgHeaders,
+    error: (cfgStatus < 200 || cfgStatus >= 300)
+      ? `ig_configure_http_${cfgStatus}`
+      : null,
+  };
+}
+
 async function drainOneJob() {
   if (_jobLoopRunning) return;
   _jobLoopRunning = true;
@@ -283,6 +432,24 @@ async function drainOneJob() {
     if (!cfg.device_token) return; // not configured yet
     const job = await claimNextJob(cfg);
     if (!job || !job.id) return;
+
+    // Phase L: ig_post_story takes a different code path than the
+    // generic URL fetch below because it needs a 2-step upload +
+    // configure sequence. We still respect the global gap + jitter.
+    if (job.job_type === "ig_post_story") {
+      await _respectGlobalGap();
+      await _sleep(_randJitter());
+      const out = await executeIgPostStory(cfg, job);
+      _lastFetchAt = await _nowMs();
+      await deliverResult(cfg, {
+        job_id: job.id,
+        status_code: out.status_code,
+        body: out.body,
+        headers: out.headers || {},
+        error: out.error,
+      });
+      return;
+    }
 
     const params = job.job_params || {};
     const url = params.url;

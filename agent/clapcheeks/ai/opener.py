@@ -188,3 +188,87 @@ def generate_opener_with_pipeline(
     # Discarded — return a safe, persona-compliant fallback.
     logger.info("Opener discarded for %s: %s", match_name, result.errors)
     return [f"hey {match_name.lower()} how's your week"]
+
+
+# PHASE-L - AI-8340 - freshness gate hook for high-score matches.
+def check_and_refresh_ig_story(
+    user_id: str,
+    final_score: float | None = None,
+    score_threshold: float = 0.85,
+) -> dict[str, object]:
+    """Before firing an opener on a high-score match, make sure the
+    user's IG story presence is fresh. If stale, fires an IG story
+    post from the content library first and returns info about what
+    was posted so the caller can decide to delay the opener.
+
+    Returns::
+
+        {
+          "fresh": bool,            # True if we don't need to wait
+          "posted_story": bool,     # True if we just fired one
+          "job_id": str | None,     # the agent_job waiting on delivery
+          "reason": str,            # debug reason
+        }
+
+    The daemon caller should, if ``posted_story`` is True, sleep ~10
+    min before actually sending the opener so the match's IG grid has
+    had time to show the fresh story.
+    """
+    if user_id is None:
+        return {"fresh": True, "posted_story": False, "job_id": None,
+                "reason": "no_user"}
+    if final_score is not None and final_score < score_threshold:
+        return {"fresh": True, "posted_story": False, "job_id": None,
+                "reason": "below_threshold"}
+
+    try:
+        from clapcheeks.content.publisher import (
+            check_ig_freshness, post_library_item_now,
+        )
+    except Exception as exc:
+        logger.debug("freshness check import failed: %s", exc)
+        return {"fresh": True, "posted_story": False, "job_id": None,
+                "reason": f"import_failed:{exc}"}
+
+    try:
+        status = check_ig_freshness(user_id)
+    except Exception as exc:
+        logger.warning("check_ig_freshness crashed: %s", exc)
+        return {"fresh": True, "posted_story": False, "job_id": None,
+                "reason": f"check_failed:{exc}"}
+
+    if not status.get("is_stale"):
+        return {"fresh": True, "posted_story": False, "job_id": None,
+                "reason": "already_fresh"}
+
+    # Pick the best unposted library row to fire.
+    try:
+        from clapcheeks.job_queue import _client as _svc_client
+        c = _svc_client()
+        resp = (
+            c.table("clapcheeks_content_library")
+            .select("id, category")
+            .eq("user_id", user_id)
+            .is_("posted_at", "null")
+            .eq("post_type", "story")
+            .limit(1)
+            .execute()
+        )
+        rows = getattr(resp, "data", None) or []
+    except Exception as exc:
+        logger.warning("library lookup failed: %s", exc)
+        return {"fresh": False, "posted_story": False, "job_id": None,
+                "reason": f"library_lookup_failed:{exc}"}
+
+    if not rows:
+        return {"fresh": False, "posted_story": False, "job_id": None,
+                "reason": "no_library_inventory"}
+
+    pick = rows[0]
+    out = post_library_item_now(user_id=user_id, content_library_id=pick["id"])
+    return {
+        "fresh": False,
+        "posted_story": bool(out.get("ok")),
+        "job_id": out.get("job_id"),
+        "reason": out.get("reason", "fired"),
+    }

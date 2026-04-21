@@ -814,6 +814,123 @@ def _vision_worker(interval_seconds: int = 600) -> None:
         _shutdown.wait(interval_seconds)
 
 
+# ---------------------------------------------------------------------------
+# Phase L: content scheduler + publisher worker (AI-8340)
+# ---------------------------------------------------------------------------
+
+def _content_scheduler_worker(
+    config: dict,
+    schedule_interval_seconds: int = 24 * 3600,
+    drain_interval_seconds: int = 60,
+) -> None:
+    """Phase L worker - builds the weekly IG plan + drains due posts.
+
+    Two cadences in one worker to keep the thread count down:
+
+    * Once every ``schedule_interval_seconds`` (default 24h): read the
+      user's content_library + current pending posting_queue, rebuild
+      the 7-day plan, and insert any new pending rows.
+    * Every ``drain_interval_seconds`` (default 60s): call
+      ``publisher.drain_due`` to fire posts whose time has come and
+      reconcile in_progress rows against the agent_jobs table.
+    """
+    from clapcheeks.ai.persona_loader import load_persona
+    from clapcheeks.content.publisher import drain_due
+    from clapcheeks.content.scheduler import (
+        build_weekly_plan, save_plan_to_queue,
+    )
+
+    user_id = (
+        config.get("user_id")
+        or config.get("clapcheeks_user_id")
+        or os.environ.get("CLAPCHEEKS_USER_ID")
+    )
+    if not user_id:
+        log.warning("content scheduler: no user_id in config/env, disabled")
+        return
+
+    log.info(
+        "content scheduler worker started (schedule=%ds, drain=%ds)",
+        schedule_interval_seconds, drain_interval_seconds,
+    )
+
+    last_schedule = 0.0
+    while not _shutdown.is_set():
+        now_mono = time.time()
+
+        # 1) Rebuild plan occasionally.
+        if (now_mono - last_schedule) >= schedule_interval_seconds:
+            try:
+                _rebuild_weekly_plan(user_id, load_persona, build_weekly_plan, save_plan_to_queue)
+                last_schedule = now_mono
+            except Exception as exc:
+                log.error("content scheduler: plan rebuild failed: %s", exc)
+
+        # 2) Drain due rows every tick.
+        try:
+            stats = drain_due()
+            if stats.get("enqueued") or stats.get("posted") or stats.get("failed"):
+                log.info("content publisher tick: %s", stats)
+        except Exception as exc:
+            log.error("content publisher tick failed: %s", exc)
+
+        _shutdown.wait(drain_interval_seconds)
+
+
+def _rebuild_weekly_plan(
+    user_id: str,
+    load_persona_fn,
+    build_weekly_plan_fn,
+    save_plan_to_queue_fn,
+) -> None:
+    """Read library + pending queue, compute plan, insert new rows."""
+    from clapcheeks.job_queue import _client as _svc_client
+    c = _svc_client()
+
+    # Fetch unposted library rows.
+    try:
+        lib_resp = (
+            c.table("clapcheeks_content_library")
+            .select("id, category, target_time_of_day, post_type, posted_at")
+            .eq("user_id", user_id)
+            .is_("posted_at", "null")
+            .eq("post_type", "story")
+            .limit(500)
+            .execute()
+        )
+        library = getattr(lib_resp, "data", None) or []
+    except Exception as exc:
+        log.warning("content scheduler: library fetch failed: %s", exc)
+        return
+
+    if not library:
+        log.info("content scheduler: no library rows for user %s, skip", user_id)
+        return
+
+    # Fetch already-pending queue rows so we don't double-schedule.
+    try:
+        q_resp = (
+            c.table("clapcheeks_posting_queue")
+            .select("content_library_id, scheduled_for")
+            .eq("user_id", user_id)
+            .eq("status", "pending")
+            .limit(200)
+            .execute()
+        )
+        existing = getattr(q_resp, "data", None) or []
+    except Exception as exc:
+        log.debug("content scheduler: queue fetch failed: %s", exc)
+        existing = []
+
+    persona = load_persona_fn(user_id)
+    plan = build_weekly_plan_fn(library, persona, existing_pending=existing)
+    inserted = save_plan_to_queue_fn(plan, user_id, client=c)
+    log.info(
+        "content scheduler: plan built - entries=%d inserted=%d",
+        len(plan), inserted,
+    )
+
+
 def _platform_worker(
     platform: str,
     config: dict,
@@ -1006,6 +1123,25 @@ def run_daemon() -> None:
     )
     t.start()
     threads.append(t)
+
+    # Content scheduler + publisher (Phase L - AI-8340). Rebuilds the
+    # rolling 7-day IG plan once a day and drains due posts every
+    # minute via the Phase M extension queue.
+    if daemon_cfg.get("content_scheduler_enabled", True):
+        content_schedule_interval = int(
+            daemon_cfg.get("content_schedule_interval_seconds", 24 * 3600)
+        )
+        content_drain_interval = int(
+            daemon_cfg.get("content_drain_interval_seconds", 60)
+        )
+        t = threading.Thread(
+            target=_content_scheduler_worker,
+            args=(config, content_schedule_interval, content_drain_interval),
+            name="content-scheduler",
+            daemon=True,
+        )
+        t.start()
+        threads.append(t)
 
     # Per-platform threads
     for platform in platforms:
