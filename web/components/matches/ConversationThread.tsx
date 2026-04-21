@@ -37,11 +37,21 @@ export default function ConversationThread({ messages, matchName }: Props) {
             >
               <div className="whitespace-pre-wrap break-words">{msg.body}</div>
               <div
-                className={`text-[10px] mt-1 font-mono ${
+                className={`text-[10px] mt-1 font-mono flex items-center gap-1.5 ${
                   isOut ? 'text-black/50' : 'text-white/40'
                 }`}
               >
-                {isOut ? 'You' : matchName ?? 'Her'} · {formatTimeAgo(msg.sent_at)}
+                <span>{isOut ? 'You' : matchName ?? 'Her'} · {formatTimeAgo(msg.sent_at)}</span>
+                {msg.channel === 'imessage' && (
+                  <span className="px-1.5 py-px rounded bg-blue-500/20 text-blue-300 border border-blue-500/30 text-[9px] uppercase">
+                    iMessage
+                  </span>
+                )}
+                {msg.channel === 'platform' && msg.platform && (
+                  <span className="px-1.5 py-px rounded bg-white/10 text-white/60 border border-white/15 text-[9px] uppercase">
+                    {msg.platform}
+                  </span>
+                )}
               </div>
             </div>
           </div>

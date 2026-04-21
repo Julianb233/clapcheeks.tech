@@ -488,6 +488,359 @@ def _drip_worker(config: dict, interval_seconds: int = 300) -> None:
         _shutdown.wait(interval_seconds)
 
 
+# ---------------------------------------------------------------------------
+# Phase B: Photo vision worker (AI-8316)
+# ---------------------------------------------------------------------------
+
+def _vision_existing_hashes(match_id: str) -> dict:
+    """Fetch existing photo_hash -> tag dict rows for ``match_id``.
+
+    Returns {} if the table/columns are missing (pre-migration).
+    """
+    from clapcheeks.scoring import _supabase_creds
+    import requests
+
+    try:
+        url, key = _supabase_creds()
+    except Exception as exc:
+        log.debug("vision: creds unavailable (%s)", exc)
+        return {}
+
+    try:
+        resp = requests.get(
+            f"{url}/rest/v1/clapcheeks_photo_scores",
+            params={
+                "match_id": f"eq.{match_id}",
+                "select": (
+                    "photo_hash,activities,locations,food_signals,"
+                    "aesthetic,energy,solo_vs_group,travel_signals,"
+                    "notable_details"
+                ),
+                "limit": "100",
+            },
+            headers={"apikey": key, "Authorization": f"Bearer {key}"},
+            timeout=15,
+        )
+    except Exception as exc:
+        log.debug("vision: existing-hash fetch failed (%s)", exc)
+        return {}
+
+    if resp.status_code >= 300:
+        log.debug("vision: existing-hash fetch status %s", resp.status_code)
+        return {}
+
+    out: dict = {}
+    try:
+        for row in resp.json():
+            h = row.get("photo_hash")
+            if h:
+                out[h] = row
+    except Exception:
+        return {}
+    return out
+
+
+def _vision_upsert_photo_score(
+    match_id: str,
+    user_id: str,
+    photo_url: str,
+    tags: dict,
+    cost_usd: float,
+) -> bool:
+    """Upsert one row into clapcheeks_photo_scores keyed on (match_id, photo_hash)."""
+    from clapcheeks.scoring import _supabase_creds
+    from clapcheeks.photos.vision import VISION_MODEL, photo_hash
+    import requests
+
+    try:
+        url, key = _supabase_creds()
+    except Exception as exc:
+        log.debug("vision: creds unavailable (%s)", exc)
+        return False
+
+    payload = {
+        "match_id": match_id,
+        "user_id": user_id,
+        "photo_url": photo_url,
+        "photo_hash": photo_hash(photo_url),
+        "activities": tags.get("activities", []),
+        "locations": tags.get("locations", []),
+        "food_signals": tags.get("food_signals", []),
+        "aesthetic": tags.get("aesthetic"),
+        "energy": tags.get("energy"),
+        "solo_vs_group": tags.get("solo_vs_group"),
+        "travel_signals": tags.get("travel_signals", []),
+        "notable_details": tags.get("notable_details", []),
+        "vision_model": VISION_MODEL,
+        "cost_usd": cost_usd,
+    }
+
+    try:
+        r = requests.post(
+            f"{url}/rest/v1/clapcheeks_photo_scores",
+            headers={
+                "apikey": key,
+                "Authorization": f"Bearer {key}",
+                "Content-Type": "application/json",
+                "Prefer": "resolution=merge-duplicates,return=minimal",
+            },
+            params={"on_conflict": "match_id,photo_hash"},
+            json=payload,
+            timeout=15,
+        )
+    except Exception as exc:
+        log.warning("vision: upsert failed (%s)", exc)
+        return False
+
+    if r.status_code >= 300:
+        log.warning(
+            "vision: upsert photo_score failed: %s %s",
+            r.status_code, r.text[:200] if hasattr(r, "text") else "",
+        )
+        return False
+    return True
+
+
+def _vision_write_summary(match_id: str, summary: str) -> bool:
+    """PATCH clapcheeks_matches.vision_summary for ``match_id``.
+
+    Also bumps updated_at by re-setting the column so the Phase I
+    rescore poller picks it up.
+    """
+    from clapcheeks.scoring import _supabase_creds
+    from datetime import datetime, timezone
+    import requests
+
+    try:
+        url, key = _supabase_creds()
+    except Exception as exc:
+        log.debug("vision: creds unavailable (%s)", exc)
+        return False
+
+    patch = {
+        "vision_summary": summary,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+    try:
+        r = requests.patch(
+            f"{url}/rest/v1/clapcheeks_matches",
+            params={"id": f"eq.{match_id}"},
+            headers={
+                "apikey": key,
+                "Authorization": f"Bearer {key}",
+                "Content-Type": "application/json",
+                "Prefer": "return=minimal",
+            },
+            json=patch,
+            timeout=15,
+        )
+    except Exception as exc:
+        log.warning("vision: summary patch failed (%s)", exc)
+        return False
+
+    if r.status_code >= 300:
+        log.warning("vision: summary patch status %s", r.status_code)
+        return False
+    return True
+
+
+def _log_vision_spending(user_id: str, cost_usd: float, n_photos: int) -> None:
+    """Best-effort insert into clapcheeks_spending. Failures are swallowed."""
+    if cost_usd <= 0 or n_photos <= 0:
+        return
+
+    from clapcheeks.scoring import _supabase_creds
+    from datetime import date
+    import requests
+
+    try:
+        url, key = _supabase_creds()
+    except Exception:
+        return
+
+    payload = {
+        "user_id": user_id,
+        "date": date.today().isoformat(),
+        "category": "subscriptions",
+        "amount": cost_usd,
+        "notes": f"phase-b vision: {n_photos} photos",
+    }
+    try:
+        requests.post(
+            f"{url}/rest/v1/clapcheeks_spending",
+            headers={
+                "apikey": key,
+                "Authorization": f"Bearer {key}",
+                "Content-Type": "application/json",
+                "Prefer": "return=minimal",
+            },
+            json=payload,
+            timeout=10,
+        )
+    except Exception:
+        pass
+
+
+def _process_match_vision(match_row: dict) -> bool:
+    """Analyze every photo on ``match_row`` and write the aggregate summary.
+
+    Returns True if the match was processed (even if nothing changed),
+    False if it was skipped (no photos, missing fields, etc.).
+    """
+    from clapcheeks.photos.vision import (
+        analyze_photos_batch,
+        aggregate_vision,
+        estimate_cost_usd,
+        photo_hash,
+        EMPTY_TAGS,
+    )
+
+    match_id = match_row.get("id")
+    user_id = match_row.get("user_id")
+    if not match_id or not user_id:
+        return False
+
+    photos = match_row.get("photos_jsonb") or []
+    if isinstance(photos, str):
+        try:
+            import json as _json
+            photos = _json.loads(photos)
+        except Exception:
+            photos = []
+
+    if not photos:
+        return False
+
+    # Pull out URLs (photos_jsonb entries look like {"url": "...",
+    # "supabase_path": "...", ...}).
+    urls: list[str] = []
+    for p in photos:
+        if isinstance(p, dict):
+            u = p.get("url") or p.get("supabase_url")
+            if u:
+                urls.append(u)
+        elif isinstance(p, str):
+            urls.append(p)
+
+    if not urls:
+        return False
+
+    # Dedupe: if a photo_hash row already exists, reuse its tags instead
+    # of re-calling Claude.
+    existing = _vision_existing_hashes(match_id)
+
+    to_analyze: list[str] = []
+    reused_tags: dict[str, dict] = {}
+    for u in urls:
+        h = photo_hash(u)
+        if h in existing:
+            reused_tags[u] = {
+                k: existing[h].get(k, EMPTY_TAGS[k]) for k in EMPTY_TAGS.keys()
+            }
+        else:
+            to_analyze.append(u)
+
+    # Call Claude Vision for new photos only
+    if to_analyze:
+        results = analyze_photos_batch(to_analyze)
+    else:
+        results = []
+
+    # Map URL -> tags (reused + new)
+    url_to_tags: dict[str, dict] = dict(reused_tags)
+    for u, tags in zip(to_analyze, results):
+        url_to_tags[u] = tags
+
+    # Upsert new rows (don't re-upsert cached ones — they're already there)
+    cost = estimate_cost_usd(len(to_analyze))
+    per_photo_cost = cost / len(to_analyze) if to_analyze else 0.0
+    for u, tags in zip(to_analyze, results):
+        _vision_upsert_photo_score(match_id, user_id, u, tags, per_photo_cost)
+
+    # Aggregate across ALL photos (reused + new) for the summary
+    all_tags = [url_to_tags[u] for u in urls if u in url_to_tags]
+    summary = aggregate_vision(all_tags)
+
+    _vision_write_summary(match_id, summary)
+
+    if to_analyze:
+        _log_vision_spending(user_id, cost, len(to_analyze))
+        log.info(
+            "vision: match=%s analyzed=%d reused=%d cost=$%.4f summary=%r",
+            match_id, len(to_analyze), len(reused_tags), cost, summary[:80],
+        )
+    else:
+        log.info(
+            "vision: match=%s all photos cached, rebuilt summary only",
+            match_id,
+        )
+    return True
+
+
+def _vision_worker(interval_seconds: int = 600) -> None:
+    """Phase B vision worker — analyze photos on unsummarized matches.
+
+    Every ``interval_seconds`` (default 10min), find matches where
+    ``vision_summary IS NULL`` and ``photos_jsonb != '[]'`` and batch up
+    to 5 per tick. Each match's photos are chunked 3-per Claude call.
+
+    Cost cap: ~$0.003/photo * up to 8 photos * 5 matches = $0.12/tick.
+    """
+    from clapcheeks.scoring import _supabase_creds
+    import requests
+
+    log.info("vision worker started (interval=%ds)", interval_seconds)
+
+    while not _shutdown.is_set():
+        try:
+            try:
+                url, key = _supabase_creds()
+            except Exception as exc:
+                log.debug("vision worker: creds unavailable (%s)", exc)
+                _shutdown.wait(interval_seconds)
+                continue
+
+            resp = requests.get(
+                f"{url}/rest/v1/clapcheeks_matches",
+                params={
+                    "vision_summary": "is.null",
+                    "photos_jsonb": "not.eq.%5B%5D",
+                    "select": "id,user_id,photos_jsonb",
+                    "limit": "5",
+                    "order": "created_at.desc",
+                },
+                headers={"apikey": key, "Authorization": f"Bearer {key}"},
+                timeout=15,
+            )
+            if resp.status_code >= 300:
+                log.warning(
+                    "vision worker: match fetch status %s", resp.status_code
+                )
+                _shutdown.wait(interval_seconds)
+                continue
+
+            matches = resp.json()
+            processed = 0
+            for m in matches:
+                if _shutdown.is_set():
+                    break
+                try:
+                    if _process_match_vision(m):
+                        processed += 1
+                except Exception as exc:
+                    log.error(
+                        "vision worker: match %s failed (%s)",
+                        m.get("id"), exc,
+                    )
+            if processed:
+                log.info("vision worker tick: processed=%d", processed)
+        except Exception as exc:
+            log.error("vision worker tick failed: %s", exc)
+
+        _shutdown.wait(interval_seconds)
+
+
 def _platform_worker(
     platform: str,
     config: dict,
@@ -663,6 +1016,19 @@ def run_daemon() -> None:
         target=_scoring_worker,
         args=(config, scoring_interval),
         name="scoring",
+        daemon=True,
+    )
+    t.start()
+    threads.append(t)
+
+    # Vision thread (Phase B - AI-8316) — analyzes photos on new matches
+    # with Claude Vision and writes vision_summary. Phase I's rescore
+    # poller picks up the updated_at bump and re-scores the match.
+    vision_interval = int(daemon_cfg.get("vision_interval_seconds", 600))
+    t = threading.Thread(
+        target=_vision_worker,
+        args=(vision_interval,),
+        name="vision",
         daemon=True,
     )
     t.start()

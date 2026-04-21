@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import MatchGrid from '@/components/matches/MatchGrid'
+import OfflineContactForm from '@/components/matches/OfflineContactForm'
 import { ClapcheeksMatchRow } from '@/lib/matches/types'
 
 export const metadata: Metadata = {
@@ -92,12 +93,15 @@ export default async function MatchesPage() {
               Every match, ranked by score and recency. Click a card to drill in.
             </p>
           </div>
-          <Link
-            href="/dashboard"
-            className="text-white/40 hover:text-white/70 text-xs font-mono bg-white/5 hover:bg-white/10 border border-white/10 px-3 py-1.5 rounded-lg transition-all"
-          >
-            ← Dashboard
-          </Link>
+          <div className="flex items-center gap-2">
+            <OfflineContactForm />
+            <Link
+              href="/dashboard"
+              className="text-white/40 hover:text-white/70 text-xs font-mono bg-white/5 hover:bg-white/10 border border-white/10 px-3 py-1.5 rounded-lg transition-all"
+            >
+              ← Dashboard
+            </Link>
+          </div>
         </div>
 
         {fetchError && (

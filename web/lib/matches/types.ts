@@ -83,12 +83,15 @@ export type MatchListFilters = {
   minScore: number
 }
 
+export type ConversationChannel = 'platform' | 'imessage'
+
 export type ConversationMessage = {
   id?: string
   direction: 'incoming' | 'outgoing'
   body: string
   sent_at: string
   platform?: string
+  channel?: ConversationChannel
 }
 
 export const PLATFORM_OPTIONS: Array<{ value: 'all' | MatchPlatform; label: string }> = [
