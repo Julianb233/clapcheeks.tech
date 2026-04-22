@@ -2,11 +2,13 @@ import type { Metadata } from "next"
 import { redirect } from "next/navigation"
 import { createClient } from "@/lib/supabase/server"
 import Link from "next/link"
-import { LayoutDashboard, Users, DollarSign, Radio, Shield } from "lucide-react"
+import { LayoutDashboard, Users, DollarSign, Radio, Shield, Rocket } from "lucide-react"
 
 const ADMIN_EMAILS = [
   "julian@clapcheeks.tech",
   "admin@clapcheeks.tech",
+  "julianb233@gmail.com",
+  "julian@aiacrobatics.com",
 ]
 
 export const metadata: Metadata = {
@@ -21,6 +23,7 @@ function isAdmin(email: string | undefined): boolean {
 
 const navItems = [
   { href: "/admin", label: "Overview", icon: LayoutDashboard },
+  { href: "/admin/launch", label: "Soft Launch", icon: Rocket },
   { href: "/admin/users", label: "Users", icon: Users },
   { href: "/admin/revenue", label: "Revenue", icon: DollarSign },
   { href: "/admin/events", label: "Agent Events", icon: Radio },

@@ -52,7 +52,6 @@ export default function LoginForm() {
           <Link href="/" className="flex items-center gap-2 group">
             <span className="font-display text-3xl gold-text uppercase tracking-wide">Clapcheeks</span>
             <span className="font-body text-xs text-white/30 font-mono bg-white/5 px-2 py-0.5 rounded border border-white/10">
-              beta
             </span>
           </Link>
         </div>
