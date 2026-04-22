@@ -11,6 +11,7 @@ import {
 } from 'lucide-react'
 import Link from 'next/link'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { InstagramImporter } from './instagram-importer'
 
 const CATEGORIES = [
   'drop_in',
@@ -291,6 +292,10 @@ export default function PhotoLibrary() {
               )}
               Rescore all
             </button>
+            <InstagramImporter
+              categories={CATEGORIES.map((c) => ({ key: c, label: CATEGORY_LABEL[c] }))}
+              onImported={refresh}
+            />
             <button
               type="button"
               onClick={onPickFiles}
