@@ -5,28 +5,34 @@ import MatchProfileView from './match-profile-view'
 
 export const metadata: Metadata = {
   title: 'Match Profile - Clapcheeks',
-  description: 'Detailed match intel — zodiac, DISC, interests, and conversation strategy.',
+  description: 'Photos, bio, interests, and conversation strategy.',
 }
 
-export default async function MatchDetailPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function MatchDetailPage({
+  params,
+}: {
+  params: Promise<{ id: string }>
+}) {
   const { id } = await params
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
   if (!user) redirect('/auth')
 
-  const { data: profile, error } = await supabase
-    .from('clapcheeks_match_profiles')
+  const { data: match, error } = await supabase
+    .from('clapcheeks_matches')
     .select('*')
     .eq('id', id)
     .eq('user_id', user.id)
     .single()
 
-  if (error || !profile) notFound()
+  if (error || !match) notFound()
 
   return (
     <div className="min-h-screen bg-black text-white p-4 md:p-8">
-      <div className="max-w-4xl mx-auto">
-        <MatchProfileView profile={profile} />
+      <div className="max-w-5xl mx-auto">
+        <MatchProfileView match={match} />
       </div>
     </div>
   )
