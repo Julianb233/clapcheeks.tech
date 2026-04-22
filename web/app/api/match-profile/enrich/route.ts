@@ -4,6 +4,21 @@ import { signFromBirthday, signFromText, getCompatibility, TRAITS, ELEMENTS, MOD
 import { buildDiscProfile } from '@/lib/match-profile/disc-profiler'
 import { extractInterestsKeyword } from '@/lib/match-profile/interest-extractor'
 
+/**
+ * POST /api/match-profile/enrich
+ *
+ * Enriches an existing clapcheeks_matches row with:
+ *   - Zodiac (only `zodiac` text goes into its column; the rest folds
+ *     into match_intel.zodiac; full detail is ALSO computable at read-time
+ *     from the birth_date column, so we do not duplicate-store).
+ *   - Compatibility vs. user's own sign (match_intel.compat)
+ *   - Keyword interests (match_intel.interests / interest_tags)
+ *   - DISC profile (match_intel.disc)
+ *   - Composite conversation strategy (match_intel.strategy/openers/topics)
+ *
+ * Status is tracked inside match_intel (enrichment_status / enrichment_error
+ * / enriched_at) — there are no top-level columns for these.
+ */
 export async function POST(request: NextRequest) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -14,7 +29,7 @@ export async function POST(request: NextRequest) {
 
   // Fetch the profile
   const { data: profile, error: fetchError } = await supabase
-    .from('clapcheeks_match_profiles')
+    .from('clapcheeks_matches')
     .select('*')
     .eq('id', profile_id)
     .eq('user_id', user.id)
@@ -24,103 +39,150 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Profile not found' }, { status: 404 })
   }
 
-  // Mark as enriching
-  await supabase
-    .from('clapcheeks_match_profiles')
-    .update({ enrichment_status: 'partial' })
-    .eq('id', profile_id)
+  const existingIntel: Record<string, unknown> = {
+    ...((profile as any).match_intel ?? {}),
+  }
+  const existingIgIntel: Record<string, unknown> = {
+    ...((profile as any).instagram_intel ?? {}),
+  }
 
-  const updates: Record<string, unknown> = {}
+  // Mark as enriching (partial) before we start
+  {
+    const partialIntel = { ...existingIntel, enrichment_status: 'partial' }
+    await (supabase as any)
+      .from('clapcheeks_matches')
+      .update({ match_intel: partialIntel })
+      .eq('id', profile_id)
+  }
+
+  // Working copies — we'll write them back as a single update at the end.
+  const intel: Record<string, unknown> = { ...existingIntel }
+  const directUpdates: Record<string, unknown> = {}
 
   try {
-    // 1. Zodiac from birthday
-    const zodiacResult = signFromBirthday(profile.birthday)
-    if (zodiacResult) {
-      updates.zodiac_sign = zodiacResult.sign
-      updates.zodiac_element = zodiacResult.element
-      updates.zodiac_modality = zodiacResult.modality
-      updates.zodiac_cusp = zodiacResult.cusp
-      updates.zodiac_traits = zodiacResult.traits
-      updates.zodiac_emoji = zodiacResult.emoji
-    } else if (profile.bio) {
-      // Try to extract from bio text
-      const signFromBio = signFromText(profile.bio)
-      if (signFromBio) {
-        updates.zodiac_sign = signFromBio
-        updates.zodiac_element = ELEMENTS[signFromBio]
-        updates.zodiac_modality = MODALITIES[signFromBio]
-        updates.zodiac_traits = TRAITS[signFromBio]
-        updates.zodiac_emoji = EMOJIS[signFromBio]
+    // 1. Zodiac from birth_date (preferred) or bio text.
+    const birthDate = (profile as any).birth_date as string | null
+    const bio = (profile as any).bio as string | null
+    const igBio = (existingIgIntel.bio as string | undefined) ?? null
+
+    let zodiacDetail: {
+      sign: string
+      element: string
+      modality: string
+      cusp: string | null
+      traits: string
+      emoji: string
+    } | null = null
+
+    const z = signFromBirthday(birthDate)
+    if (z) {
+      zodiacDetail = {
+        sign: z.sign,
+        element: z.element,
+        modality: z.modality,
+        cusp: z.cusp,
+        traits: z.traits,
+        emoji: z.emoji,
+      }
+    } else {
+      const textSource = [bio, igBio].filter(Boolean).join(' ')
+      if (textSource) {
+        const sign = signFromText(textSource)
+        if (sign) {
+          zodiacDetail = {
+            sign,
+            element: ELEMENTS[sign],
+            modality: MODALITIES[sign],
+            cusp: null,
+            traits: TRAITS[sign],
+            emoji: EMOJIS[sign],
+          }
+        }
       }
     }
 
+    if (zodiacDetail) {
+      // Direct column — only stores the sign name.
+      directUpdates.zodiac = zodiacDetail.sign
+      // Extras live under match_intel.zodiac so we don't lose them.
+      intel.zodiac = zodiacDetail
+    }
+
     // 2. Get user's zodiac for compatibility
-    const { data: userSettings } = await supabase
+    const { data: userSettings } = await (supabase as any)
       .from('clapcheeks_user_settings')
       .select('persona')
       .eq('user_id', user.id)
       .single()
 
-    const userSign = (userSettings?.persona as Record<string, unknown>)?.zodiac_sign as string | undefined
-    if (updates.zodiac_sign && userSign) {
-      const zodiacSign = updates.zodiac_sign as string
+    const userSign = (userSettings?.persona as Record<string, unknown> | undefined)?.zodiac_sign as string | undefined
+    if (zodiacDetail?.sign && userSign) {
       const compat = getCompatibility(
-        zodiacSign as Parameters<typeof getCompatibility>[0],
+        zodiacDetail.sign as Parameters<typeof getCompatibility>[0],
         userSign as Parameters<typeof getCompatibility>[1],
       )
-      updates.compat_score = compat.score
-      updates.compat_level = compat.level
-      updates.compat_desc = compat.description
-      updates.compat_strengths = compat.strengths
-      updates.compat_challenges = compat.challenges
+      intel.compat = {
+        score: compat.score,
+        level: compat.level,
+        description: compat.description,
+        strengths: compat.strengths,
+        challenges: compat.challenges,
+      }
     }
 
     // 3. Interest extraction (keyword mode — fast, no API call)
-    const bioText = [profile.bio, profile.ig_bio].filter(Boolean).join(' ')
+    const bioText = [bio, igBio].filter(Boolean).join(' ')
+    let extractedInterests: string[] = []
+    let extractedTags: string[] = []
     if (bioText) {
       const extracted = extractInterestsKeyword(bioText)
-      updates.interests = extracted.interests
-      updates.interest_tags = extracted.tags
+      extractedInterests = extracted.interests
+      extractedTags = extracted.tags
+      intel.interests = extractedInterests
+      intel.interest_tags = extractedTags
     }
 
     // 4. DISC profiling
     const disc = buildDiscProfile(
       bioText || null,
-      (updates.interests as string[]) || [],
-      (updates.zodiac_traits as string) || null,
+      extractedInterests,
+      zodiacDetail?.traits ?? null,
     )
-    updates.disc_type = disc.type
-    updates.disc_label = disc.label
-    updates.disc_scores = disc.scores
-    updates.disc_strategy = disc.strategy
-    updates.disc_openers = disc.openers
-    updates.disc_topics = disc.topics
-    updates.disc_avoid = disc.avoid
+    intel.disc = {
+      type: disc.type,
+      label: disc.label,
+      scores: disc.scores,
+      strategy: disc.strategy,
+      openers: disc.openers,
+      topics: disc.topics,
+      avoid: disc.avoid,
+    }
 
     // 5. Composite conversation strategy
     const strategyParts: string[] = []
-    if (updates.zodiac_traits) strategyParts.push(`Zodiac: ${updates.zodiac_traits}`)
+    if (zodiacDetail?.traits) strategyParts.push(`Zodiac: ${zodiacDetail.traits}`)
     if (disc.strategy) strategyParts.push(`DISC: ${disc.strategy}`)
-    updates.conversation_strategy = strategyParts.join('\n\n')
-    updates.opener_suggestions = disc.openers
-    updates.topic_suggestions = disc.topics
+    intel.strategy = strategyParts.join('\n\n')
+    intel.openers = disc.openers
+    intel.topics = disc.topics
 
     // Mark complete
-    updates.enrichment_status = 'complete'
-    updates.enriched_at = new Date().toISOString()
+    intel.enrichment_status = 'complete'
+    intel.enriched_at = new Date().toISOString()
+    delete intel.enrichment_error
   } catch (err) {
-    updates.enrichment_status = 'failed'
-    updates.enrichment_error = err instanceof Error ? err.message : 'Unknown error'
+    intel.enrichment_status = 'failed'
+    intel.enrichment_error = err instanceof Error ? err.message : 'Unknown error'
   }
 
-  const { error: updateError } = await supabase
-    .from('clapcheeks_match_profiles')
-    .update(updates)
+  const { error: updateError } = await (supabase as any)
+    .from('clapcheeks_matches')
+    .update({ ...directUpdates, match_intel: intel })
     .eq('id', profile_id)
 
   if (updateError) {
     return NextResponse.json({ error: updateError.message }, { status: 500 })
   }
 
-  return NextResponse.json({ success: true, enrichment_status: updates.enrichment_status })
+  return NextResponse.json({ success: true, enrichment_status: intel.enrichment_status })
 }

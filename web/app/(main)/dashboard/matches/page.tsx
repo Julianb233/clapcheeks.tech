@@ -2,19 +2,18 @@ import type { Metadata } from 'next'
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
-import MatchGrid from '@/components/matches/MatchGrid'
 import OfflineContactForm from '@/components/matches/OfflineContactForm'
-import { ClapcheeksMatchRow } from '@/lib/matches/types'
+import MatchesGrid, { MatchGridRow } from './matches-grid'
 
 export const metadata: Metadata = {
   title: 'Matches — Clapcheeks',
   description: 'Every match across every platform, ranked and ready to action.',
 }
 
-const PAGE_SIZE = 30
+// Full in-memory filter/sort — dataset is small (hundreds max). Cap the fetch
+// to 500 rows so a runaway account can't blow up the client bundle.
+const MAX_ROWS = 500
 
-// `clapcheeks_matches` may not be in the generated Database type yet —
-// use a loose cast so the page still builds while Phase A is in flight.
 type ConvoLite = {
   match_id: string
   last_message: string | null
@@ -26,30 +25,29 @@ export default async function MatchesPage() {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
-  // Fetch matches. If the table doesn't exist yet (Phase A not landed),
-  // swallow the error and render the empty state.
-  let matches: ClapcheeksMatchRow[] = []
-  let hasMore = false
+  // Fetch matches. If the table doesn't exist yet, swallow the error and
+  // render the empty state.
+  let matches: MatchGridRow[] = []
   let fetchError: string | null = null
   try {
     const { data, error } = await (supabase as any)
       .from('clapcheeks_matches')
       .select('*')
       .eq('user_id', user.id)
+      .order('julian_rank', { ascending: false, nullsFirst: false })
       .order('final_score', { ascending: false, nullsFirst: false })
       .order('last_activity_at', { ascending: false, nullsFirst: false })
-      .range(0, PAGE_SIZE - 1)
+      .limit(MAX_ROWS)
     if (error) {
       fetchError = error.message
     } else if (data) {
-      matches = data as ClapcheeksMatchRow[]
-      hasMore = data.length >= PAGE_SIZE
+      matches = data as MatchGridRow[]
     }
   } catch (e) {
     fetchError = (e as Error).message
   }
 
-  // Best-effort last-message pull.
+  // Best-effort last-message pull so cards can preview the latest reply.
   const lastMessages: Record<string, string | null> = {}
   if (matches.length > 0) {
     try {
@@ -111,12 +109,17 @@ export default async function MatchesPage() {
         )}
 
         <div className="mt-6">
-          <MatchGrid
-            initialMatches={matches}
-            initialHasMore={hasMore}
-            initialLastMessages={lastMessages}
-            pageSize={PAGE_SIZE}
-          />
+          {matches.length === 0 ? (
+            <div className="bg-white/[0.03] border border-white/10 rounded-xl p-10 text-center">
+              <h3 className="text-white font-semibold text-lg mb-2">No matches yet</h3>
+              <p className="text-white/40 text-sm max-w-md mx-auto">
+                Match intake is running — the Clapcheeks agent pulls your matches every 10
+                minutes. Check back soon.
+              </p>
+            </div>
+          ) : (
+            <MatchesGrid matches={matches} lastMessages={lastMessages} />
+          )}
         </div>
       </div>
     </div>
