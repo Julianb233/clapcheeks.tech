@@ -18,9 +18,9 @@ export default async function MatchDetailPage({
   const {
     data: { user },
   } = await supabase.auth.getUser()
-  if (!user) redirect('/auth')
+  if (!user) redirect('/login')
 
-  const { data: match, error } = await supabase
+  const { data: match, error } = await (supabase as any)
     .from('clapcheeks_matches')
     .select('*')
     .eq('id', id)

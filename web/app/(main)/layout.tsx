@@ -3,6 +3,7 @@ import AppSidebar from '@/components/layout/app-sidebar'
 import PageOrbs from '@/components/page-orbs'
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
+import { Toaster } from 'sonner'
 
 export const metadata: Metadata = {
   title: {
@@ -26,6 +27,7 @@ export default async function MainLayout({ children }: { children: React.ReactNo
           <main className="min-h-screen">{children}</main>
         </div>
       </div>
+      <Toaster theme="dark" position="bottom-right" richColors closeButton />
     </>
   )
 }
