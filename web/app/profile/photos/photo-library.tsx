@@ -1,270 +1,449 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
-import { Trash2, Upload, Loader2, ImagePlus } from 'lucide-react'
+import {
+  ArrowLeft,
+  ArrowUpDown,
+  Check,
+  Loader2,
+  Sparkles,
+  Trash2,
+  Upload,
+} from 'lucide-react'
+import Link from 'next/link'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import { Button } from '@/components/ui/button'
-import { Card } from '@/components/ui/card'
-import { toast } from 'sonner'
-import { InstagramImporter } from './instagram-importer'
+const CATEGORIES = [
+  'drop_in',
+  'selfie',
+  'activity',
+  'full_body',
+  'group',
+  'pets',
+  'hobby',
+  'uncategorized',
+] as const
+type Category = (typeof CATEGORIES)[number]
 
-type Photo = {
-  id: string
-  category: string
-  source: 'upload' | 'instagram' | 'mac_photos'
-  sourceRef: string | null
-  caption: string | null
-  createdAt: string
-  url: string | null
+const CATEGORY_LABEL: Record<Category, string> = {
+  drop_in: 'Drop-in',
+  selfie: 'Selfie',
+  activity: 'Activity',
+  full_body: 'Full body',
+  group: 'Group',
+  pets: 'Pets',
+  hobby: 'Hobby',
+  uncategorized: 'Uncategorized',
 }
 
-const CATEGORIES: Array<{ key: string; label: string; hint: string }> = [
-  { key: 'drop_in', label: 'Drop-Ins', hint: 'Strong lead photos. Clear face. Smile.' },
-  { key: 'selfie', label: 'Selfies', hint: 'Good lighting. No sunglasses.' },
-  { key: 'activity', label: 'Activities', hint: 'You doing something interesting.' },
-  { key: 'full_body', label: 'Full Body', hint: 'Head to toe. Good fit.' },
-  { key: 'group', label: 'Group', hint: 'Social proof. You clearly identifiable.' },
-  { key: 'pets', label: 'Pets', hint: 'With your dog or cat.' },
-  { key: 'hobby', label: 'Hobbies', hint: 'Sports, music, hiking, etc.' },
-  { key: 'uncategorized', label: 'Inbox', hint: 'Drop anything here to sort later.' },
-]
+interface Photo {
+  id: string
+  userId: string
+  storagePath: string
+  category: string
+  source: string | null
+  sourceRef: string | null
+  caption: string | null
+  width: number | null
+  height: number | null
+  bytes: number | null
+  mimeType: string | null
+  createdAt: string
+  updatedAt: string
+  aiScore: number | null
+  aiScoreReason: string | null
+  aiCategorySuggested: string | null
+  aiCategorizedAt: string | null
+  signedUrl: string | null
+}
 
-export function PhotoLibrary() {
+type SortMode = 'score' | 'date'
+
+interface LibraryResponse {
+  photos: Photo[]
+}
+
+function scoreBadgeClasses(score: number): string {
+  if (score >= 75) {
+    return 'bg-emerald-500/90 text-black'
+  }
+  if (score >= 60) {
+    return 'bg-yellow-400/90 text-black'
+  }
+  return 'bg-orange-500/90 text-white'
+}
+
+function sortPhotos(photos: Photo[], mode: SortMode): Photo[] {
+  const copy = [...photos]
+  if (mode === 'score') {
+    copy.sort((a, b) => {
+      const sa = a.aiScore ?? -1
+      const sb = b.aiScore ?? -1
+      if (sb !== sa) return sb - sa
+      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    })
+  } else {
+    copy.sort(
+      (a, b) =>
+        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    )
+  }
+  return copy
+}
+
+export default function PhotoLibrary() {
   const [photos, setPhotos] = useState<Photo[]>([])
   const [loading, setLoading] = useState(true)
-  const [uploadingTo, setUploadingTo] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [uploading, setUploading] = useState(false)
+  const [rescoring, setRescoring] = useState(false)
+  const [pendingIds, setPendingIds] = useState<Set<string>>(new Set())
+  const [sortMode, setSortMode] = useState<SortMode>('score')
+  const fileInputRef = useRef<HTMLInputElement | null>(null)
 
-  const load = useCallback(async () => {
-    const res = await fetch('/api/photos/library', { cache: 'no-store' })
-    if (!res.ok) {
-      toast.error('Failed to load photos')
+  const refresh = useCallback(async () => {
+    try {
+      const res = await fetch('/api/photos/library', { cache: 'no-store' })
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        throw new Error(body.error || `Failed to load library (${res.status})`)
+      }
+      const data = (await res.json()) as LibraryResponse
+      setPhotos(data.photos || [])
+      setError(null)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load library')
+    } finally {
       setLoading(false)
-      return
     }
-    const json = await res.json()
-    setPhotos(json.photos ?? [])
-    setLoading(false)
   }, [])
 
   useEffect(() => {
-    load()
-  }, [load])
+    void refresh()
+  }, [refresh])
 
-  async function upload(files: File[], category: string) {
-    if (files.length === 0) return
-    setUploadingTo(category)
-    const form = new FormData()
-    form.set('category', category)
-    files.forEach((f) => form.append('files', f))
-    try {
-      const res = await fetch('/api/photos/library', { method: 'POST', body: form })
-      const json = await res.json()
-      if (!res.ok) throw new Error(json.error || 'Upload failed')
-      toast.success(`Uploaded ${json.uploaded?.length ?? 0} to ${categoryLabel(category)}`)
-      if (json.rejected?.length) {
-        for (const r of json.rejected) toast.error(`${r.name}: ${r.reason}`)
+  // Poll for AI scoring to land for newly uploaded photos.
+  useEffect(() => {
+    if (!pendingIds.size) return
+    const interval = setInterval(() => {
+      void refresh()
+    }, 4000)
+    return () => clearInterval(interval)
+  }, [pendingIds, refresh])
+
+  // When AI fields show up, drop those ids from the pending set.
+  useEffect(() => {
+    if (!pendingIds.size) return
+    const landed: string[] = []
+    for (const photo of photos) {
+      if (pendingIds.has(photo.id) && photo.aiCategorizedAt) {
+        landed.push(photo.id)
       }
-      await load()
+    }
+    if (landed.length) {
+      setPendingIds((prev) => {
+        const next = new Set(prev)
+        for (const id of landed) next.delete(id)
+        return next
+      })
+    }
+  }, [photos, pendingIds])
+
+  const buckets = useMemo(() => {
+    const grouped = new Map<Category, Photo[]>()
+    for (const cat of CATEGORIES) grouped.set(cat, [])
+    for (const photo of photos) {
+      const key = (CATEGORIES as readonly string[]).includes(photo.category)
+        ? (photo.category as Category)
+        : 'uncategorized'
+      grouped.get(key)!.push(photo)
+    }
+    for (const cat of CATEGORIES) {
+      grouped.set(cat, sortPhotos(grouped.get(cat) || [], sortMode))
+    }
+    return grouped
+  }, [photos, sortMode])
+
+  const onPickFiles = () => fileInputRef.current?.click()
+
+  const onFilesSelected = async (files: FileList | null) => {
+    if (!files || !files.length) return
+    setUploading(true)
+    setError(null)
+    const newPendingIds: string[] = []
+    try {
+      for (const file of Array.from(files)) {
+        const body = new FormData()
+        body.append('file', file)
+        body.append('category', 'uncategorized')
+        const res = await fetch('/api/photos/library', { method: 'POST', body })
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}))
+          throw new Error(data.error || `Upload failed (${res.status})`)
+        }
+        const data = (await res.json()) as { photo: Photo }
+        if (data.photo?.id) newPendingIds.push(data.photo.id)
+      }
+      if (newPendingIds.length) {
+        setPendingIds((prev) => {
+          const next = new Set(prev)
+          for (const id of newPendingIds) next.add(id)
+          return next
+        })
+      }
+      await refresh()
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Upload failed')
+      setError(err instanceof Error ? err.message : 'Upload failed')
     } finally {
-      setUploadingTo(null)
+      setUploading(false)
+      if (fileInputRef.current) fileInputRef.current.value = ''
     }
   }
 
-  async function recategorize(id: string, category: string) {
-    setPhotos((prev) => prev.map((p) => (p.id === id ? { ...p, category } : p)))
-    const res = await fetch(`/api/photos/library/${id}`, {
+  const applySuggestion = async (photo: Photo) => {
+    if (!photo.aiCategorySuggested) return
+    const res = await fetch(`/api/photos/library/${photo.id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ category }),
+      body: JSON.stringify({ category: photo.aiCategorySuggested }),
     })
-    if (!res.ok) {
-      toast.error('Failed to move photo')
-      load()
+    if (res.ok) {
+      await refresh()
+    } else {
+      const data = await res.json().catch(() => ({}))
+      setError(data.error || 'Failed to apply suggestion')
     }
   }
 
-  async function remove(id: string) {
-    const prev = photos
-    setPhotos((p) => p.filter((x) => x.id !== id))
-    const res = await fetch(`/api/photos/library/${id}`, { method: 'DELETE' })
-    if (!res.ok) {
-      toast.error('Failed to delete')
-      setPhotos(prev)
+  const deletePhoto = async (photo: Photo) => {
+    const confirmed = window.confirm('Delete this photo?')
+    if (!confirmed) return
+    const res = await fetch(`/api/photos/library/${photo.id}`, {
+      method: 'DELETE',
+    })
+    if (res.ok) {
+      await refresh()
+    } else {
+      const data = await res.json().catch(() => ({}))
+      setError(data.error || 'Failed to delete photo')
+    }
+  }
+
+  const rescoreAll = async () => {
+    if (!photos.length) return
+    setRescoring(true)
+    setError(null)
+    try {
+      const photoIds = photos.map((p) => p.id)
+      setPendingIds(new Set(photoIds))
+      const res = await fetch('/api/photos/categorize', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ photoIds }),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.error || `Rescore failed (${res.status})`)
+      }
+      await refresh()
+      setPendingIds(new Set())
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Rescore failed')
+      setPendingIds(new Set())
+    } finally {
+      setRescoring(false)
     }
   }
 
   return (
-    <div className="space-y-8">
-      <div className="flex flex-wrap gap-3 items-center">
-        <Button variant="outline" size="sm" asChild>
-          <label className="cursor-pointer">
-            <ImagePlus className="mr-2 h-4 w-4" />
-            Quick add to Inbox
+    <div className="min-h-screen bg-black text-white">
+      <header className="bg-black/90 backdrop-blur border-b border-white/8 sticky top-0 z-50">
+        <div className="container mx-auto px-4 py-4 flex items-center gap-3">
+          <Link
+            href="/profile"
+            className="text-white/40 hover:text-white/70 p-1.5 rounded-lg hover:bg-white/5 transition-all"
+            aria-label="Back to profile"
+          >
+            <ArrowLeft className="w-5 h-5" />
+          </Link>
+          <h1 className="text-2xl font-bold">Photo Library</h1>
+          <div className="ml-auto flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() =>
+                setSortMode((m) => (m === 'score' ? 'date' : 'score'))
+              }
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg border border-white/10 hover:bg-white/5 transition-all"
+              title="Toggle sort order"
+            >
+              <ArrowUpDown className="w-4 h-4" />
+              Sort: {sortMode === 'score' ? 'Score desc' : 'Newest'}
+            </button>
+            <button
+              type="button"
+              onClick={rescoreAll}
+              disabled={rescoring || !photos.length}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg bg-indigo-500 hover:bg-indigo-400 text-white disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+            >
+              {rescoring ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Sparkles className="w-4 h-4" />
+              )}
+              Rescore all
+            </button>
+            <button
+              type="button"
+              onClick={onPickFiles}
+              disabled={uploading}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg bg-white text-black hover:bg-white/90 disabled:opacity-50 transition-all"
+            >
+              {uploading ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Upload className="w-4 h-4" />
+              )}
+              Upload
+            </button>
             <input
+              ref={fileInputRef}
               type="file"
-              multiple
-              accept="image/*"
               className="hidden"
-              onChange={(e) => {
-                const files = Array.from(e.target.files ?? [])
-                e.target.value = ''
-                upload(files, 'uncategorized')
-              }}
+              accept="image/jpeg,image/png,image/webp,image/gif"
+              multiple
+              onChange={(e) => void onFilesSelected(e.target.files)}
             />
-          </label>
-        </Button>
-        <InstagramImporter
-          categories={CATEGORIES.map((c) => ({ key: c.key, label: c.label }))}
-          onImported={load}
-        />
-        <span className="text-xs text-muted-foreground">
-          {photos.length} photo{photos.length === 1 ? '' : 's'} total
-        </span>
-      </div>
+          </div>
+        </div>
+      </header>
 
-      {loading ? (
-        <div className="flex items-center justify-center py-24 text-muted-foreground">
-          <Loader2 className="h-5 w-5 animate-spin mr-2" /> Loading your library…
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-          {CATEGORIES.map((cat) => {
-            const bucket = photos.filter((p) => p.category === cat.key)
+      <main className="container mx-auto px-4 py-6 space-y-8">
+        {error && (
+          <div className="rounded-lg border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+            {error}
+          </div>
+        )}
+
+        {loading ? (
+          <div className="flex items-center justify-center py-24 text-white/60">
+            <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+            Loading your library...
+          </div>
+        ) : (
+          CATEGORIES.map((cat) => {
+            const bucket = buckets.get(cat) || []
+            if (!bucket.length && cat !== 'uncategorized') return null
             return (
-              <CategoryBucket
-                key={cat.key}
-                label={cat.label}
-                hint={cat.hint}
-                count={bucket.length}
-                photos={bucket}
-                uploading={uploadingTo === cat.key}
-                onDropFiles={(files) => upload(files, cat.key)}
-                onDropPhoto={(id) => recategorize(id, cat.key)}
-                onRemove={remove}
-              />
+              <section key={cat}>
+                <div className="flex items-center justify-between mb-3">
+                  <h2 className="text-lg font-semibold text-white/90">
+                    {CATEGORY_LABEL[cat]}{' '}
+                    <span className="text-white/40 text-sm font-normal">
+                      ({bucket.length})
+                    </span>
+                  </h2>
+                </div>
+                {bucket.length === 0 ? (
+                  <p className="text-white/40 text-sm italic">
+                    No photos in this bucket yet.
+                  </p>
+                ) : (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
+                    {bucket.map((photo) => (
+                      <PhotoCard
+                        key={photo.id}
+                        photo={photo}
+                        pending={pendingIds.has(photo.id)}
+                        onApply={() => void applySuggestion(photo)}
+                        onDelete={() => void deletePhoto(photo)}
+                      />
+                    ))}
+                  </div>
+                )}
+              </section>
             )
-          })}
-        </div>
-      )}
+          })
+        )}
+      </main>
     </div>
   )
 }
 
-function categoryLabel(key: string) {
-  return CATEGORIES.find((c) => c.key === key)?.label ?? key
+interface PhotoCardProps {
+  photo: Photo
+  pending: boolean
+  onApply: () => void
+  onDelete: () => void
 }
 
-function CategoryBucket(props: {
-  label: string
-  hint: string
-  count: number
-  photos: Photo[]
-  uploading: boolean
-  onDropFiles: (files: File[]) => void
-  onDropPhoto: (id: string) => void
-  onRemove: (id: string) => void
-}) {
-  const [hover, setHover] = useState(false)
-
-  function handleDragOver(e: React.DragEvent) {
-    e.preventDefault()
-    setHover(true)
-  }
-  function handleDragLeave() {
-    setHover(false)
-  }
-  function handleDrop(e: React.DragEvent) {
-    e.preventDefault()
-    setHover(false)
-    const id = e.dataTransfer.getData('text/photo-id')
-    if (id) {
-      props.onDropPhoto(id)
-      return
-    }
-    const files = Array.from(e.dataTransfer.files).filter((f) =>
-      f.type.startsWith('image/')
-    )
-    if (files.length > 0) props.onDropFiles(files)
-  }
+function PhotoCard({ photo, pending, onApply, onDelete }: PhotoCardProps) {
+  const suggested =
+    photo.aiCategorySuggested &&
+    photo.aiCategorySuggested !== photo.category &&
+    (CATEGORIES as readonly string[]).includes(photo.aiCategorySuggested)
+      ? (photo.aiCategorySuggested as Category)
+      : null
 
   return (
-    <Card
-      onDragOver={handleDragOver}
-      onDragLeave={handleDragLeave}
-      onDrop={handleDrop}
-      className={`p-4 transition-colors ${
-        hover ? 'border-primary bg-primary/5' : 'border-border'
-      }`}
-    >
-      <div className="flex items-start justify-between mb-3">
-        <div>
-          <h3 className="font-semibold text-base">{props.label}</h3>
-          <p className="text-xs text-muted-foreground mt-0.5">{props.hint}</p>
-        </div>
-        <span className="text-xs font-mono text-muted-foreground">
-          {props.count}
-        </span>
+    <div className="group relative rounded-xl overflow-hidden border border-white/10 bg-white/5">
+      <div className="aspect-square bg-black/60 relative">
+        {photo.signedUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={photo.signedUrl}
+            alt={photo.caption || photo.category}
+            className="w-full h-full object-cover"
+            loading="lazy"
+          />
+        ) : (
+          <div className="w-full h-full flex items-center justify-center text-white/30 text-xs">
+            No preview
+          </div>
+        )}
+
+        {photo.aiScore != null && (
+          <div
+            className={`absolute top-2 left-2 px-1.5 py-0.5 rounded-md text-xs font-semibold shadow-sm ${scoreBadgeClasses(
+              photo.aiScore
+            )}`}
+            title={photo.aiScoreReason || ''}
+          >
+            {photo.aiScore}
+          </div>
+        )}
+
+        {pending && photo.aiScore == null && (
+          <div className="absolute top-2 left-2 px-1.5 py-0.5 rounded-md text-[10px] font-semibold bg-black/70 text-white/80 inline-flex items-center gap-1">
+            <Loader2 className="w-3 h-3 animate-spin" />
+            Scoring
+          </div>
+        )}
+
+        <button
+          type="button"
+          onClick={onDelete}
+          aria-label="Delete photo"
+          className="absolute top-2 right-2 p-1.5 rounded-md bg-black/60 text-white/80 hover:bg-red-500 hover:text-white opacity-0 group-hover:opacity-100 transition-all"
+        >
+          <Trash2 className="w-3.5 h-3.5" />
+        </button>
       </div>
 
-      <label
-        className={`flex items-center justify-center gap-2 py-3 px-3 rounded-md border border-dashed text-xs text-muted-foreground hover:text-foreground hover:border-foreground/50 cursor-pointer transition-colors ${
-          props.uploading ? 'opacity-50 pointer-events-none' : ''
-        }`}
-      >
-        {props.uploading ? (
-          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-        ) : (
-          <Upload className="h-3.5 w-3.5" />
-        )}
-        Drop photos here or click to browse
-        <input
-          type="file"
-          multiple
-          accept="image/*"
-          className="hidden"
-          onChange={(e) => {
-            const files = Array.from(e.target.files ?? [])
-            e.target.value = ''
-            if (files.length > 0) props.onDropFiles(files)
-          }}
-        />
-      </label>
-
-      {props.photos.length > 0 && (
-        <div className="grid grid-cols-3 gap-2 mt-3">
-          {props.photos.map((p) => (
-            <div
-              key={p.id}
-              draggable
-              onDragStart={(e) => e.dataTransfer.setData('text/photo-id', p.id)}
-              className="relative group aspect-square rounded-md overflow-hidden bg-muted border border-border"
-            >
-              {p.url ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={p.url}
-                  alt=""
-                  className="w-full h-full object-cover"
-                  draggable={false}
-                />
-              ) : (
-                <div className="w-full h-full flex items-center justify-center text-muted-foreground text-[10px]">
-                  no preview
-                </div>
-              )}
-              <button
-                onClick={() => props.onRemove(p.id)}
-                className="absolute top-1 right-1 p-1 rounded bg-background/90 opacity-0 group-hover:opacity-100 transition-opacity"
-                aria-label="Delete photo"
-              >
-                <Trash2 className="h-3 w-3" />
-              </button>
-            </div>
-          ))}
+      <div className="p-2 space-y-1">
+        <div className="text-[11px] text-white/50 uppercase tracking-wide">
+          {CATEGORY_LABEL[photo.category as Category] || photo.category}
         </div>
-      )}
-    </Card>
+        {suggested && (
+          <button
+            type="button"
+            onClick={onApply}
+            className="inline-flex items-center gap-1 text-xs text-indigo-300 hover:text-indigo-200"
+            title={photo.aiScoreReason || 'Apply AI suggestion'}
+          >
+            <Check className="w-3 h-3" />
+            → {CATEGORY_LABEL[suggested]}
+          </button>
+        )}
+      </div>
+    </div>
   )
 }
