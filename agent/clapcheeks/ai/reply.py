@@ -145,3 +145,43 @@ def generate_reply(
     # Attempt 4: Safe fallback
     logger.info("Using safe fallback reply.")
     return "haha that's awesome"
+
+
+# PHASE-E — AI-8319 — pipeline-gated reply.
+def generate_reply_with_pipeline(
+    conversation_history: list[dict],
+    platform: str,
+    style: str = "casual",
+    match_profile: dict | None = None,
+    user_id: str | None = None,
+) -> list[str]:
+    """Generate a reply, then sanitize + validate + split into message array.
+
+    Returns a list of 1-3 short messages ready to queue. Falls back to a safe
+    persona-compliant reply on discard.
+    """
+    from clapcheeks.ai import drafter as _drafter
+
+    raw = generate_reply(
+        conversation_history=conversation_history,
+        platform=platform,
+        style=style,
+        match_profile=match_profile,
+    )
+
+    # Infer stage — < 3 messages = early
+    stage = "early" if len(conversation_history) < 3 else "mid"
+
+    result = _drafter.run_pipeline(
+        raw_text=raw,
+        user_id=user_id,
+        conversation_stage=stage,
+        on_discard=lambda txt, errs: _drafter.log_discard_to_supabase(
+            user_id, platform, txt, errs
+        ),
+    )
+    if result.ok and result.messages:
+        return result.messages
+
+    logger.info("Reply discarded: %s", result.errors)
+    return ["haha that's awesome"]

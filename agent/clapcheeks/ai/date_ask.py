@@ -169,4 +169,60 @@ def generate_reengagement(match_name: str, days_silent: int) -> str:
         return result
 
     logger.info("Using fallback reengagement for %s.", match_name)
-    return f"Still alive over there? :)"
+    return f"still alive over there"
+
+
+# PHASE-E — AI-8319 — pipeline-gated date ask + reengagement.
+def generate_date_ask_with_pipeline(
+    match_name: str,
+    platform: str = "tinder",
+    profile_data: dict | None = None,
+    slot_context: str | None = None,
+    user_id: str | None = None,
+) -> list[str]:
+    """Generate a date ask and route through sanitize + validate + split."""
+    from clapcheeks.ai import drafter as _drafter
+
+    raw = generate_date_ask(
+        match_name=match_name,
+        platform=platform,
+        profile_data=profile_data,
+        slot_context=slot_context,
+    )
+    result = _drafter.run_pipeline(
+        raw_text=raw,
+        user_id=user_id,
+        conversation_stage="mid",
+        on_discard=lambda txt, errs: _drafter.log_discard_to_supabase(
+            user_id, platform, txt, errs
+        ),
+    )
+    if result.ok and result.messages:
+        return result.messages
+
+    logger.info("Date ask discarded: %s", result.errors)
+    return ["we should grab drinks this week. thursday or friday?"]
+
+
+def generate_reengagement_with_pipeline(
+    match_name: str,
+    days_silent: int,
+    user_id: str | None = None,
+) -> list[str]:
+    """Generate a reengagement and route through the pipeline."""
+    from clapcheeks.ai import drafter as _drafter
+
+    raw = generate_reengagement(match_name=match_name, days_silent=days_silent)
+    result = _drafter.run_pipeline(
+        raw_text=raw,
+        user_id=user_id,
+        conversation_stage="mid",
+        on_discard=lambda txt, errs: _drafter.log_discard_to_supabase(
+            user_id, "reengagement", txt, errs
+        ),
+    )
+    if result.ok and result.messages:
+        return result.messages
+
+    logger.info("Reengagement discarded: %s", result.errors)
+    return ["still alive over there"]

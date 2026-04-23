@@ -1,8 +1,27 @@
 // Receives token harvest messages from content scripts, dedupes,
 // and uploads to clapcheeks.tech/api/ingest/platform-token.
+//
+// Phase M (AI-8345) ALSO hosts a job-poller alarm that drains the
+// clapcheeks_agent_jobs queue every ~10s. Each pending job is a
+// description of an HTTP request the daemon wants executed inside
+// Julian's real Chrome session (credentials: include -> his
+// residential IP + genuine cookies + genuine browser fingerprint).
+// We fetch, then POST the response back to /api/ingest/api-result.
+// This removes the VPS entirely from the anti-bot surface.
 
 const API_ORIGIN_DEFAULT = "https://clapcheeks.tech";
 const SYNC_ALARM = "clapcheeks.resync";
+const JOB_ALARM = "clapcheeks.jobs";
+
+// Global anti-bot throttle. At most one Tinder/Hinge/Instagram fetch
+// every 3s across the whole extension, with 2-8s of random jitter
+// ADDED before every fetch. Matches the Phase M spec (AI-8345).
+const MIN_GLOBAL_GAP_MS = 3_000;
+const JITTER_MIN_MS = 2_000;
+const JITTER_MAX_MS = 8_000;
+
+let _lastFetchAt = 0;
+let _jobLoopRunning = false;
 
 // Config lives in chrome.storage.sync so all your Chromes (signed into the
 // same Google account with Sync enabled) share the device token + API
@@ -146,21 +165,365 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 
 // Periodic re-harvest alarm — on Chromes that stay open the token can
 // rotate silently. The alarm pokes each open Tinder tab every 30 min.
+// The JOB_ALARM fires every ~10s and drains the agent-jobs queue.
 chrome.runtime.onInstalled.addListener(() => {
   chrome.alarms.create(SYNC_ALARM, { periodInMinutes: 30 });
+  // periodInMinutes min is 1/60 on newer Chrome, else 0.5. Use 0.17
+  // (~10s) which Chrome floors to 1m on some channels - acceptable,
+  // still yields job throughput well under Tinder's anti-bot radar.
+  chrome.alarms.create(JOB_ALARM, { periodInMinutes: 0.17 });
+});
+chrome.runtime.onStartup.addListener(() => {
+  // Re-create alarms on every Chrome startup so the poller comes back
+  // even if the user wiped alarms manually.
+  chrome.alarms.create(SYNC_ALARM, { periodInMinutes: 30 });
+  chrome.alarms.create(JOB_ALARM, { periodInMinutes: 0.17 });
 });
 chrome.alarms.onAlarm.addListener(async (alarm) => {
-  if (alarm.name !== SYNC_ALARM) return;
-  const tabs = await chrome.tabs.query({
-    url: ["https://tinder.com/*", "https://*.tinder.com/*",
-          "https://hinge.co/*"],
-  });
-  for (const tab of tabs) {
-    try {
-      await chrome.tabs.reload(tab.id);
-    } catch { /* ignore */ }
+  if (alarm.name === SYNC_ALARM) {
+    const tabs = await chrome.tabs.query({
+      url: ["https://tinder.com/*", "https://*.tinder.com/*",
+            "https://hinge.co/*"],
+    });
+    for (const tab of tabs) {
+      try {
+        await chrome.tabs.reload(tab.id);
+      } catch { /* ignore */ }
+    }
+    await harvestInstagramSession();
+    return;
   }
-  // Re-harvest IG session on the same cadence (no tab reload needed,
-  // chrome.cookies reads the cookie store directly).
-  await harvestInstagramSession();
+  if (alarm.name === JOB_ALARM) {
+    await drainOneJob();
+    return;
+  }
 });
+
+// ---------------------------------------------------------------------------
+// Phase M: agent-jobs queue drainer
+// ---------------------------------------------------------------------------
+//
+// The extension holds a device_token (one per device, generated in
+// /settings/ai). It does NOT have a Supabase key. So to fetch "what is
+// my next job" it hits a thin server endpoint (/api/agent/next-job)
+// that uses the service-role client to look up the owning user and
+// return the single oldest pending job.
+//
+// One job per tick, never batch. Random 2-8s jitter before every
+// fetch. Global min-gap of 3s between fetches. Backoff on 429.
+
+async function _nowMs() { return Date.now(); }
+function _sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
+function _randJitter() {
+  return JITTER_MIN_MS + Math.random() * (JITTER_MAX_MS - JITTER_MIN_MS);
+}
+
+async function _respectGlobalGap() {
+  const now = await _nowMs();
+  const since = now - _lastFetchAt;
+  const gap = MIN_GLOBAL_GAP_MS - since;
+  if (gap > 0) await _sleep(gap);
+}
+
+async function claimNextJob(cfg) {
+  // Ask the server for the oldest pending job owned by this device's
+  // user. Server atomically transitions pending -> claimed so two
+  // extensions (two Chrome windows) don't race on the same row.
+  let resp;
+  try {
+    resp = await fetch(`${cfg.api_origin}/api/agent/next-job`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Device-Token": cfg.device_token,
+        "X-Device-Name": cfg.device_name,
+      },
+      body: JSON.stringify({ claimed_by: cfg.device_name }),
+    });
+  } catch (err) {
+    console.warn("[clapcheeks] next-job network error:", err);
+    return null;
+  }
+  if (resp.status === 204) return null; // no work
+  if (!resp.ok) {
+    console.warn("[clapcheeks] next-job rejected:", resp.status, await resp.text());
+    return null;
+  }
+  try {
+    return await resp.json();
+  } catch {
+    return null;
+  }
+}
+
+async function deliverResult(cfg, payload) {
+  try {
+    const r = await fetch(`${cfg.api_origin}/api/ingest/api-result`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Device-Token": cfg.device_token,
+        "X-Device-Name": cfg.device_name,
+      },
+      body: JSON.stringify(payload),
+    });
+    if (!r.ok) {
+      console.warn("[clapcheeks] api-result rejected:", r.status, await r.text());
+    }
+  } catch (err) {
+    console.warn("[clapcheeks] api-result network error:", err);
+  }
+}
+
+// Phase L (AI-8340): IG story upload job handler.
+// The daemon enqueues ig_post_story jobs with job_params.body containing
+// { image_url, caption, post_type }. The extension downloads the image
+// from image_url (signed Supabase Storage URL), uploads it to IG's
+// private story endpoint with credentials: 'include' so the session
+// cookies ride through, and returns the IG media id in the body.
+async function executeIgPostStory(cfg, job) {
+  const params = job.job_params || {};
+  const body = params.body || {};
+  const imageUrl = body.image_url;
+  if (!imageUrl) {
+    return {
+      status_code: 0,
+      body: null,
+      error: "missing_image_url",
+      headers: {},
+    };
+  }
+
+  // 1) Download the image from the signed Storage URL. Public fetch -
+  // no cookies needed here.
+  let imgBytes;
+  try {
+    const imgResp = await fetch(imageUrl, { method: "GET" });
+    if (!imgResp.ok) {
+      return {
+        status_code: imgResp.status,
+        body: null,
+        error: `signed_url_status_${imgResp.status}`,
+        headers: {},
+      };
+    }
+    imgBytes = await imgResp.arrayBuffer();
+  } catch (err) {
+    return {
+      status_code: 0,
+      body: null,
+      error: `signed_url_download:${String(err)}`,
+      headers: {},
+    };
+  }
+
+  // 2) Upload to IG's rupload endpoint. We use the browser session's
+  // credentials, so the sessionid cookie rides through. Failures here
+  // (401/403) usually mean the session has expired.
+  const uploadId = String(Date.now());
+  const uploadHeaders = {
+    "X-Instagram-Rupload-Params": JSON.stringify({
+      media_type: 1,
+      upload_id: uploadId,
+      upload_media_height: 1920,
+      upload_media_width: 1080,
+      is_sidecar: 0,
+    }),
+    "X-Entity-Type": "image/jpeg",
+    "X-Entity-Name": `fb_uploader_${uploadId}`,
+    "X-Entity-Length": String(imgBytes.byteLength),
+    "Offset": "0",
+    "Content-Type": "application/octet-stream",
+  };
+
+  let uploadStatus = 0;
+  let uploadBody = null;
+  try {
+    const uploadResp = await fetch(
+      `https://i.instagram.com/rupload_igphoto/fb_uploader_${uploadId}`,
+      {
+        method: "POST",
+        credentials: "include",
+        headers: uploadHeaders,
+        body: imgBytes,
+      },
+    );
+    uploadStatus = uploadResp.status;
+    try {
+      uploadBody = await uploadResp.json();
+    } catch {
+      uploadBody = null;
+    }
+  } catch (err) {
+    return {
+      status_code: 0,
+      body: null,
+      error: `ig_upload_network:${String(err)}`,
+      headers: {},
+    };
+  }
+
+  if (uploadStatus < 200 || uploadStatus >= 300) {
+    return {
+      status_code: uploadStatus,
+      body: uploadBody,
+      error: `ig_upload_http_${uploadStatus}`,
+      headers: {},
+    };
+  }
+
+  // 3) Configure the uploaded media as a story. This is the URL the
+  // daemon put in params.url.
+  const configureUrl = params.url ||
+    "https://i.instagram.com/api/v1/media/configure_to_story/";
+
+  const configureForm = new URLSearchParams();
+  configureForm.set("upload_id", uploadId);
+  configureForm.set("source_type", "4");
+  configureForm.set("configure_mode", "1");
+  if (body.caption) configureForm.set("caption", body.caption);
+
+  let cfgStatus = 0;
+  let cfgBody = null;
+  let cfgHeaders = {};
+  try {
+    const cfgResp = await fetch(configureUrl, {
+      method: "POST",
+      credentials: "include",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: configureForm.toString(),
+    });
+    cfgStatus = cfgResp.status;
+    try {
+      cfgBody = await cfgResp.json();
+    } catch {
+      cfgBody = null;
+    }
+    for (const k of ["x-ig-set-www-claim", "retry-after"]) {
+      const v = cfgResp.headers.get(k);
+      if (v) cfgHeaders[k] = v;
+    }
+  } catch (err) {
+    return {
+      status_code: 0,
+      body: null,
+      error: `ig_configure_network:${String(err)}`,
+      headers: {},
+    };
+  }
+
+  return {
+    status_code: cfgStatus,
+    body: cfgBody,
+    headers: cfgHeaders,
+    error: (cfgStatus < 200 || cfgStatus >= 300)
+      ? `ig_configure_http_${cfgStatus}`
+      : null,
+  };
+}
+
+async function drainOneJob() {
+  if (_jobLoopRunning) return;
+  _jobLoopRunning = true;
+  try {
+    const cfg = await getConfig();
+    if (!cfg.device_token) return; // not configured yet
+    const job = await claimNextJob(cfg);
+    if (!job || !job.id) return;
+
+    // Phase L: ig_post_story takes a different code path than the
+    // generic URL fetch below because it needs a 2-step upload +
+    // configure sequence. We still respect the global gap + jitter.
+    if (job.job_type === "ig_post_story") {
+      await _respectGlobalGap();
+      await _sleep(_randJitter());
+      const out = await executeIgPostStory(cfg, job);
+      _lastFetchAt = await _nowMs();
+      await deliverResult(cfg, {
+        job_id: job.id,
+        status_code: out.status_code,
+        body: out.body,
+        headers: out.headers || {},
+        error: out.error,
+      });
+      return;
+    }
+
+    const params = job.job_params || {};
+    const url = params.url;
+    if (!url) {
+      await deliverResult(cfg, {
+        job_id: job.id,
+        status_code: 0,
+        body: null,
+        error: "missing_url",
+      });
+      return;
+    }
+
+    // Jitter + global gap BEFORE the fetch so we look human.
+    await _respectGlobalGap();
+    await _sleep(_randJitter());
+
+    let statusCode = 0;
+    let bodyOut = null;
+    let errOut = null;
+    let headersOut = {};
+    try {
+      const init = {
+        method: (params.method || "GET").toUpperCase(),
+        credentials: "include", // ride Julian's real session cookies
+        headers: params.headers || {},
+      };
+      if (params.body !== null && params.body !== undefined &&
+          init.method !== "GET" && init.method !== "HEAD") {
+        if (typeof params.body === "string") {
+          init.body = params.body;
+        } else {
+          init.body = JSON.stringify(params.body);
+          init.headers["Content-Type"] ??= "application/json";
+        }
+      }
+      const resp = await fetch(url, init);
+      statusCode = resp.status;
+      _lastFetchAt = await _nowMs();
+
+      // Capture useful response headers (Tinder's rate-limit hints).
+      try {
+        for (const k of ["x-ratelimit-remaining", "x-ratelimit-reset", "retry-after"]) {
+          const v = resp.headers.get(k);
+          if (v) headersOut[k] = v;
+        }
+      } catch { /* ignore */ }
+
+      const ct = resp.headers.get("content-type") || "";
+      if (ct.includes("application/json")) {
+        bodyOut = await resp.json().catch(() => null);
+      } else {
+        bodyOut = await resp.text().catch(() => null);
+      }
+
+      // 429 backoff: skip the next tick by bumping _lastFetchAt far
+      // enough out. We DON'T retry here - the daemon decides whether
+      // to re-enqueue.
+      if (statusCode === 429) {
+        _lastFetchAt = (await _nowMs()) + 60_000;
+      }
+    } catch (err) {
+      errOut = String(err && err.message ? err.message : err);
+      _lastFetchAt = await _nowMs();
+    }
+
+    await deliverResult(cfg, {
+      job_id: job.id,
+      status_code: statusCode,
+      body: bodyOut,
+      headers: headersOut,
+      error: errOut,
+    });
+  } finally {
+    _jobLoopRunning = false;
+  }
+}
