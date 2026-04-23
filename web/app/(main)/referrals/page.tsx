@@ -31,27 +31,45 @@ export default function ReferralsPage() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
 
-      // Get profile with referral_code
+      // Get profile with referral_code (try both column names for back-compat)
       const { data: profile } = await supabase
         .from('profiles')
-        .select('referral_code, free_months_earned')
+        .select('referral_code, ref_code, free_months_earned')
         .eq('id', user.id)
         .single()
 
-      if (profile?.referral_code) {
-        setRefCode(profile.referral_code)
+      const existing = (profile as { referral_code?: string; ref_code?: string } | null)
+      let code = existing?.referral_code ?? existing?.ref_code ?? null
+
+      // If no code exists yet, ask the server to generate one so we don't
+      // get stuck on "Generating..." forever.
+      if (!code) {
+        try {
+          const res = await fetch('/api/referral/generate', { method: 'POST' })
+          if (res.ok) {
+            const body = await res.json()
+            code = body.ref_code ?? body.referral_code ?? null
+          }
+        } catch {
+          // fall through — UI will show empty state
+        }
       }
+
+      if (code) setRefCode(code)
 
       setMonthsEarned(profile?.free_months_earned || 0)
 
-      // Get referrals
-      const { data: refs } = await supabase
-        .from('clapcheeks_referrals')
-        .select('id, referred_id, status, converted_at, rewarded_at, created_at')
-        .eq('referrer_id', user.id)
-        .order('created_at', { ascending: false })
-
-      setReferrals(refs || [])
+      // Get referrals — swallow errors so the page still renders
+      try {
+        const { data: refs } = await supabase
+          .from('clapcheeks_referrals')
+          .select('id, referred_id, status, converted_at, rewarded_at, created_at')
+          .eq('referrer_id', user.id)
+          .order('created_at', { ascending: false })
+        setReferrals(refs || [])
+      } catch {
+        setReferrals([])
+      }
       setLoading(false)
     }
     load()
@@ -115,7 +133,7 @@ export default function ReferralsPage() {
           <h2 className="text-white font-semibold mb-3">Your referral link</h2>
           <div className="flex items-center gap-3">
             <div className="flex-1 bg-white/5 border border-white/10 rounded-lg px-4 py-3 font-mono text-sm text-brand-400 truncate">
-              {referralLink || 'Generating...'}
+              {referralLink || 'Your link will appear here shortly'}
             </div>
             <Button
               onClick={copyLink}

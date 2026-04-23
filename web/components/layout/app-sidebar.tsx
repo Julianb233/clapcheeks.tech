@@ -18,7 +18,7 @@ const PRIMARY: NavItem[] = [
   { href: '/ai-first-date', label: 'AI First Date', icon: <HeartIcon />, badge: 'new' },
   { href: '/dashboard/matches', label: 'Matches', icon: <HeartIcon /> },
   { href: '/leads', label: 'Leads', icon: <PipelineIcon /> },
-  { href: '/matches', label: 'Match Intel', icon: <ProfileIcon />, badge: 'new' },
+  { href: '/matches', label: 'Match Brief', icon: <ProfileIcon />, badge: 'new' },
   { href: '/conversation', label: 'Conversations', icon: <ChatIcon /> },
   { href: '/intelligence', label: 'Intelligence', icon: <SparkIcon /> },
   { href: '/analytics', label: 'Analytics', icon: <ChartIcon /> },
@@ -27,6 +27,7 @@ const PRIMARY: NavItem[] = [
 ]
 
 const SECONDARY: NavItem[] = [
+  { href: '/autonomy', label: 'Autonomy', icon: <SparkIcon /> },
   { href: '/referrals', label: 'Referrals', icon: <GiftIcon />, badge: 'new' },
   { href: '/settings/ai', label: 'AI Settings', icon: <GearIcon />, badge: 'new' },
   { href: '/settings', label: 'Weekly Reports', icon: <BellIcon /> },
