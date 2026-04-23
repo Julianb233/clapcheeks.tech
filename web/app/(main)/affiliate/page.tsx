@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
-import { ExternalLink, Settings } from 'lucide-react'
+import { notFound } from 'next/navigation'
+import { ExternalLink } from 'lucide-react'
 
 export const metadata: Metadata = {
   title: 'Affiliate Dashboard — Clapcheeks',
@@ -8,33 +9,42 @@ export const metadata: Metadata = {
 }
 
 export default function AffiliateDashboardPage() {
+  const rewardfulKey = process.env.NEXT_PUBLIC_REWARDFUL_API_KEY
+  const rewardfulDashboardUrl = process.env.NEXT_PUBLIC_REWARDFUL_DASHBOARD_URL
+
+  // If Rewardful isn't configured yet, don't show an admin TODO to users — 404.
+  if (!rewardfulKey) {
+    notFound()
+  }
+
   return (
     <div className="pt-16 pb-20 px-6">
-      <div className="max-w-3xl mx-auto">
-        <div className="text-center mb-12">
+      <div className="max-w-5xl mx-auto">
+        <div className="text-center mb-8">
           <h1 className="text-3xl font-bold text-white mb-3">Affiliate Dashboard</h1>
           <p className="text-white/45 max-w-lg mx-auto">
             Track your referrals, commissions, and payouts.
           </p>
         </div>
 
-        {/* Placeholder for Rewardful integration */}
-        <div className="bg-white/[0.03] border border-white/8 rounded-2xl p-8 text-center mb-8">
-          <Settings className="w-10 h-10 text-white/20 mx-auto mb-4" />
-          <h2 className="text-white font-semibold mb-2">Rewardful Dashboard Coming Soon</h2>
-          <p className="text-white/40 text-sm mb-6 max-w-md mx-auto">
-            Once your affiliate account is approved, your real-time tracking dashboard will appear here.
-            You'll be able to see clicks, signups, commissions, and payout history.
-          </p>
-          <div className="bg-white/5 border border-white/10 rounded-xl p-4 text-left max-w-md mx-auto">
-            <p className="text-white/30 text-xs font-mono mb-2">Integration setup (admin):</p>
-            <p className="text-white/50 text-xs font-mono">
-              1. Set <code className="text-brand-400">NEXT_PUBLIC_REWARDFUL_API_KEY</code> in .env<br />
-              2. Add Rewardful script to layout.tsx<br />
-              3. Embed affiliate portal iframe here
+        {/* Real Rewardful portal (iframe) */}
+        {rewardfulDashboardUrl ? (
+          <div className="bg-white/[0.03] border border-white/8 rounded-2xl overflow-hidden mb-8">
+            <iframe
+              src={rewardfulDashboardUrl}
+              title="Affiliate dashboard"
+              className="w-full h-[720px] bg-black"
+            />
+          </div>
+        ) : (
+          <div className="bg-white/[0.03] border border-white/8 rounded-2xl p-8 text-center mb-8">
+            <p className="text-white/60 text-sm">
+              Your affiliate dashboard will appear here once your Rewardful account is
+              activated. Until then, you can still track conversions via your referral
+              links.
             </p>
           </div>
-        </div>
+        )}
 
         <div className="flex items-center justify-center gap-4">
           <Link
