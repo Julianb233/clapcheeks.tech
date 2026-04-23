@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { Send, Star, Bug, Lightbulb, ThumbsUp } from 'lucide-react'
+import { VoiceTextarea } from '@/components/voice'
 
 type FeedbackType = 'bug' | 'feature' | 'general' | 'praise'
 
@@ -127,9 +128,9 @@ export default function FeedbackForm() {
              type === 'praise' ? 'What do you love about it?' :
              'Tell us what you think'}
           </label>
-          <textarea
+          <VoiceTextarea
             value={message}
-            onChange={(e) => setMessage(e.target.value)}
+            onChange={setMessage}
             placeholder={
               type === 'bug' ? 'I clicked X, expected Y, but got Z...' :
               type === 'feature' ? 'It would be amazing if...' :

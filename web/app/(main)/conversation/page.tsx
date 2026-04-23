@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { Copy, Check, Loader2, MessageSquare, User, Mic, ChevronRight, Send } from 'lucide-react'
 import VoiceProfileSetup from './components/voice-profile-setup'
+import { VoiceInput, VoiceTextarea } from '@/components/voice'
 
 interface Suggestion {
   text: string
@@ -213,16 +214,13 @@ export default function ConversationPage() {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
             <div>
               <label className="text-white/60 text-xs block mb-1.5">Match name</label>
-              <div className="flex items-center gap-2 bg-white/5 border border-white/10 rounded-lg px-3 py-2">
-                <User className="w-4 h-4 text-white/30" />
-                <input
-                  type="text"
-                  value={matchName}
-                  onChange={e => setMatchName(e.target.value)}
-                  placeholder="Their name"
-                  className="bg-transparent text-white text-sm placeholder:text-white/20 focus:outline-none w-full"
-                />
-              </div>
+              <VoiceInput
+                type="text"
+                value={matchName}
+                onChange={setMatchName}
+                placeholder="Their name"
+                className="h-auto bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white text-sm placeholder:text-white/20 focus:outline-none w-full"
+              />
             </div>
             <div>
               <label className="text-white/60 text-xs block mb-1.5">Platform</label>
@@ -239,9 +237,9 @@ export default function ConversationPage() {
           </div>
 
           <label className="text-white/60 text-xs block mb-1.5">Paste the conversation so far</label>
-          <textarea
+          <VoiceTextarea
             value={conversationContext}
-            onChange={e => setConversationContext(e.target.value)}
+            onChange={setConversationContext}
             placeholder={"Them: Hey! I saw you like hiking too\nYou: Yeah I love it! Did the Half Dome trail last summer\nThem: No way that's on my bucket list. Any tips?"}
             rows={6}
             className="w-full bg-white/5 border border-white/10 rounded-lg p-3 text-white text-sm placeholder:text-white/20 focus:outline-none focus:border-brand-500/50 resize-none mb-4"

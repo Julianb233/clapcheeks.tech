@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { VoiceInput, VoiceTextarea } from '@/components/voice'
 
 const PLATFORMS = ['tinder', 'hinge', 'bumble', 'raya', 'the_league', 'feeld', 'other'] as const
 const QUICK_TAGS = ['hot', 'funny', 'smart', 'creative', 'adventurous', 'chill', 'ambitious', 'sweet'] as const
@@ -70,12 +71,12 @@ export default function AddMatchForm() {
       {/* Name */}
       <div>
         <label className="block text-sm font-medium text-white/70 mb-1.5">Name *</label>
-        <input
+        <VoiceInput
           type="text"
           value={name}
-          onChange={e => setName(e.target.value)}
+          onChange={setName}
           placeholder="Their first name"
-          className="w-full px-4 py-2.5 rounded-lg bg-white/5 border border-white/10 text-white placeholder-white/30 focus:outline-none focus:border-pink-500/50 focus:ring-1 focus:ring-pink-500/50"
+          className="w-full h-auto px-4 py-2.5 rounded-lg bg-white/5 border border-white/10 text-white placeholder-white/30 focus:outline-none focus:border-pink-500/50 focus:ring-1 focus:ring-pink-500/50"
           required
         />
       </div>
@@ -129,21 +130,21 @@ export default function AddMatchForm() {
       {/* Instagram Handle */}
       <div>
         <label className="block text-sm font-medium text-white/70 mb-1.5">Instagram Handle</label>
-        <input
+        <VoiceInput
           type="text"
           value={igHandle}
-          onChange={e => setIgHandle(e.target.value)}
+          onChange={setIgHandle}
           placeholder="@their_handle"
-          className="w-full px-4 py-2.5 rounded-lg bg-white/5 border border-white/10 text-white placeholder-white/30 focus:outline-none focus:border-pink-500/50 focus:ring-1 focus:ring-pink-500/50"
+          className="w-full h-auto px-4 py-2.5 rounded-lg bg-white/5 border border-white/10 text-white placeholder-white/30 focus:outline-none focus:border-pink-500/50 focus:ring-1 focus:ring-pink-500/50"
         />
       </div>
 
       {/* Bio */}
       <div>
         <label className="block text-sm font-medium text-white/70 mb-1.5">Bio / Profile Text</label>
-        <textarea
+        <VoiceTextarea
           value={bio}
-          onChange={e => setBio(e.target.value)}
+          onChange={setBio}
           placeholder="Paste their bio or prompts here..."
           rows={4}
           className="w-full px-4 py-2.5 rounded-lg bg-white/5 border border-white/10 text-white placeholder-white/30 focus:outline-none focus:border-pink-500/50 focus:ring-1 focus:ring-pink-500/50 resize-none"
@@ -174,9 +175,9 @@ export default function AddMatchForm() {
       {/* Notes */}
       <div>
         <label className="block text-sm font-medium text-white/70 mb-1.5">Notes</label>
-        <textarea
+        <VoiceTextarea
           value={notes}
-          onChange={e => setNotes(e.target.value)}
+          onChange={setNotes}
           placeholder="Anything else to remember..."
           rows={2}
           className="w-full px-4 py-2.5 rounded-lg bg-white/5 border border-white/10 text-white placeholder-white/30 focus:outline-none focus:border-pink-500/50 focus:ring-1 focus:ring-pink-500/50 resize-none"

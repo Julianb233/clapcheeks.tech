@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import { formatDistanceToNow, format, parseISO, isBefore } from 'date-fns'
+import { VoiceInput, VoiceTextarea } from '@/components/voice'
 
 type ScheduledMessage = {
   id: string
@@ -187,30 +188,30 @@ export default function ScheduledPage() {
               <div className="space-y-3">
                 <div>
                   <label className="text-xs text-white/50 mb-1 block">Match Name *</label>
-                  <input
-                    className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-white/30 focus:outline-none focus:border-purple-500/50"
+                  <VoiceInput
+                    className="w-full h-auto bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-white/30 focus:outline-none focus:border-purple-500/50"
                     placeholder="e.g. Sofia"
                     value={compose.match_name}
-                    onChange={e => setCompose(p => ({ ...p, match_name: e.target.value }))}
+                    onChange={(v) => setCompose(p => ({ ...p, match_name: v }))}
                   />
                 </div>
                 <div>
                   <label className="text-xs text-white/50 mb-1 block">Phone (for iMessage)</label>
-                  <input
-                    className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-white/30 focus:outline-none focus:border-purple-500/50"
+                  <VoiceInput
+                    className="w-full h-auto bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-white/30 focus:outline-none focus:border-purple-500/50"
                     placeholder="+16195550123"
                     value={compose.phone}
-                    onChange={e => setCompose(p => ({ ...p, phone: e.target.value }))}
+                    onChange={(v) => setCompose(p => ({ ...p, phone: v }))}
                   />
                 </div>
                 <div>
                   <label className="text-xs text-white/50 mb-1 block">Message *</label>
-                  <textarea
+                  <VoiceTextarea
                     className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-white/30 focus:outline-none focus:border-purple-500/50 resize-none"
                     rows={3}
                     placeholder="Hey, just wanted to check in..."
                     value={compose.message_text}
-                    onChange={e => setCompose(p => ({ ...p, message_text: e.target.value }))}
+                    onChange={(v) => setCompose(p => ({ ...p, message_text: v }))}
                   />
                 </div>
                 <div>
