@@ -1,5 +1,5 @@
 import type { Metadata } from 'next'
-import { redirect } from 'next/navigation'
+import { notFound, redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import ContentLibraryClient from './content-library-client'
 
@@ -41,7 +41,6 @@ export default async function ContentLibraryPage() {
 
   let library: LibraryRow[] = []
   let queue: QueueRow[] = []
-  let fetchError: string | null = null
 
   try {
     const { data, error } = await (supabase as any)
@@ -51,12 +50,15 @@ export default async function ContentLibraryPage() {
       .order('created_at', { ascending: false })
       .limit(500)
     if (error) {
-      fetchError = error.message
+      // Never render raw Postgres errors to end users — treat as "page not available".
+      console.error('[content-library] library fetch failed:', error)
+      notFound()
     } else if (data) {
       library = data as LibraryRow[]
     }
   } catch (e) {
-    fetchError = (e as Error).message
+    console.error('[content-library] library fetch threw:', e)
+    notFound()
   }
 
   try {
@@ -99,12 +101,6 @@ export default async function ContentLibraryPage() {
             behalf - respecting the 60/20/10/10 ratio so you stay human.
           </p>
         </header>
-
-        {fetchError && (
-          <div className="mb-6 rounded-lg border border-red-500/40 bg-red-500/10 p-4 text-red-300">
-            Failed to load library: {fetchError}
-          </div>
-        )}
 
         <ContentLibraryClient
           initialLibrary={hydrated}
