@@ -83,9 +83,6 @@ export default async function MatchesPage() {
               <h1 className="font-display text-3xl md:text-4xl uppercase tracking-wide gold-text">
                 Matches
               </h1>
-              <span className="font-mono text-[10px] uppercase tracking-widest text-white/30 bg-white/5 px-2 py-0.5 rounded border border-white/10">
-                phase d
-              </span>
             </div>
             <p className="text-white/50 text-sm">
               Every match, ranked by score and recency. Click a card to drill in.

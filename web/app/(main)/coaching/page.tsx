@@ -162,36 +162,51 @@ export default function CoachingPage() {
             Benchmark Comparison
           </h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {data.benchmarks.map((b) => (
-              <div
-                key={b.metric}
-                className="bg-white/5 border border-white/10 rounded-xl p-4"
-              >
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-white text-sm font-medium">{b.metric}</span>
-                  <div className="flex items-center gap-1">
-                    {b.status === 'above' && <ArrowUp className="w-3.5 h-3.5 text-green-400" />}
-                    {b.status === 'below' && <ArrowDown className="w-3.5 h-3.5 text-red-400" />}
-                    {b.status === 'at' && <Minus className="w-3.5 h-3.5 text-white/40" />}
-                    <span
-                      className={`text-xs font-medium ${
-                        b.status === 'above' ? 'text-green-400' : b.status === 'below' ? 'text-red-400' : 'text-white/40'
-                      }`}
-                    >
-                      {b.delta >= 0 ? '+' : ''}{(b.delta * 100).toFixed(1)}%
-                    </span>
+            {data.benchmarks.map((b) => {
+              const noData = b.userValue === 0 && b.benchmark === 0
+              return (
+                <div
+                  key={b.metric}
+                  className="bg-white/5 border border-white/10 rounded-xl p-4"
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-white text-sm font-medium">{b.metric}</span>
+                    {noData ? (
+                      <span className="text-[10px] font-medium text-white/40 uppercase tracking-wider">
+                        No data yet
+                      </span>
+                    ) : (
+                      <div className="flex items-center gap-1">
+                        {b.status === 'above' && <ArrowUp className="w-3.5 h-3.5 text-green-400" />}
+                        {b.status === 'below' && <ArrowDown className="w-3.5 h-3.5 text-red-400" />}
+                        {b.status === 'at' && <Minus className="w-3.5 h-3.5 text-white/40" />}
+                        <span
+                          className={`text-xs font-medium ${
+                            b.status === 'above' ? 'text-green-400' : b.status === 'below' ? 'text-red-400' : 'text-white/40'
+                          }`}
+                        >
+                          {b.delta >= 0 ? '+' : ''}{(b.delta * 100).toFixed(1)}%
+                        </span>
+                      </div>
+                    )}
                   </div>
+                  {noData ? (
+                    <div className="text-white/30 text-xs">
+                      Collecting your first week of data.
+                    </div>
+                  ) : (
+                    <div className="flex items-baseline gap-2">
+                      <span className="text-white/70 text-xs">
+                        You: {(b.userValue * 100).toFixed(1)}%
+                      </span>
+                      <span className="text-white/30 text-xs">
+                        Top performers: {(b.benchmark * 100).toFixed(0)}%
+                      </span>
+                    </div>
+                  )}
                 </div>
-                <div className="flex items-baseline gap-2">
-                  <span className="text-white/70 text-xs">
-                    You: {(b.userValue * 100).toFixed(1)}%
-                  </span>
-                  <span className="text-white/30 text-xs">
-                    Top performers: {(b.benchmark * 100).toFixed(0)}%
-                  </span>
-                </div>
-              </div>
-            ))}
+              )
+            })}
           </div>
         </div>
 
