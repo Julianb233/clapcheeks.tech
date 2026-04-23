@@ -1,232 +1,209 @@
 # Clapcheeks Roadmap
 
-## Milestone 1: Foundation (v0.1)
+## Milestone 1: Foundation (v0.1) — Shipped
 Core scaffold, landing page, auth, and deployment.
+- Phase 1: Project scaffold
+- Phase 2: Landing page
+- Phase 3: Auth
+- Phase 4: Database schema
+- Phase 5: Vercel deployment
 
-- Phase 1: Project scaffold — Next.js web, Node.js API, Python FastAPI, monorepo structure
-- Phase 2: Landing page — clapcheeks.tech marketing site (hero, features, pricing, install CTA)
-- Phase 3: Auth — Supabase Auth (email + Google OAuth), protected dashboard routes
-- Phase 4: Database schema — Users, subscriptions, devices, analytics tables
-- Phase 5: Vercel deployment — CI/CD pipeline, domain connection, environment secrets
+## Milestone 2: Local Agent (v0.2) — Shipped
+## Milestone 3: Dating App Automation (v0.3) — Shipped
+## Milestone 4: Analytics & AI Coaching (v0.4) — Shipped
+## Milestone 5: Monetization (v0.5) — Shipped
+## Milestone 6: Growth (v0.6) — Shipped
+## Milestone 7: Production Hardening (v0.7) — Shipped
+## Milestone 8: GTM Testing & Launch (v0.8) — Shipped
 
-## Milestone 2: Local Agent (v0.2)
-The downloadable CLI that runs on each user's Mac.
+(Full history preserved at `.planning/ROADMAP.ARCHIVE.md`)
 
-- Phase 6: Install script — `curl -fsSL https://clapcheeks.tech/install.sh | bash` one-command setup
-- Phase 7: iMessage integration — Read conversations, AI replies in user's voice (builds on imessage-ai)
-- Phase 8: Dating profile manager — User preferences, target preferences, dealbreakers
-- Phase 9: Spending tracker — Log date costs, categorize spending, calculate ROI
-- Phase 10: Cloud sync — Push anonymized metrics to Outward API on user's behalf
+## Milestone 9: Personal Dating Command Center (v0.9) — ACTIVE
 
-## Milestone 3: Dating App Automation (v0.3)
-Browser automation for Tinder, Bumble, Hinge using local Playwright.
+Julian's personal dating power tool. 2026-04-20 pivot: after building out the match-profile engine + pipeline dashboard (phases 39-45 original), scope expanded with letter-phases M/F/B/E/C/G/L/H/J/K to cover match intake, scoring, anti-detection, offline handoff, vision analysis, drafting, drip, content library, ML learner, CRM roster, and social graph detection.
 
-- Phase 11: Playwright setup — Local browser automation framework, anti-detection measures
-- Phase 12: Tinder automation — Login, swipe logic, match detection, opener messages
-- Phase 13: Bumble automation — Swipe, first-move messages, conversation starters
-- Phase 14: Hinge automation — Like/comment, prompt responses, conversation flow
-- Phase 15: Automation controller — Unified interface, rate limiting, human-like delays, session management
+### Already landed (2026-04-20)
+- **Phase A** (AI-8315) — Match intake loop (Tinder + Hinge -> Supabase, 15+ columns, photo storage, RLS). Merged, deployed.
+- **Phase D** (AI-8318) — Dashboard /matches grid + detail pages. Merged, deployed.
+- **Phase I** (AI-8323) — Rule-based match scoring (location + criteria + casual-intent). Merged, deployed.
+- **Extension IG harvest** — chrome.cookies API captures IG sessionid/ds_user_id/csrftoken. Merged to main.
+- **Daemon anti-bot hardening** — 30-min cadence, 6/min rate, 3-profile cap, 3-8s jitter.
 
-## Milestone 4: Analytics & AI Coaching (v0.4)
-Dashboard, conversion tracking, and AI coaching engine.
-
-- Phase 16: Analytics dashboard — Swipes, matches, conversations, dates, spending, conversion rates
-- Phase 17: AI coaching engine — Claude API analyzes patterns and generates personalized tips
-- Phase 18: Conversation AI — AI reply suggestions for dating app chats (not just iMessage)
-- Phase 19: Weekly reports — Automated PDF/email performance report with AI recommendations
-
-## Milestone 5: Monetization (v0.5)
-Stripe billing, subscription plans, and usage enforcement.
-
-- Phase 20: Stripe integration — Checkout, webhooks, subscription lifecycle
-- Phase 21: Subscription plans — Starter ($29), Pro ($59), Elite ($99)
-- Phase 22: Usage limits — Enforce per-plan limits (swipes/day, apps connected, AI calls)
-- Phase 23: Billing dashboard — Invoices, plan management, usage meter
-
-## Milestone 6: Growth (v0.6)
-Referral system, affiliate program, and public launch.
-
-- Phase 24: Referral program — Users get 1 free month per referral
-- Phase 25: Affiliate dashboard — Commission tracking for promoters
-- Phase 26: Public launch — Product Hunt, social launch, press kit
-
-## Milestone 7: Production Hardening (v0.7)
-Close all production-blocking gaps before real user traffic. 28 fixes across DB, security, billing, agent, and frontend layers — identified by 5-agent audit on 2026-03-03.
-
-- Phase 27: DB Schema Fixes — Table renames, indexes, RLS policies, constraints (DB-01 through DB-08)
-- Phase 28: Security & API Hardening — Plan gating, rate limiting, error handling, input validation (SEC-01 through SEC-07)
-- Phase 29: Billing Completion — Payment failure handling, trials, plan field consolidation (BILL-01 through BILL-06)
-- Phase 30: Agent Reliability — Degraded state surfacing, env validation, queue backoff, log rotation (AGENT-01 through AGENT-05)
-- Phase 31: Frontend Polish — Remove fake metrics, auth redirects, SEO metadata (FE-01 through FE-05)
-
-## Milestone 8: GTM Testing & Launch (v0.8)
-Deploy, dogfood, alpha test, and soft-launch the SaaS product.
-
-- Phase 32: Infrastructure Deploy — Apply DB migrations, deploy Express API + FastAPI + Next.js
-- Phase 33: Founder Dogfooding — Install agent, test swiping, conversation AI, Stripe checkout, coaching
-- Phase 34: Closed Alpha — Onboarding materials, Sentry, analytics, 2-week alpha with 5-10 friends
-- Phase 35: Anti-Detection & Safety — Platform ban testing, rate limit rules per platform
-- Phase 36: Beta Readiness — Production Stripe, dunning flow, load test, security audit
-- Phase 37: Launch Prep — Demo video, email onboarding sequence, weekly reports, landing page optimization
-- Phase 38: Soft Launch — First 50 users, referral program, admin monitoring
-
-## Milestone 9: Personal Dating Command Center (v0.9)
-
-Julian's personal dating power tool — zodiac intelligence, Instagram scraping, communication profiling, match pipeline, scheduled messaging, date planning, and full autonomy.
-
-**Dependency chain:** 39 → 40 → 41 → 42 (41 also feeds 43). Phase 44 depends on 41+42. Phase 45 depends on all.
+### Remaining letter-phases (dependency-respecting priority order)
 
 ```
-39 Match Profile Engine ──→ 40 Pipeline Dashboard ──→ 41 Conversation Intelligence
-                                                        ├──→ 42 Scheduled Messaging ──┐
-                                                        └──→ 43 Date Planner ──────────┤
-                                                                                       ↓
-                                                             44 Autonomy Engine ←──────┘
-                                                                      ↓
-                                                             45 Polish & Integration
+M ──→ F ──→ B ──→ E ──→ C ──→ G ──→ L ──→ H ──→ J ──→ K
+|            |          |          |          |
+|            |          +----------+          |
+|            |                                |
++------------+--------------------------------+
+(all downstream of A which is already shipped)
 ```
 
 ---
 
-### Phase 39: Match Profile Engine
-**Goal:** Build the data layer — Supabase schema, zodiac engine, Instagram scraper, and communication profiler. Everything downstream depends on this.
-**Requirements:** PROFILE-01, PROFILE-02, PROFILE-03, PROFILE-04, PROFILE-05, PROFILE-06, PROFILE-07
-**Research needed:** Instagram scraping via Browserbase (anti-detection patterns, rate limits, login requirements for public profiles)
+### Phase M (46): Chrome-extension routing for platform API calls (AI-8345)
+**Priority:** P1 — BLOCKER for safe Tinder use after 2026-04-20 selfie-verification trip
+**Goal:** Route all Tinder/Hinge/Bumble/IG outbound API calls through Julian's real Chrome session via the token-harvester extension, so every request carries his real browser fingerprint + residential IP.
+**Requirements:** REQ-M from Linear AI-8345
+**Depends on:** Phase A (match intake to refactor)
 
 **Success criteria:**
-1. `match_profiles` table exists with all columns, RLS active
-2. Zodiac engine returns correct sign + compatibility for any birthday pair
-3. IG scraper returns structured profile data for a public handle via Browserbase
-4. Communication profile generates DISC estimate + strategy from available data
-5. Add Match form saves to DB and triggers zodiac + IG scrape + comms profile
+1. `clapcheeks_agent_jobs` schema + RLS + index added
+2. Extension polls + claims jobs every 10s, fetches with `credentials: 'include'`, streams results back
+3. `POST /api/ingest/api-result` endpoint
+4. `agent/clapcheeks/match_sync.py` refactored to enqueue jobs instead of calling APIs directly
+5. 48h soak: 0 anti-bot events, 0 selfie verifications triggered
 
 ---
 
-### Phase 40: Pipeline Dashboard
-**Goal:** Visual match management — Kanban board, profile cards, rankings, mobile-first. Julian can manage all matches from his phone.
-**Requirements:** PIPE-01, PIPE-02, PIPE-03, PIPE-04, PIPE-05
-**Depends on:** Phase 39 (match_profiles table + zodiac + IG data)
-**Research needed:** None — standard Next.js UI with dnd-kit or similar
+### Phase F (47): Offline contacts + cross-platform conversation handoff (AI-8320)
+**Priority:** P1
+**Goal:** F1 — Julian adds offline contacts via dashboard; iMessage history + IG pulled; same match-row shape. F2 — when a Tinder/Hinge match exchanges numbers, merge iMessage thread into the match row and continue drafting on iMessage.
+**Requirements:** REQ-F
+**Depends on:** Phase A (schema), Phase C (IG enrichment — soft dep)
 
 **Success criteria:**
-1. Kanban board renders all pipeline stages with drag-and-drop that persists
-2. Match cards show zodiac icon, compatibility score, IG photo, and scores
-3. Ranking sliders update scores in real-time with leaderboard reordering
-4. Works on iPhone 14 viewport — no horizontal scroll, touch targets ≥ 44px
+1. 'Add offline contact' UI in /dashboard/matches
+2. Phone-number regex fires on every platform message (both directions), writes `match.her_phone`
+3. Handoff-ask draft uses `persona.platform_handoff.julian_golden_template` verbatim
+4. Primary channel flips to iMessage when handoff_complete=true
+5. iMessage reply drafts continue with full match context (bio + vision + prior platform thread)
+6. Unified thread view in /dashboard/matches/[id] with channel badges
 
 ---
 
-### Phase 41: Conversation Intelligence
-**Goal:** Analyze conversations, generate per-match strategies, draft replies in Julian's voice. The AI brain behind the conversations.
-**Requirements:** CONV-01, CONV-02, CONV-03, CONV-04, CONV-05
-**Depends on:** Phase 39 (match profiles + comms data), Phase 40 (UI to display strategies)
-**Research needed:** Voice profile calibration approach — how to extract Julian's texting style from iMessage DB
+### Phase B (48): Photo vision analysis (AI-8316)
+**Priority:** P2
+**Goal:** Claude Vision on every match photo — scene, activity, location, food signals, aesthetic, energy. Aggregate into `vision_summary` per match. Feed back into Phase I scoring rescore.
+**Requirements:** REQ-B
+**Depends on:** Phase A (photos in storage)
 
 **Success criteria:**
-1. Message analysis extracts topics, sentiment, and engagement from conversation history
-2. Strategy generator produces match-specific (not generic) topics and approach
-3. Reply drafter generates 3 distinct options in Julian's voice
-4. Red flag detection catches low-effort and suspicious patterns
+1. Worker consumes photos_jsonb URLs from new matches
+2. Structured JSON output stored on clapcheeks_photo_scores
+3. Aggregated vision_summary populated on clapcheeks_matches within 5 min of new match
+4. Phase I scoring daemon auto-rescores on vision_summary update (wire already exists)
+5. Rate-limited: 3 photos per Claude call, cached by photo hash
 
 ---
 
-### Phase 42: Scheduled Messaging
-**Goal:** Automated follow-ups — sequences, timing optimization, approval queue, god draft integration. Messages fire on schedule without manual intervention.
-**Requirements:** SCHED-01, SCHED-02, SCHED-03, SCHED-04, SCHED-05
-**Depends on:** Phase 41 (reply drafter + strategy for message content)
-**Research needed:** god draft API for programmatic message scheduling
+### Phase E (49): Tone + voice rules in drafting (AI-8319)
+**Priority:** P2
+**Goal:** Enforce `persona.message_formatting_rules` + banned punctuation + banned_words + multi-message splitting in every draft Clapcheeks produces. Every draft MUST reference HER specific profile.
+**Requirements:** REQ-E
+**Depends on:** Phase A (match data), Phase B (vision for 'her specific detail' reference)
 
 **Success criteria:**
-1. Follow-up sequences trigger after configurable delay with AI-drafted content
-2. Messages send via god draft at exact scheduled time
-3. Approval queue shows pending messages with one-tap approve/edit/reject
-4. App-to-text transition fires when warmth threshold crossed
+1. `lib/claude.ts` prompt injects persona.message_formatting_rules + golden handoff template
+2. Pre-queue validator rejects drafts containing em-dash, en-dash, ellipsis, curly quotes, semicolon, banned_words
+3. Multi-thought drafts return as message arrays (sender fires with 3-8s pauses)
+4. 20 sample drafts tested across different match profiles: 0 em-dashes, 0 walls, each references a specific HER detail
 
 ---
 
-### Phase 43: Date Planner
-**Goal:** Plan, book, and track dates — calendar integration, personalized venue suggestions, budget tracking, post-date notes.
-**Requirements:** DATE-01, DATE-02, DATE-03, DATE-04, DATE-05
-**Depends on:** Phase 41 (match interests + conversation data for personalized suggestions)
-**Research needed:** Google Calendar API for bi-directional sync
+### Phase C (50): Instagram enrichment (AI-8317)
+**Priority:** P2
+**Goal:** Extract IG handle from bio/prompts/messages; pull public feed via embed endpoint or Firecrawl; store 12 recent posts + hashtags + frequency into `clapcheeks_matches.instagram_intel`.
+**Requirements:** REQ-C
+**Depends on:** Phase A (match data)
 
 **Success criteria:**
-1. Date ideas are personalized to match interests (not generic)
-2. Calendar events sync bi-directionally with Google Calendar
-3. Budget tracking shows per-date and running totals
-4. Post-date rating form updates match rankings
+1. Regex IG handle extraction from bio + prompts + incoming messages
+2. Public IG feed scraped (12 posts) via TOS-safe endpoints
+3. `instagram_intel` JSONB populated on match row
+4. Private profiles handled gracefully (handle recorded, fetch skipped)
 
 ---
 
-### Phase 44: Autonomy Engine
-**Goal:** Hands-off operation — auto-swipe, auto-respond, auto-follow-up with configurable approval gates. Julian only intervenes for date booking.
-**Requirements:** AUTO-01, AUTO-02, AUTO-03, AUTO-04, AUTO-05, AUTO-06
-**Depends on:** Phase 41 (conversation AI), Phase 42 (scheduled messaging)
-**Research needed:** Preference learning model — lightweight ML or heuristic scoring for swipe prediction
+### Phase G (51): Follow-up drip daemon (AI-8321)
+**Priority:** P2
+**Goal:** Automated nurture — no match goes dark. State machine: opened -> 24h bump -> 5d terminal; conversing -> 2d re-engage -> 7d terminal; date_proposed -> 24h follow-up; date_booked -> outcome prompt to Julian 4h after.
+**Requirements:** REQ-G
+**Depends on:** Phase E (draft quality)
 
 **Success criteria:**
-1. Preference model predicts Julian's swipe with > 70% accuracy after training
-2. Auto-swipe respects rate limits and stops on low confidence
-3. Auto-respond sends high-confidence replies, queues uncertain ones
-4. Approval gates configurable: supervised / semi-auto / full-auto
+1. Cron every 15 min scans clapcheeks_conversations
+2. Drafts use Phase E rules verbatim
+3. 48h unanswered opener auto-queues soft bump
+4. Stalled conversation triggers re-engage referencing her last topic
+5. Julian gets iMessage outcome prompt 4h after scheduled date end
 
 ---
 
-### Phase 45: Polish & Integration
-**Goal:** End-to-end flow validation, Obsidian sync, push notifications, mobile UX refinement. Ship-ready.
-**Requirements:** POLISH-01, POLISH-02, POLISH-03, POLISH-04, POLISH-05
-**Depends on:** All previous phases (39-44)
+### Phase L (52): IG content library + auto-posting (AI-8340)
+**Priority:** P2
+**Goal:** Upload Julian's beach/dog/agency photos once; system categorizes + schedules + posts. Before opening a >=0.85 match, check IG freshness; if >3 days stale, auto-post from library or prompt Julian.
+**Requirements:** REQ-L
+**Depends on:** Phase A (match data), Chrome extension (IG session cookie already harvested)
 
 **Success criteria:**
-1. Full add-match-to-date-rating flow completes without errors
-2. Obsidian dating profiles auto-created at "Date Planned" stage
-3. Push notifications fire for approval queue items and date reminders
-4. All pages pass mobile usability on iPhone 14
-5. Match deletion cascades across all tables
+1. `clapcheeks_content_library` table + `julian-content` Supabase Storage bucket
+2. Dashboard upload UI with auto-categorization via Claude Vision
+3. Auto-scheduler fills 7-day calendar respecting ratio rules (beach+dog 60% / active 20% / entrepreneur 10% / food 10%)
+4. Posting engine publishes stories via IG session cookie
+5. Freshness rule auto-posts or pings Julian before Phase G's opener fires on >=0.85 match with stale IG
+
+---
+
+### Phase H (53): ML preference learner (AI-8322)
+**Priority:** P2
+**Goal:** Learn Julian's 'type' from every swipe (retroactive + forward) and auto-score new profiles. Retroactive from Tinder/Hinge data-export ZIPs; forward from every extension swipe.
+**Requirements:** REQ-H
+**Depends on:** Phase I (rule-score foundation), Phase A (swipe stream)
+
+**Success criteria:**
+1. `clapcheeks_swipe_decisions` schema + RLS
+2. Nightly cron fits logistic regression or GBM on features -> like decision
+3. Model weights stored in `clapcheeks_user_settings.preference_model_v`
+4. New profile scored via model on Phase A intake; >0.85 auto-like, <0.15 auto-pass
+5. Held-out set accuracy >70% on >=1000 decisions
+
+---
+
+### Phase J (54): Roster CRM view (AI-8338)
+**Priority:** P2
+**Goal:** Kanban dashboard with 10 stages; per-match health score (0-100), julian_rank (1-10 slider), close_probability; Daily Top-3 panel; 3 bonus factors live (geographic_cluster, calendar_overlap, boundary_log).
+**Requirements:** REQ-J
+**Depends on:** Phase D (match detail page adds slider), Phase G (stage transitions)
+
+**Success criteria:**
+1. Schema extensions on clapcheeks_matches (stage, health_score, julian_rank, close_probability, etc.)
+2. `/dashboard/roster` kanban route with drag-between-stages
+3. Health score computed hourly via cron (weighted composite with decay)
+4. Top-3 daily outreach panel surfaces correct entries
+5. Julian rank slider writes back to row, feeds Phase H training signal
+
+---
+
+### Phase K (55): Social graph collision detector (AI-8339)
+**Priority:** P2
+**Goal:** Detect mutual-friend overlap + friend-cluster risks; cluster matches who share female friends; activate only highest-scoring cluster member; flag HIGH_RISK (8+ mutual) to Julian via iMessage.
+**Requirements:** REQ-K
+**Depends on:** Phase A (match data), Phase C (IG follower overlap)
+
+**Success criteria:**
+1. Schema extensions: mutual_friends_count, social_risk_band, friend_cluster_id, cluster_rank, shared_female_friends
+2. Detection sources live: Hinge native + IG follower overlap + phone contact overlap
+3. Cluster logic: new match joining cluster gets scored; if higher than current leader, promote + demote
+4. HIGH_RISK (8+ mutual) triggers Julian approval before opener
+5. 'Social Graph' panel on match detail page shows mutual friends, cluster, risk band
 
 ---
 
 ### Requirement Coverage Matrix
 
-| Req ID | Phase | Priority | Description |
-|--------|-------|----------|-------------|
-| PROFILE-01 | 39 | P0 | match_profiles Supabase table |
-| PROFILE-02 | 39 | P0 | Zodiac calculation engine |
-| PROFILE-03 | 39 | P0 | Zodiac compatibility scoring |
-| PROFILE-04 | 39 | P0 | Instagram profile scraper |
-| PROFILE-05 | 39 | P1 | Instagram interest extraction |
-| PROFILE-06 | 39 | P0 | Communication profile builder |
-| PROFILE-07 | 39 | P0 | Add match UI flow |
-| PIPE-01 | 40 | P0 | Kanban pipeline view |
-| PIPE-02 | 40 | P0 | Match profile cards |
-| PIPE-03 | 40 | P0 | Ranking system |
-| PIPE-04 | 40 | P1 | Filter & sort |
-| PIPE-05 | 40 | P0 | Mobile-first responsive |
-| CONV-01 | 41 | P0 | Message analysis engine |
-| CONV-02 | 41 | P0 | Strategy generator |
-| CONV-03 | 41 | P0 | Reply drafter |
-| CONV-04 | 41 | P1 | Voice profile calibration |
-| CONV-05 | 41 | P1 | Red flag detection |
-| SCHED-01 | 42 | P0 | Follow-up sequences |
-| SCHED-02 | 42 | P0 | god draft integration |
-| SCHED-03 | 42 | P1 | Optimal send timing |
-| SCHED-04 | 42 | P1 | App-to-text transition |
-| SCHED-05 | 42 | P0 | Approval queue |
-| DATE-01 | 43 | P1 | Date idea generator |
-| DATE-02 | 43 | P0 | Google Calendar integration |
-| DATE-03 | 43 | P1 | Budget tracking |
-| DATE-04 | 43 | P0 | Post-date notes |
-| DATE-05 | 43 | P1 | Date history timeline |
-| AUTO-01 | 44 | P0 | Preference learning |
-| AUTO-02 | 44 | P0 | Auto-swipe mode |
-| AUTO-03 | 44 | P0 | Auto-respond |
-| AUTO-04 | 44 | P1 | Stale conversation recovery |
-| AUTO-05 | 44 | P0 | Approval gates |
-| AUTO-06 | 44 | P1 | Confidence dashboard |
-| POLISH-01 | 45 | P0 | End-to-end flow test |
-| POLISH-02 | 45 | P1 | Obsidian dating profile sync |
-| POLISH-03 | 45 | P1 | Push notifications |
-| POLISH-04 | 45 | P0 | Mobile UX refinement |
-| POLISH-05 | 45 | P1 | Data privacy & cleanup |
+| Letter-phase | Linear | Maps to existing v0.9 phase? | Dashboard surface |
+|---|---|---|---|
+| M (46) | AI-8345 | Extends Phase 38 anti-detection | Background — extension + daemon |
+| F (47) | AI-8320 | New (not in original 39-45 plan) | /dashboard/matches + thread |
+| B (48) | AI-8316 | Complements Phase 39 profile engine | Match detail AI insights |
+| E (49) | AI-8319 | Complements Phase 41 conversation intelligence | Draft preview |
+| C (50) | AI-8317 | Extends Phase 39 IG scraper | Match detail AI insights |
+| G (51) | AI-8321 | Complements Phase 42 scheduled messaging | Approval queue |
+| L (52) | AI-8340 | New | /dashboard/content-library |
+| H (53) | AI-8322 | Maps to Phase 44 autonomy engine ML | Scoring panel |
+| J (54) | AI-8338 | Maps to Phase 40 pipeline dashboard | /dashboard/roster |
+| K (55) | AI-8339 | New | Match detail Social Graph panel |
 
-**Coverage:** 38/38 requirements mapped. 0 orphans.
+**Coverage:** 10/10 letter-phases mapped to concrete Linear issues with full scope in each issue's description.

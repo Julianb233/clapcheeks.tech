@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { createBrowserClient } from '@supabase/ssr'
 import { MessageSquare, Mail, FileText, ChevronDown } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { VoiceInput, VoiceTextarea } from '@/components/voice'
 
 export default function SupportPage() {
   const [subject, setSubject] = useState('')
@@ -42,8 +43,8 @@ export default function SupportPage() {
         <h2 className="text-white font-semibold mb-1">Send us a message</h2>
         <p className="text-white/30 text-sm mb-6">We reply within 24 hours.</p>
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div><label htmlFor="subject" className="block text-sm text-white/60 mb-1.5">Subject</label><input id="subject" type="text" required value={subject} onChange={(e) => setSubject(e.target.value)} placeholder="What do you need help with?" className="w-full bg-white/5 border border-white/10 hover:border-white/20 focus:border-brand-500 rounded-xl px-4 py-3 text-white placeholder-white/20 text-sm outline-none focus:ring-1 focus:ring-brand-500/50" /></div>
-          <div><label htmlFor="message" className="block text-sm text-white/60 mb-1.5">Message</label><textarea id="message" required rows={5} value={message} onChange={(e) => setMessage(e.target.value)} placeholder="Describe your issue..." className="w-full bg-white/5 border border-white/10 hover:border-white/20 focus:border-brand-500 rounded-xl px-4 py-3 text-white placeholder-white/20 text-sm outline-none focus:ring-1 focus:ring-brand-500/50 resize-none" /></div>
+          <div><label htmlFor="subject" className="block text-sm text-white/60 mb-1.5">Subject</label><VoiceInput id="subject" type="text" required value={subject} onChange={setSubject} placeholder="What do you need help with?" className="w-full h-auto bg-white/5 border border-white/10 hover:border-white/20 focus:border-brand-500 rounded-xl px-4 py-3 text-white placeholder-white/20 text-sm outline-none focus:ring-1 focus:ring-brand-500/50" /></div>
+          <div><label htmlFor="message" className="block text-sm text-white/60 mb-1.5">Message</label><VoiceTextarea id="message" required rows={5} value={message} onChange={setMessage} placeholder="Describe your issue..." className="w-full bg-white/5 border border-white/10 hover:border-white/20 focus:border-brand-500 rounded-xl px-4 py-3 text-white placeholder-white/20 text-sm outline-none focus:ring-1 focus:ring-brand-500/50 resize-none" /></div>
           <Button type="submit" disabled={sending} className="w-full bg-brand-600 hover:bg-brand-500 text-white py-3 rounded-xl">{sending ? 'Sending...' : 'Send message'}</Button>
         </form>
       </div>

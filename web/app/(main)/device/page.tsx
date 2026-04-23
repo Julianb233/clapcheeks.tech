@@ -668,6 +668,11 @@ function FinalCTA() {
 export default function DevicePage() {
   return (
     <>
+      <div className="max-w-4xl mx-auto px-6 pt-24">
+        <div className="border border-amber-500/30 bg-amber-500/5 rounded-lg p-4 mb-6 text-sm text-white/80">
+          <strong>Coming soon</strong> &mdash; device integration launches Q3.
+        </div>
+      </div>
       <Hero />
       <HowItWorks />
       <WhatYouGet />

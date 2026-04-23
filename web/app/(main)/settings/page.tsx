@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { CalendarConnectCard } from '@/components/settings/calendar-connect-card'
 
 const DAYS = [
   { value: 'monday', label: 'Monday' },
@@ -73,6 +74,14 @@ export default function SettingsPage() {
     <div className="min-h-screen bg-black text-white p-6 md:p-10">
       <div className="max-w-2xl mx-auto">
         <h1 className="text-2xl font-bold mb-8">Settings</h1>
+
+        {/* Integrations */}
+        <div className="mb-8">
+          <h2 className="text-white/60 font-semibold text-sm mb-4 uppercase tracking-wider">
+            Integrations
+          </h2>
+          <CalendarConnectCard nextPath="/settings" />
+        </div>
 
         {/* Weekly Reports Section */}
         <div className="bg-white/5 border border-white/10 rounded-xl p-5 mb-8">

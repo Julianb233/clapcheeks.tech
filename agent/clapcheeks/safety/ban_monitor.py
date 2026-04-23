@@ -25,6 +25,22 @@ from clapcheeks.safety.emergency_stop import emergency_stop
 
 logger = logging.getLogger(__name__)
 
+# Severity ordering for BanStatus. Higher = worse. Used to take the max
+# severity across independent signals in a single API response without
+# relying on alphabetical comparison of enum .value strings (which would
+# put "hard_ban" < "suspected" by accident).
+_BAN_STATUS_SEVERITY: dict[BanStatus, int] = {
+    BanStatus.CLEAN: 0,
+    BanStatus.SUSPECTED: 1,
+    BanStatus.SOFT_BAN: 2,
+    BanStatus.HARD_BAN: 3,
+}
+
+
+def _worse(a: BanStatus, b: BanStatus) -> bool:
+    """Return True when `a` is a more severe ban status than `b`."""
+    return _BAN_STATUS_SEVERITY.get(a, 0) > _BAN_STATUS_SEVERITY.get(b, 0)
+
 
 # Platform family grouping — same corporate owner shares ban signals
 PLATFORM_FAMILIES: dict[str, list[str]] = {
@@ -150,9 +166,14 @@ class BanMonitor:
         """Inspect an API response for ban indicators.
 
         Checks HTTP status codes, JSON body patterns, and keyword scans.
-        Returns the worst-case BanStatus found.
+        Returns the worst-case BanStatus found. Each signal is recorded at
+        most once per call — the keyword-scan fallback is skipped when the
+        HTTP status code already flagged the response, otherwise 403/451
+        responses would double-increment `_hard_ban_count` and wrongly trip
+        the emergency-stop threshold on the very first hard-ban observation.
         """
         status = BanStatus.CLEAN
+        http_already_flagged = False
 
         # --- HTTP status code check ---
         ban_codes = PLATFORM_BAN_CODES.get(platform, {})
@@ -162,30 +183,34 @@ class BanMonitor:
             status = self._record_and_correlate(
                 platform, f"http_{status_code}", reason or f"HTTP {status_code} response"
             )
+            http_already_flagged = True
         elif status_code == 429:
             status = self._handle_rate_limit(platform, reason or "HTTP 429 rate limit")
+            http_already_flagged = True
         elif status_code == 401:
             logger.warning("[%s] Auth error (401): %s", platform, reason)
             status = BanStatus.SUSPECTED
+            http_already_flagged = True
 
         # --- JSON body pattern matching ---
         if isinstance(body, dict):
             pattern_status = self._check_json_patterns(platform, body)
-            if pattern_status.value > status.value:
+            if _worse(pattern_status, status):
                 status = pattern_status
 
         # --- Keyword scan (fallback to basic detector) ---
-        try:
-            from clapcheeks.session.ban_detector import check_response_for_ban
-            check_response_for_ban(platform, status_code, body)
-        except BanSignalException as exc:
-            signal_status = self._record_and_correlate(
-                platform, exc.signal_type, exc.details
-            )
-            if signal_status.value > status.value:
-                status = signal_status
-            if raise_on_ban:
-                raise
+        if not http_already_flagged:
+            try:
+                from clapcheeks.session.ban_detector import check_response_for_ban
+                check_response_for_ban(platform, status_code, body)
+            except BanSignalException as exc:
+                signal_status = self._record_and_correlate(
+                    platform, exc.signal_type, exc.details
+                )
+                if _worse(signal_status, status):
+                    status = signal_status
+                if raise_on_ban:
+                    raise
 
         return status
 

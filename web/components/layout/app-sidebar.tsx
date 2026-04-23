@@ -15,11 +15,12 @@ type NavItem = {
 
 const PRIMARY: NavItem[] = [
   { href: '/dashboard', label: 'Dashboard', icon: <HomeIcon /> },
+  { href: '/ai-first-date', label: 'AI First Date', icon: <HeartIcon />, badge: 'new' },
   { href: '/dashboard/matches', label: 'Matches', icon: <HeartIcon /> },
   { href: '/dashboard/roster', label: 'Roster', icon: <RosterIcon />, badge: 'new' },
   { href: '/dashboard/content-library', label: 'Content Library', icon: <CameraIcon />, badge: 'new' },
   { href: '/leads', label: 'Leads', icon: <PipelineIcon /> },
-  { href: '/matches', label: 'Match Intel', icon: <ProfileIcon />, badge: 'new' },
+  { href: '/matches', label: 'Match Brief', icon: <ProfileIcon />, badge: 'new' },
   { href: '/conversation', label: 'Conversations', icon: <ChatIcon /> },
   { href: '/intelligence', label: 'Intelligence', icon: <SparkIcon /> },
   { href: '/analytics', label: 'Analytics', icon: <ChartIcon /> },
@@ -28,9 +29,10 @@ const PRIMARY: NavItem[] = [
 ]
 
 const SECONDARY: NavItem[] = [
+  { href: '/autonomy', label: 'Autonomy', icon: <SparkIcon /> },
   { href: '/referrals', label: 'Referrals', icon: <GiftIcon />, badge: 'new' },
   { href: '/settings/ai', label: 'AI Settings', icon: <GearIcon />, badge: 'new' },
-  { href: '/settings', label: 'Reports', icon: <BellIcon /> },
+  { href: '/settings', label: 'Weekly Reports', icon: <BellIcon /> },
   { href: '/billing', label: 'Billing', icon: <CardIcon /> },
   { href: '/device', label: 'Device', icon: <LaptopIcon /> },
   { href: '/support', label: 'Support', icon: <HelpIcon /> },

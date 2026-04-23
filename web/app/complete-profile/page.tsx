@@ -98,9 +98,26 @@ export default function CompleteProfilePage() {
 
       if (!user) throw new Error("No user found")
 
-      // Upload photo to Vercel Blob (placeholder - you'll need to implement this)
-      // For now, we'll use a placeholder URL
-      const photoUrl = photoPreview // In production, upload to Vercel Blob
+      // Upload photo to Supabase Storage (private `knowledge` bucket)
+      const ext = photoFile.name.split(".").pop()?.toLowerCase() || "jpg"
+      const fileName = `${user.id}/avatar.${ext}`
+      const { error: uploadError } = await supabase.storage
+        .from("knowledge")
+        .upload(fileName, photoFile, {
+          upsert: true,
+          contentType: photoFile.type || "image/jpeg",
+        })
+      if (uploadError) throw uploadError
+
+      // Bucket is private — use a long-lived signed URL (1 year)
+      const ONE_YEAR_SECONDS = 60 * 60 * 24 * 365
+      const { data: signed, error: signedErr } = await supabase.storage
+        .from("knowledge")
+        .createSignedUrl(fileName, ONE_YEAR_SECONDS)
+      if (signedErr || !signed?.signedUrl) {
+        throw signedErr || new Error("Could not generate signed URL for profile photo")
+      }
+      const photoUrl = signed.signedUrl
 
       // Update profile
       const { error: updateError } = await supabase
@@ -118,7 +135,7 @@ export default function CompleteProfilePage() {
 
       if (updateError) throw updateError
 
-      router.push("/home")
+      router.push("/dashboard")
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error completing profile")
     } finally {

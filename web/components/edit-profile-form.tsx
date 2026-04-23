@@ -5,6 +5,7 @@ import type React from "react"
 import { createClient } from "@/lib/supabase/client"
 import { useRouter } from "next/navigation"
 import { useState } from "react"
+import { VoiceInput, VoiceTextarea } from "@/components/voice"
 
 type Profile = {
   full_name: string | null
@@ -64,35 +65,35 @@ export function EditProfileForm({ profile, userId }: { profile: Profile | null; 
         <div className="grid md:grid-cols-2 gap-4">
           <div>
             <label htmlFor="full_name" className="block text-sm text-white/60 mb-1.5">Full Name</label>
-            <input
+            <VoiceInput
               id="full_name"
               type="text"
               value={formData.full_name}
-              onChange={(e) => setFormData({ ...formData, full_name: e.target.value })}
+              onChange={(v) => setFormData({ ...formData, full_name: v })}
               placeholder="Your name"
-              className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white text-sm placeholder:text-white/25 focus:outline-none focus:border-brand-500/50"
+              className="w-full h-auto bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white text-sm placeholder:text-white/25 focus:outline-none focus:border-brand-500/50"
             />
           </div>
 
           <div>
             <label htmlFor="display_name" className="block text-sm text-white/60 mb-1.5">Display Name</label>
-            <input
+            <VoiceInput
               id="display_name"
               type="text"
               value={formData.display_name}
-              onChange={(e) => setFormData({ ...formData, display_name: e.target.value })}
+              onChange={(v) => setFormData({ ...formData, display_name: v })}
               placeholder="How others see you"
-              className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white text-sm placeholder:text-white/25 focus:outline-none focus:border-brand-500/50"
+              className="w-full h-auto bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white text-sm placeholder:text-white/25 focus:outline-none focus:border-brand-500/50"
             />
           </div>
         </div>
 
         <div>
           <label htmlFor="bio" className="block text-sm text-white/60 mb-1.5">Bio</label>
-          <textarea
+          <VoiceTextarea
             id="bio"
             value={formData.bio}
-            onChange={(e) => setFormData({ ...formData, bio: e.target.value })}
+            onChange={(v) => setFormData({ ...formData, bio: v })}
             placeholder="Tell us about yourself..."
             rows={4}
             className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white text-sm placeholder:text-white/25 focus:outline-none focus:border-brand-500/50 resize-none"
@@ -102,38 +103,38 @@ export function EditProfileForm({ profile, userId }: { profile: Profile | null; 
         <div className="grid md:grid-cols-2 gap-4">
           <div>
             <label htmlFor="phone" className="block text-sm text-white/60 mb-1.5">Phone</label>
-            <input
+            <VoiceInput
               id="phone"
               type="tel"
               value={formData.phone}
-              onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+              onChange={(v) => setFormData({ ...formData, phone: v })}
               placeholder="+1 555 123 4567"
-              className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white text-sm placeholder:text-white/25 focus:outline-none focus:border-brand-500/50"
+              className="w-full h-auto bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white text-sm placeholder:text-white/25 focus:outline-none focus:border-brand-500/50"
             />
           </div>
 
           <div>
             <label htmlFor="city" className="block text-sm text-white/60 mb-1.5">City</label>
-            <input
+            <VoiceInput
               id="city"
               type="text"
               value={formData.city}
-              onChange={(e) => setFormData({ ...formData, city: e.target.value })}
+              onChange={(v) => setFormData({ ...formData, city: v })}
               placeholder="Your city"
-              className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white text-sm placeholder:text-white/25 focus:outline-none focus:border-brand-500/50"
+              className="w-full h-auto bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white text-sm placeholder:text-white/25 focus:outline-none focus:border-brand-500/50"
             />
           </div>
         </div>
 
         <div>
           <label htmlFor="country" className="block text-sm text-white/60 mb-1.5">Country</label>
-          <input
+          <VoiceInput
             id="country"
             type="text"
             value={formData.country}
-            onChange={(e) => setFormData({ ...formData, country: e.target.value })}
+            onChange={(v) => setFormData({ ...formData, country: v })}
             placeholder="Your country"
-            className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white text-sm placeholder:text-white/25 focus:outline-none focus:border-brand-500/50"
+            className="w-full h-auto bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white text-sm placeholder:text-white/25 focus:outline-none focus:border-brand-500/50"
           />
         </div>
 
