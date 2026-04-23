@@ -105,7 +105,7 @@ export default function RosterCard({ match, lastMessage, onDragStart, draggable 
 
         {/* Rank stars */}
         <div className="px-2.5 pt-2 flex items-center justify-between">
-          <div className="flex items-center gap-0.5" aria-label={`Julian rank ${rank ?? 'unset'}`}>
+          <div className="flex items-center gap-0.5" aria-label={`AI rank ${rank ?? 'unset'}`}>
             {[...Array(5)].map((_, i) => {
               const filled = rank !== null && rank >= (i + 1) * 2
               const half = rank !== null && rank >= i * 2 + 1 && rank < (i + 1) * 2

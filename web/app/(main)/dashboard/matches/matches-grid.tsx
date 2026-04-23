@@ -31,7 +31,7 @@ type SortKey =
   | 'age'
 
 const SORT_OPTIONS: Array<{ value: SortKey; label: string }> = [
-  { value: 'julian_rank', label: 'Julian Rank' },
+  { value: 'julian_rank', label: 'AI Rank' },
   { value: 'newest', label: 'Newest' },
   { value: 'oldest', label: 'Oldest' },
   { value: 'health_score', label: 'Health score' },

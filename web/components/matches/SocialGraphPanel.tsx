@@ -166,7 +166,7 @@ export default function SocialGraphPanel({
           </div>
           {isLocked ? (
             <p className="text-xs text-red-300 leading-snug">
-              Cluster locked - the leader has attended a date with Julian.
+              Cluster locked - the leader has attended a date with you.
               This match is archived.
             </p>
           ) : isSuppressed ? (
