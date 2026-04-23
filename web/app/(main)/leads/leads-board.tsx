@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { VoiceInput, VoiceTextarea } from '@/components/voice'
 
 export type Lead = {
   id: string
@@ -309,11 +310,11 @@ function LabeledInput({
   return (
     <label className="block">
       <span className="text-xs text-white/40 uppercase tracking-wider">{label}</span>
-      <input
+      <VoiceInput
         value={value}
-        onChange={(e) => onChange(e.target.value)}
+        onChange={onChange}
         placeholder={placeholder}
-        className="mt-1 w-full bg-white/[0.04] border border-white/10 rounded px-3 py-2 text-sm"
+        className="mt-1 w-full h-auto bg-white/[0.04] border border-white/10 rounded px-3 py-2 text-sm"
       />
     </label>
   )
@@ -329,9 +330,9 @@ function LabeledTextarea({
   return (
     <label className="block">
       <span className="text-xs text-white/40 uppercase tracking-wider">{label}</span>
-      <textarea
+      <VoiceTextarea
         value={value}
-        onChange={(e) => onChange(e.target.value)}
+        onChange={onChange}
         rows={4}
         className="mt-1 w-full bg-white/[0.04] border border-white/10 rounded px-3 py-2 text-sm resize-y"
       />

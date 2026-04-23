@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { VoiceInput, VoiceTextarea } from '@/components/voice'
 
 export type Persona = {
   first_name: string
@@ -165,17 +166,17 @@ export default function AISettingsForm({
           <p className="text-sm text-white/60">
             Raw YAML. Each rule fires at most once per match. Comments start with <code>#</code>.
           </p>
-          <textarea
+          <VoiceTextarea
             value={settings.dripRulesYaml}
-            onChange={(e) => set('dripRulesYaml', e.target.value)}
+            onChange={(v) => set('dripRulesYaml', v)}
             rows={24}
             className="w-full font-mono text-xs bg-white/[0.04] border border-white/10 rounded px-3 py-2"
             spellCheck={false}
           />
           <Row label="Global tone / style (free-form)">
-            <textarea
+            <VoiceTextarea
               value={settings.styleText}
-              onChange={(e) => set('styleText', e.target.value)}
+              onChange={(v) => set('styleText', v)}
               rows={3}
               className="w-full bg-white/[0.04] border border-white/10 rounded px-3 py-2 text-sm"
             />
@@ -260,11 +261,11 @@ function TextInput({
   value, onChange, placeholder,
 }: { value: string; onChange: (v: string) => void; placeholder?: string }) {
   return (
-    <input
+    <VoiceInput
       value={value}
-      onChange={(e) => onChange(e.target.value)}
+      onChange={onChange}
       placeholder={placeholder}
-      className="w-full bg-white/[0.04] border border-white/10 rounded px-3 py-2 text-sm"
+      className="w-full h-auto bg-white/[0.04] border border-white/10 rounded px-3 py-2 text-sm"
     />
   )
 }
@@ -287,9 +288,9 @@ function ListInput({
   value, onChange, rows = 3, placeholder,
 }: { value: string[]; onChange: (v: string[]) => void; rows?: number; placeholder?: string }) {
   return (
-    <textarea
+    <VoiceTextarea
       value={value.join('\n')}
-      onChange={(e) => onChange(e.target.value.split('\n').map(s => s).filter((s) => s.length > 0 || true))}
+      onChange={(v) => onChange(v.split('\n').map(s => s).filter((s) => s.length > 0 || true))}
       onBlur={(e) => onChange(e.target.value.split('\n').map(s => s.trim()).filter(Boolean))}
       rows={rows}
       placeholder={placeholder}

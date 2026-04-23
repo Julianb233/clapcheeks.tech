@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
+import { VoiceInput, VoiceTextarea } from '@/components/voice'
 
 type Photo = {
   url: string
@@ -724,9 +725,9 @@ function NotesBlock({
           {saving ? 'Saving...' : 'Save note'}
         </button>
       </div>
-      <textarea
+      <VoiceTextarea
         value={notes}
-        onChange={(e) => setNotes(e.target.value)}
+        onChange={setNotes}
         onBlur={() => void saveNotes()}
         placeholder="Quick notes about this match — vibes, quirks, follow-ups..."
         className="w-full min-h-[100px] bg-black/30 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder:text-white/30 focus:outline-none focus:ring-2 focus:ring-pink-500/40 resize-y"
@@ -756,10 +757,10 @@ function NotesBlock({
             <span className="text-[11px] text-white/30">No tags yet</span>
           )}
         </div>
-        <input
+        <VoiceInput
           type="text"
           value={tagInput}
-          onChange={(e) => setTagInput(e.target.value)}
+          onChange={setTagInput}
           onKeyDown={(e) => {
             if (e.key === 'Enter') {
               e.preventDefault()
@@ -769,7 +770,7 @@ function NotesBlock({
             }
           }}
           placeholder="Add a tag and press Enter"
-          className="w-full bg-black/30 border border-white/10 rounded-lg px-3 py-1.5 text-sm text-white placeholder:text-white/30 focus:outline-none focus:ring-2 focus:ring-pink-500/40"
+          className="w-full h-auto bg-black/30 border border-white/10 rounded-lg px-3 py-1.5 text-sm text-white placeholder:text-white/30 focus:outline-none focus:ring-2 focus:ring-pink-500/40"
         />
       </div>
     </div>

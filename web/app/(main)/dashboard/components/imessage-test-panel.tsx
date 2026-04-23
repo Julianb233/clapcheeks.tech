@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { Send, Phone, CheckCircle, Clock, XCircle, RefreshCw } from 'lucide-react'
+import { VoiceInput, VoiceTextarea } from '@/components/voice'
 
 type OpenerStyle = 'witty' | 'warm' | 'direct'
 type MessageStatus = 'queued' | 'sent' | 'failed'
@@ -125,13 +126,13 @@ export default function IMessageTestPanel() {
       {/* Phone input */}
       <div className="mb-4">
         <label className="text-white/50 text-xs font-medium block mb-1.5">Phone Number</label>
-        <input
+        <VoiceInput
           type="tel"
           placeholder="+1 (555) 000-0000"
           value={phone}
-          onChange={e => setPhone(e.target.value)}
+          onChange={setPhone}
           onKeyDown={e => e.key === 'Enter' && handleSend()}
-          className="w-full bg-white/[0.04] border border-white/10 rounded-xl px-4 py-2.5 text-white placeholder-white/25 text-sm focus:outline-none focus:border-[#8B5CF6]/50 focus:ring-1 focus:ring-[#8B5CF6]/30 transition-all"
+          className="w-full h-auto bg-white/[0.04] border border-white/10 rounded-xl px-4 py-2.5 text-white placeholder-white/25 text-sm focus:outline-none focus:border-[#8B5CF6]/50 focus:ring-1 focus:ring-[#8B5CF6]/30 transition-all"
         />
         <p className="text-white/25 text-[11px] mt-1">US numbers: 10 digits. International: include + and country code.</p>
       </div>
@@ -166,10 +167,10 @@ export default function IMessageTestPanel() {
           {useCustom ? '↑ Use AI-generated opener' : '↓ Write custom message'}
         </button>
         {useCustom && (
-          <textarea
+          <VoiceTextarea
             placeholder="Type your message here..."
             value={message}
-            onChange={e => setMessage(e.target.value)}
+            onChange={setMessage}
             rows={3}
             className="w-full mt-2 bg-white/[0.04] border border-white/10 rounded-xl px-4 py-2.5 text-white placeholder-white/25 text-sm focus:outline-none focus:border-[#8B5CF6]/50 focus:ring-1 focus:ring-[#8B5CF6]/30 transition-all resize-none"
           />
