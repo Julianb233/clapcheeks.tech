@@ -118,7 +118,7 @@ export default function CompleteProfilePage() {
 
       if (updateError) throw updateError
 
-      router.push("/home")
+      router.push("/dashboard")
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error completing profile")
     } finally {
