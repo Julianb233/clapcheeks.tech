@@ -35,7 +35,17 @@ export async function POST(request: NextRequest) {
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = await request.json()
-  const { match_name, platform, phone, message_text, scheduled_at, sequence_type, delay_hours } = body
+  const {
+    match_name,
+    match_id,
+    platform,
+    phone,
+    message_text,
+    scheduled_at,
+    sequence_type,
+    sequence_step,
+    delay_hours,
+  } = body
 
   if (!match_name || !message_text || !scheduled_at) {
     return NextResponse.json(
@@ -48,12 +58,14 @@ export async function POST(request: NextRequest) {
     .from('clapcheeks_scheduled_messages')
     .insert({
       user_id: user.id,
+      match_id: match_id ?? null,
       match_name,
       platform: platform ?? 'iMessage',
       phone: phone ?? null,
       message_text,
       scheduled_at,
       sequence_type: sequence_type ?? 'manual',
+      sequence_step: sequence_step ?? 0,
       delay_hours: delay_hours ?? null,
       status: 'pending',
     })
