@@ -40,12 +40,19 @@ export default function ScheduledPage() {
   const [filter, setFilter] = useState<string>('pending')
   const [actionLoading, setActionLoading] = useState<string | null>(null)
   const [showCompose, setShowCompose] = useState(false)
-  const [compose, setCompose] = useState({
+  const [compose, setCompose] = useState<{
+    match_name: string
+    phone: string
+    message_text: string
+    scheduled_at: string
+    sequence_type: 'manual' | 'app_to_text' | 'follow_up'
+    delay_hours: string
+  }>({
     match_name: '',
     phone: '',
     message_text: '',
     scheduled_at: '',
-    sequence_type: 'manual' as const,
+    sequence_type: 'manual',
     delay_hours: '',
   })
   const [composing, setComposing] = useState(false)

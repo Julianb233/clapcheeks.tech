@@ -6,11 +6,13 @@ import MatchCard from '@/components/matches/MatchCard'
 import { ClapcheeksMatchRow } from '@/lib/matches/types'
 
 // Extend the canonical row type with columns that exist in clapcheeks_matches
-// but aren't in the shared type yet (distance_miles, match_name). Kept optional
-// so unaffected columns still type-check.
+// but aren't in the shared type yet (distance_miles, match_name, stage,
+// health_score). Kept optional so unaffected columns still type-check.
 export type MatchGridRow = ClapcheeksMatchRow & {
   match_name?: string | null
   distance_miles?: number | null
+  stage?: string | null
+  health_score?: number | null
 }
 
 type LastMessageMap = Record<string, string | null>
