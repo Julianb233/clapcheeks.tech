@@ -19,6 +19,19 @@ export async function POST() {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
+  // Gate the stub behind admin role until Phase A daemon lands (AI-8590).
+  // Regular users should not see a stub endpoint advertising itself.
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('role')
+    .eq('id', user.id)
+    .single()
+
+  const role = profile?.role ?? ''
+  if (!['admin', 'super_admin'].includes(role)) {
+    return NextResponse.json({ error: 'Not available' }, { status: 404 })
+  }
+
   // eslint-disable-next-line no-console
   console.log('[sync-matches] sync requested', {
     user_id: user.id,
