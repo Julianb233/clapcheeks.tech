@@ -19,7 +19,13 @@ export async function POST(req: NextRequest) {
     // Strip data URL prefix (e.g. "data:image/jpeg;base64,") to get raw base64
     const base64Data = image.includes(',') ? image.split(',')[1] : image
 
-    const aiUrl = process.env.NEXT_PUBLIC_AI_URL || 'http://localhost:8000'
+    const aiUrl = process.env.NEXT_PUBLIC_AI_URL
+    if (!aiUrl) {
+      return NextResponse.json(
+        { error: 'Photo AI not configured' },
+        { status: 503 }
+      )
+    }
     const res = await fetch(`${aiUrl}/photos/score`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

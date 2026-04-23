@@ -29,7 +29,7 @@ const PRIMARY: NavItem[] = [
 const SECONDARY: NavItem[] = [
   { href: '/referrals', label: 'Referrals', icon: <GiftIcon />, badge: 'new' },
   { href: '/settings/ai', label: 'AI Settings', icon: <GearIcon />, badge: 'new' },
-  { href: '/settings', label: 'Reports', icon: <BellIcon /> },
+  { href: '/settings', label: 'Weekly Reports', icon: <BellIcon /> },
   { href: '/billing', label: 'Billing', icon: <CardIcon /> },
   { href: '/device', label: 'Device', icon: <LaptopIcon /> },
   { href: '/support', label: 'Support', icon: <HelpIcon /> },
