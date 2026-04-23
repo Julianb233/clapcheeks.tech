@@ -69,7 +69,11 @@ export const metadata: Metadata = {
   other: {
     'theme-color': '#000000',
   },
-  robots: { index: true, follow: true },
+  // Only allow indexing on production deploys. Vercel preview/dev stay noindex.
+  robots:
+    process.env.VERCEL_ENV === 'production'
+      ? { index: true, follow: true }
+      : { index: false, follow: false },
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
