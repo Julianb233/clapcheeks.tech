@@ -1,0 +1,17 @@
+{
+  "project_name": "clapcheeks.tech",
+  "project_dir": "/opt/agency-workspace/clapcheeks.tech",
+  "linear_project": "1b7248e9-3fb0-4fb2-9601-3f20b16b2fe6",
+  "labels": ["internal","Feature"],
+  "task_source": "gsd",
+  "max_workers": 3,
+  "roadmap": ".planning/ROADMAP.md",
+  "state": ".planning/STATE.md",
+  "waves": [
+    {"wave":1,"phases":[{"num":46,"linear":"AI-8345","letter":"M","title":"Chrome-extension API routing (anti-detection)"}]},
+    {"wave":2,"phases":[{"num":47,"linear":"AI-8320","letter":"F","title":"Offline contacts + iMessage handoff"},{"num":48,"linear":"AI-8316","letter":"B","title":"Photo vision analysis"}]},
+    {"wave":3,"phases":[{"num":49,"linear":"AI-8319","letter":"E","title":"Drafting tone rules"},{"num":50,"linear":"AI-8317","letter":"C","title":"Instagram enrichment"}]},
+    {"wave":4,"phases":[{"num":51,"linear":"AI-8321","letter":"G","title":"Drip daemon 24h/2d/7d"},{"num":52,"linear":"AI-8340","letter":"L","title":"IG content library + auto-post"}]},
+    {"wave":5,"phases":[{"num":53,"linear":"AI-8322","letter":"H","title":"ML preference learner"},{"num":54,"linear":"AI-8338","letter":"J","title":"Roster CRM"},{"num":55,"linear":"AI-8339","letter":"K","title":"Social graph + cluster dedupe"}]}
+  ]
+}

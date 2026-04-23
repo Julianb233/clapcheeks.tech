@@ -23,6 +23,9 @@ venv/
 .env.*.local
 .env.stripe
 
+# Claude Code local agent state (worktrees, session data)
+.claude/
+
 # OS
 .DS_Store
 Thumbs.db

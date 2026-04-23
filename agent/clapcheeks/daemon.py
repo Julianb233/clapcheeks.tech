@@ -229,6 +229,7 @@ def _get_daemon_config(config: dict) -> dict:
         "active_hours": [9, 23],
         "conversation_after_swipe": True,
         "sync_interval_minutes": 30,
+        "match_sync_interval_minutes": 10,
     }
     daemon_cfg = config.get("daemon", {}) or {}
     return {**defaults, **daemon_cfg}
@@ -276,6 +277,27 @@ def _sync_worker(config: dict, interval_minutes: int) -> None:
         _shutdown.wait(interval_sec)
 
 
+def _match_sync_worker(interval_minutes: int = 30) -> None:
+    """Pull every match from every configured platform into Supabase.
+
+    Phase A - AI-8315. Default TIGHTENED to 30 min on 2026-04-20 after
+    a 10-min cadence tripped Tinder's anti-bot (selfie verification).
+    Until AI-8345 (Phase M) moves API calls through the Chrome
+    extension, keep this conservative to protect account health.
+    First tick fires immediately.
+    """
+    from clapcheeks.match_sync import sync_matches
+
+    interval_sec = interval_minutes * 60
+    while not _shutdown.is_set():
+        try:
+            summary = sync_matches()
+            log.info("match_sync summary: %s", summary)
+        except Exception as exc:
+            log.error("match_sync failed: %s", exc)
+        _shutdown.wait(interval_sec)
+
+
 def _drip_worker(config: dict, interval_seconds: int = 300) -> None:
     """Evaluate drip rules across all tracked conversations every N seconds.
 
@@ -306,53 +328,6 @@ def _drip_worker(config: dict, interval_seconds: int = 300) -> None:
         except Exception as exc:
             log.error("Drip tick failed: %s", exc)
         _shutdown.wait(interval_seconds)
-
-
-def _dogfood_health_worker(daemon_cfg: dict) -> None:
-    """Record health heartbeats for dogfooding streak tracking.
-
-    Runs every 60s to write local heartbeat. At midnight (or first tick
-    after midnight), records the daily summary and syncs to Supabase.
-    """
-    try:
-        from clapcheeks.dogfood.health_monitor import HealthMonitor
-    except ImportError:
-        log.warning("dogfood module not installed �� health monitoring disabled")
-        return
-
-    monitor = HealthMonitor()
-    last_daily_date = ""
-    start_time = time.time()
-
-    while not _shutdown.is_set():
-        try:
-            active_platforms = [
-                p for p in daemon_cfg.get("platforms", [])
-                if p in PLATFORM_CLIENTS
-            ]
-            monitor.record_heartbeat(platforms_active=active_platforms)
-
-            # Once per day: record daily status
-            today = datetime.now().strftime("%Y-%m-%d")
-            if today != last_daily_date:
-                crashes_today = sum(
-                    len([t for t in ts_list if time.time() - t < 86400])
-                    for ts_list in worker_crashes.values()
-                )
-                uptime_hrs = (time.time() - start_time) / 3600
-                monitor.record_daily_status(
-                    platforms_ran=active_platforms,
-                    crashes=crashes_today,
-                    uptime_hours=uptime_hrs,
-                )
-                monitor.sync_to_supabase()
-                last_daily_date = today
-                log.info("Dogfood daily status recorded (streak: %d)",
-                         monitor.get_consecutive_days())
-        except Exception as exc:
-            log.error("Dogfood health worker error: %s", exc)
-
-        _shutdown.wait(60)
 
 
 def _platform_worker(
@@ -510,11 +485,12 @@ def run_daemon() -> None:
     t.start()
     threads.append(t)
 
-    # Dogfooding health monitor — records heartbeats + daily status
+    # Match-intake thread (Phase A - AI-8315)
+    match_sync_interval = int(daemon_cfg.get("match_sync_interval_minutes", 10))
     t = threading.Thread(
-        target=_dogfood_health_worker,
-        args=(daemon_cfg,),
-        name="dogfood-health",
+        target=_match_sync_worker,
+        args=(match_sync_interval,),
+        name="match-sync",
         daemon=True,
     )
     t.start()
@@ -552,5 +528,51 @@ def run_daemon() -> None:
     log.info("Daemon stopped")
 
 
-if __name__ == "__main__":
+def _run_single_task(task: str) -> int:
+    """Run a single task once and return an exit code.
+
+    Used by `python -m clapcheeks.daemon --task <task> --once` for ops,
+    testing, and CI. Doesn't start the full scheduler.
+    """
+    _setup_logging()
+    if task == "sync_matches":
+        from clapcheeks.match_sync import sync_matches
+        summary = sync_matches(once=True)
+        log.info("sync_matches one-shot summary: %s", summary)
+        if summary.get("errors") and summary.get("upserted", 0) == 0:
+            return 2
+        return 0
+    if task == "sync":
+        from clapcheeks.sync import pull_platform_tokens
+        n = pull_platform_tokens()
+        log.info("pull_platform_tokens: %d updated", n)
+        return 0
+    log.error("Unknown --task: %s", task)
+    return 1
+
+
+def _main() -> None:
+    import argparse
+
+    parser = argparse.ArgumentParser(prog="clapcheeks.daemon")
+    parser.add_argument(
+        "--task",
+        default=None,
+        help="Run a single task once and exit (e.g. sync_matches).",
+    )
+    parser.add_argument(
+        "--once",
+        action="store_true",
+        help="When --task is set, run it once and exit.",
+    )
+    args = parser.parse_args()
+
+    if args.task:
+        rc = _run_single_task(args.task)
+        sys.exit(rc)
+
     run_daemon()
+
+
+if __name__ == "__main__":
+    _main()

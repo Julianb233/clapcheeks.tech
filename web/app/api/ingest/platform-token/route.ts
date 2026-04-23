@@ -15,7 +15,7 @@ import { createClient } from '@supabase/supabase-js'
  * device token.
  */
 
-const ALLOWED_PLATFORMS = ['tinder', 'hinge'] as const
+const ALLOWED_PLATFORMS = ['tinder', 'hinge', 'instagram'] as const
 type Platform = (typeof ALLOWED_PLATFORMS)[number]
 
 function cors(resp: NextResponse) {
@@ -50,7 +50,9 @@ export async function POST(req: Request) {
   if (!ALLOWED_PLATFORMS.includes(platform as Platform)) {
     return cors(NextResponse.json({ error: 'bad_platform' }, { status: 400 }))
   }
-  if (!token || token.length < 20) {
+  // Instagram ships a JSON cookie blob; it is longer than 40 chars.
+  const minLen = platform === 'instagram' ? 40 : 20
+  if (!token || token.length < minLen) {
     return cors(NextResponse.json({ error: 'token_too_short' }, { status: 400 }))
   }
 

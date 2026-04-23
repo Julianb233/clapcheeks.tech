@@ -12,6 +12,7 @@ import { router as intelligenceRouter } from './routes/intelligence.js'
 import { router as eventsRouter } from './routes/events.js'
 import { router as emailRouter } from './routes/email.js'
 import { router as contactsRouter } from './routes/contacts.js'
+import { router as autonomyRouter } from './routes/autonomy.js'
 import { authLimiter, aiLimiter, generalLimiter } from './middleware/rateLimiter.js'
 import { errorHandler } from './middleware/errorHandler.js'
 import { asyncHandler } from './utils/asyncHandler.js'
@@ -84,6 +85,7 @@ app.use('/events', eventsRouter)
 // To trigger welcome email automatically on signup, create a Supabase Database Webhook
 // on auth.users INSERT → POST to https://api.clapcheeks.tech/email/welcome
 app.use('/email', emailRouter)
+app.use('/autonomy', aiLimiter, autonomyRouter)
 
 app.get('/health', asyncHandler(async (req, res) => {
   const start = Date.now()
