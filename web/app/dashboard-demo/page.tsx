@@ -2,11 +2,12 @@ import { notFound } from 'next/navigation'
 import MatchGrid from '@/components/matches/MatchGrid'
 import MatchDetail from '@/components/matches/MatchDetail'
 import { ClapcheeksMatchRow, ConversationMessage } from '@/lib/matches/types'
+import { createClient } from '@/lib/supabase/server'
 
 /**
- * Public demo preview for Phase D screenshots. Only renders when
- * NEXT_PUBLIC_ENABLE_MATCH_DEMO=1. This is a dev-only preview — it does NOT
- * hit Supabase and has no auth gate, so it must stay disabled in production.
+ * Admin-only demo preview for Phase D screenshots. Server-side role gate:
+ * only users with profiles.role IN ('admin', 'super_admin') can view this
+ * page. All other requests (including unauthenticated) get notFound().
  */
 export const dynamic = 'force-dynamic'
 
@@ -211,7 +212,21 @@ const DEMO_MESSAGES: ConversationMessage[] = [
 ]
 
 export default async function DashboardDemo({ searchParams }: { searchParams: Promise<{ view?: string; id?: string }> }) {
-  if (process.env.NEXT_PUBLIC_ENABLE_MATCH_DEMO !== '1') notFound()
+  // Server-side admin gate — only admin or super_admin roles can view the demo.
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) notFound()
+
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('role')
+    .eq('id', user.id)
+    .single()
+
+  if (!profile || (profile.role !== 'admin' && profile.role !== 'super_admin')) {
+    notFound()
+  }
+
   const sp = await searchParams
   const view = sp.view ?? 'grid'
   const id = sp.id ?? 'demo-1'
