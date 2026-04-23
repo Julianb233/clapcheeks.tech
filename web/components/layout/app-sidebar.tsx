@@ -15,6 +15,7 @@ type NavItem = {
 
 const PRIMARY: NavItem[] = [
   { href: '/dashboard', label: 'Dashboard', icon: <HomeIcon /> },
+  { href: '/ai-first-date', label: 'AI First Date', icon: <HeartIcon />, badge: 'new' },
   { href: '/dashboard/matches', label: 'Matches', icon: <HeartIcon /> },
   { href: '/leads', label: 'Leads', icon: <PipelineIcon /> },
   { href: '/matches', label: 'Match Intel', icon: <ProfileIcon />, badge: 'new' },
