@@ -33,7 +33,7 @@ export default function FeedbackForm() {
       setSubmitted(true)
     } catch {
       // Sentry will capture this
-      alert('Failed to submit — try again or DM Julian directly.')
+      alert('Failed to submit — try again or tap the support chat below.')
     } finally {
       setSubmitting(false)
     }
@@ -45,7 +45,7 @@ export default function FeedbackForm() {
         <div className="text-5xl">🙏</div>
         <h2 className="text-2xl font-bold">Feedback Received</h2>
         <p className="text-zinc-400">
-          Thanks for helping make Clapcheeks better. Julian will review this within 24h.
+          Thanks for helping make Clapcheeks better. The team will review this within 24h.
         </p>
         <button
           onClick={() => {

@@ -24,7 +24,7 @@ const steps = [
   {
     title: 'How to Report Bugs',
     icon: Bug,
-    content: `Found something broken? Use the feedback button (bottom-right) or message Julian directly. Include: what you did, what happened, what you expected.`,
+    content: `Found something broken? Use the feedback button (bottom-right) or tap the support chat below. Include: what you did, what happened, what you expected.`,
     checklist: [
       'Screenshot or screen recording helps a lot',
       'Note which device/browser you\'re using',
@@ -50,7 +50,7 @@ const steps = [
   {
     title: 'Feedback Survey',
     icon: MessageSquare,
-    content: `At the end of the 2-week alpha, we'll send a short survey. But don't wait — drop feedback anytime via the in-app widget or DM Julian.`,
+    content: `At the end of the 2-week alpha, we'll send a short survey. But don't wait — drop feedback anytime via the in-app widget or tap the support chat below.`,
   },
 ]
 

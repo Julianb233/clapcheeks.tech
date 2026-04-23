@@ -151,11 +151,11 @@ export default function MatchDetail({ match, messages, clusterRisk }: Props) {
             <PhotoGallery photos={current.photos_jsonb ?? []} name={current.name} />
             <ScoringPanel match={current} />
 
-            {/* Julian rank */}
+            {/* AI rank */}
             <div className="bg-white/[0.03] border border-white/10 rounded-xl p-5">
               <div className="flex justify-between items-baseline mb-2">
                 <h3 className="text-xs uppercase tracking-widest font-mono text-white/40">
-                  Julian rank
+                  AI rank
                 </h3>
                 <span className="font-mono text-2xl text-yellow-400 font-bold">{rank}</span>
               </div>
