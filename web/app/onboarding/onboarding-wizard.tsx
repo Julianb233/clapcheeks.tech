@@ -315,6 +315,9 @@ export function OnboardingWizard({ userId, plan }: OnboardingWizardProps) {
                 </div>
 
                 {/* Terminal animation */}
+                <p className="text-xs text-muted-foreground">
+                  Demo preview - real setup is one click on the next screen
+                </p>
                 <div className="rounded-lg border border-gray-800 bg-black p-4 font-mono text-xs">
                   <div className="mb-2 flex items-center gap-2">
                     <span className="h-3 w-3 rounded-full bg-red-500" />
