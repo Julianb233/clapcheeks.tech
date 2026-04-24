@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import json
 import logging
-import subprocess
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -11,6 +10,8 @@ from typing import TYPE_CHECKING
 
 from rich.console import Console
 from rich.panel import Panel
+
+from clapcheeks.imessage.sender import send_imessage
 
 if TYPE_CHECKING:
     from clapcheeks.imessage.ai_reply import ReplyGenerator
@@ -41,34 +42,20 @@ def _log_stat(chat_id: int, action: str, contact: str) -> None:
 
 
 def _send_imessage(handle_id: str, text: str) -> bool:
-    """Send a message via AppleScript to the Messages app.
+    """Send a message via `god mac send` → BlueBubbles (AppleScript fallback).
 
-    Uses the recipient's phone number or email (handle_id).
-    Returns True on success.
+    Delegates to clapcheeks.imessage.sender.send_imessage so every outbound
+    path in the codebase uses the same transport. Returns True on success.
+
+    The channel used (`god-mac-bluebubbles` vs `god-mac-applescript` vs
+    `osascript`) is logged for visibility.
     """
-    # Escape double quotes in the message text for AppleScript
-    safe_text = text.replace("\\", "\\\\").replace('"', '\\"')
-    script = (
-        f'tell application "Messages"\n'
-        f'  set targetService to 1st service whose service type = iMessage\n'
-        f'  set targetBuddy to buddy "{handle_id}" of targetService\n'
-        f'  send "{safe_text}" to targetBuddy\n'
-        f'end tell'
-    )
-    try:
-        result = subprocess.run(
-            ["osascript", "-e", script],
-            capture_output=True,
-            text=True,
-            timeout=15,
-        )
-        if result.returncode != 0:
-            logger.error("osascript error: %s", result.stderr.strip())
-            return False
+    result = send_imessage(handle_id, text)
+    if result.ok:
+        logger.info("Sent to %s via %s", handle_id, result.channel)
         return True
-    except (FileNotFoundError, subprocess.TimeoutExpired) as exc:
-        logger.error("Failed to send via osascript: %s", exc)
-        return False
+    logger.error("Send failed to %s via %s: %s", handle_id, result.channel, result.error)
+    return False
 
 
 class IMMessageWatcher:
