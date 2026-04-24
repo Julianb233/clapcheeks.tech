@@ -22,11 +22,15 @@ if [ ! -f "$PROFILE/Cookies" ]; then
   exit 1
 fi
 
-# Get the Supabase service role key from VPS
-echo "Fetching service-role key from VPS..."
-SERVICE_KEY=$(ssh -o StrictHostKeyChecking=no "$VPS_HOST" "grep '^SUPABASE_SERVICE_ROLE_KEY' /opt/agency-workspace/clapcheeks.tech/.env.local | cut -d= -f2- | tr -d '\"'")
+# Get the Supabase service role key — prefer env var over SSH-back-to-VPS
+SERVICE_KEY="${SUPABASE_SERVICE_KEY:-${SUPABASE_SERVICE_ROLE_KEY:-}}"
 if [ -z "$SERVICE_KEY" ]; then
-  echo "ERROR: could not fetch SUPABASE_SERVICE_ROLE_KEY from $VPS_HOST"
+  echo "Fetching service-role key from VPS via SSH..."
+  SERVICE_KEY=$(ssh -o StrictHostKeyChecking=no "$VPS_HOST" "grep '^SUPABASE_SERVICE_ROLE_KEY' /opt/agency-workspace/clapcheeks.tech/.env.local | cut -d= -f2- | tr -d '\"'" 2>/dev/null || echo "")
+fi
+if [ -z "$SERVICE_KEY" ]; then
+  echo "ERROR: SUPABASE_SERVICE_KEY not provided and SSH fallback failed."
+  echo "       Set SUPABASE_SERVICE_KEY=... in env before running."
   exit 2
 fi
 
@@ -155,11 +159,13 @@ else:
     print("Nothing to push (no cookies decrypted, no Tinder token).")
 PYEOF
 
-# 3) Trigger a fresh snapshot on the VPS
-echo ""
-echo "Triggering VPS snapshot..."
-ssh -o StrictHostKeyChecking=no "$VPS_HOST" "cd /opt/agency-workspace/clapcheeks.tech && PYTHONPATH=agent /usr/bin/python3 agent/scripts/direct_snapshot.py --top-messages 5 2>&1 | tail -20"
+# 3) Trigger a fresh snapshot on the VPS (skip if SKIP_VPS_SNAPSHOT=1)
+if [ "${SKIP_VPS_SNAPSHOT:-0}" != "1" ]; then
+  echo ""
+  echo "Triggering VPS snapshot..."
+  ssh -o StrictHostKeyChecking=no "$VPS_HOST" "cd /opt/agency-workspace/clapcheeks.tech && PYTHONPATH=agent /usr/bin/python3 agent/scripts/direct_snapshot.py --top-messages 5 2>&1 | tail -20" 2>/dev/null || echo "(VPS snapshot skipped — SSH unavailable; the hourly cron will pick it up)"
+fi
 
 echo ""
-echo "DONE. Check ~/.clapcheeks/snapshots/ on the VPS for the JSON output."
-echo "Hourly cron will keep refreshing automatically."
+echo "DONE. Tokens pushed to Supabase."
+echo "Hourly cron on VPS will refresh automatically."
