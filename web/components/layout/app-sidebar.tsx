@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { logout } from '@/app/auth/actions'
+import { ThemeToggle } from '@/components/theme-toggle'
 
 type NavItem = {
   href: string
@@ -66,13 +67,16 @@ export default function AppSidebar() {
           <Logo />
           <span className="font-display text-xl gold-text uppercase tracking-wide">Clapcheeks</span>
         </Link>
-        <button
-          onClick={() => setMobileOpen((v) => !v)}
-          className="w-9 h-9 flex items-center justify-center rounded-lg bg-white/5 border border-white/10"
-          aria-label="Menu"
-        >
-          {mobileOpen ? <CloseIcon /> : <MenuIcon />}
-        </button>
+        <div className="flex items-center gap-1">
+          <ThemeToggle className="text-white/70 hover:text-white hover:bg-white/5" />
+          <button
+            onClick={() => setMobileOpen((v) => !v)}
+            className="w-9 h-9 flex items-center justify-center rounded-lg bg-white/5 border border-white/10"
+            aria-label="Menu"
+          >
+            {mobileOpen ? <CloseIcon /> : <MenuIcon />}
+          </button>
+        </div>
       </div>
 
       {/* Sidebar — desktop always, mobile overlay when open */}
@@ -126,6 +130,7 @@ export default function AppSidebar() {
               <div className="text-xs text-white/80 truncate">{email || 'Signed in'}</div>
               <div className="text-[10px] text-white/30">clapcheeks.tech</div>
             </div>
+            <ThemeToggle className="text-white/60 hover:text-white hover:bg-white/5" />
           </div>
           <form action={logout}>
             <button
