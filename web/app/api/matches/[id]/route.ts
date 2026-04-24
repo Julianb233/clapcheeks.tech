@@ -4,7 +4,9 @@ import { createClient } from '@/lib/supabase/server'
 /**
  * PATCH /api/matches/[id] — update stage/status/rank and/or merge into
  *                          match_intel JSONB.
- * DELETE /api/matches/[id] — soft-archive (sets status = 'archived').
+ * DELETE /api/matches/[id] — hard-delete the match row (and its conversations
+ *                          via FK cascade). Pass `?soft=1` to soft-archive
+ *                          instead (sets status='archived').
  *
  * Both require an authenticated Supabase session and enforce ownership
  * via the `user_id` column on clapcheeks_matches.
@@ -162,7 +164,7 @@ export async function PATCH(
 }
 
 export async function DELETE(
-  _req: Request,
+  req: Request,
   ctx: { params: Promise<{ id: string }> },
 ) {
   const supabase = await createClient()
@@ -178,10 +180,11 @@ export async function DELETE(
     return NextResponse.json({ error: 'match id required' }, { status: 400 })
   }
 
-  // Ownership check.
+  const soft = new URL(req.url).searchParams.get('soft') === '1'
+
   const { data: existing, error: fetchErr } = await (supabase as any)
     .from('clapcheeks_matches')
-    .select('id, user_id')
+    .select('id, user_id, name, match_id, platform')
     .eq('id', id)
     .maybeSingle()
 
@@ -198,20 +201,44 @@ export async function DELETE(
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
-  const { data: updated, error: updateErr } = await (supabase as any)
+  if (soft) {
+    const { data: updated, error: updateErr } = await (supabase as any)
+      .from('clapcheeks_matches')
+      .update({ status: 'ghosted' })
+      .eq('id', id)
+      .eq('user_id', user.id)
+      .select('*')
+      .single()
+    if (updateErr) {
+      return NextResponse.json(
+        { error: updateErr.message ?? 'archive failed' },
+        { status: 500 },
+      )
+    }
+    return NextResponse.json({ ok: true, mode: 'soft', match: updated })
+  }
+
+  // Hard delete: also clean up the related conversation row(s) keyed by
+  // match_id (platform-native key), since clapcheeks_conversations does not
+  // FK-cascade on the matches uuid.
+  await (supabase as any)
+    .from('clapcheeks_conversations')
+    .delete()
+    .eq('user_id', user.id)
+    .eq('match_id', existing.match_id)
+
+  const { error: deleteErr } = await (supabase as any)
     .from('clapcheeks_matches')
-    .update({ status: 'archived' })
+    .delete()
     .eq('id', id)
     .eq('user_id', user.id)
-    .select('*')
-    .single()
 
-  if (updateErr) {
+  if (deleteErr) {
     return NextResponse.json(
-      { error: updateErr.message ?? 'archive failed' },
+      { error: deleteErr.message ?? 'delete failed' },
       { status: 500 },
     )
   }
 
-  return NextResponse.json({ ok: true, match: updated })
+  return NextResponse.json({ ok: true, mode: 'hard', removed: existing.name })
 }

@@ -2,6 +2,7 @@ import type { Metadata } from 'next'
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
+import { RemoveMatchButton } from './RemoveMatchButton'
 
 export const metadata: Metadata = {
   title: 'Match Intel - Clapcheeks',
@@ -95,11 +96,12 @@ export default async function MatchesPage() {
                 : 0
               const interests = intelInterests(m.match_intel).slice(0, 5)
               return (
-                <Link
+                <div
                   key={m.id}
-                  href={`/matches/${m.id}`}
-                  className="group flex flex-col rounded-2xl border border-white/10 bg-white/5 overflow-hidden hover:border-pink-500/40 hover:bg-white/[0.07] transition-all"
+                  className="group relative flex flex-col rounded-2xl border border-white/10 bg-white/5 overflow-hidden hover:border-pink-500/40 hover:bg-white/[0.07] transition-all"
                 >
+                  <RemoveMatchButton matchId={m.id} matchName={displayName} />
+                  <Link href={`/matches/${m.id}`} className="flex flex-col">
                   <div className="relative aspect-[4/5] bg-gradient-to-br from-pink-900/40 to-purple-900/40">
                     {photo ? (
                       // eslint-disable-next-line @next/next/no-img-element
@@ -170,7 +172,8 @@ export default async function MatchesPage() {
                       </div>
                     )}
                   </div>
-                </Link>
+                  </Link>
+                </div>
               )
             })}
           </div>
