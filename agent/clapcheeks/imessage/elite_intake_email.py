@@ -200,4 +200,11 @@ def poll_once(query: str, label: str, dry_run: bool = False) -> int:
                 )
         if any_processed and label_id and not dry_run:
             _apply_label(mid, label_id)
+    if processed and not dry_run:
+        # Inline Google Contacts sync — VPS-side, so `gws` is available.
+        try:
+            from clapcheeks.imessage.elite_google_sync import sync_once
+            sync_once(limit=max(processed, 5))
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("inline google sync failed: %s", exc)
     return processed

@@ -1544,3 +1544,25 @@ def elite_intake_email_poll(query: str, label: str, dry_run: bool) -> None:
     from clapcheeks.imessage.elite_intake_email import poll_once
     n = poll_once(query=query, label=label, dry_run=dry_run)
     console.print(f"[green]elite email poll:[/green] {n} attachment(s) processed")
+
+
+@main.command(name="elite-sync-google-contacts")
+@click.option("--limit", default=50, show_default=True, type=int,
+              help="Max matches to sync per pass.")
+def elite_sync_google_contacts(limit: int) -> None:
+    """Sync elite matches to Google Contacts (julian@aiacrobatics.com).
+
+    One pass: queries Supabase for elite rows without a google_contact_id,
+    creates each in Google Contacts via the `gws workspace` profile, and
+    writes the returned resource name back to clapcheeks_matches so we
+    don't re-sync. Designed for `/loop 5m` or cron.
+
+    Env required: CLAPCHEEKS_SUPABASE_URL + CLAPCHEEKS_SUPABASE_KEY
+    (service role). Optional: CLAPCHEEKS_USER_ID to scope to Julian's rows.
+    """
+    from clapcheeks.imessage.elite_google_sync import sync_once
+    stats = sync_once(limit=limit)
+    console.print(
+        f"[green]google sync:[/green] processed={stats['processed']} "
+        f"created={stats['created']} failed={stats['failed']}"
+    )

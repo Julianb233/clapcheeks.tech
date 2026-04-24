@@ -134,6 +134,15 @@ class EliteIntakeConsumer:
             logger.error("intake API unreachable: %s", e)
             return
 
+        # Kick the Google Contacts sync immediately for this row so Julian's
+        # phone address book reflects the new contact within seconds instead
+        # of waiting on the periodic sync loop. Non-fatal on failure.
+        try:
+            from clapcheeks.imessage.elite_google_sync import sync_once
+            sync_once(limit=5)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("inline google sync failed: %s", exc)
+
         if self.cfg.confirm_back:
             ex = body.get("extracted") or {}
             merged = body.get("merged")
