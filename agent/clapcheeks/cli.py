@@ -1500,3 +1500,47 @@ def bb_inbox_watch(slug: str, also_unknown: bool, poll_interval: float, print_on
         # (reply generator + sender). For now, print-only — the reply path is
         # wired via the existing queue-poll + watcher until we cut over.
         inbox.start(poll_interval=poll_interval)
+
+
+@main.command(name="elite-intake-imessage-watch")
+@click.option("--senders", default="",
+              help="Comma-separated E.164 phones/emails allowed to send intakes. "
+                   "Overrides CLAPCHEEKS_ELITE_SENDERS env.")
+@click.option("--poll-interval", default=1.0, show_default=True, type=float)
+def elite_intake_imessage_watch(senders: str, poll_interval: float) -> None:
+    """Tail BlueBubbles inbox for image attachments and route them to
+    /api/roster/intake so anyone you text a contact screenshot lands in
+    your Elite roster.
+
+    Requires CLAPCHEEKS_DEVICE_TOKEN in env (same token the Chrome extension
+    uses; generate at clapcheeks.tech/settings/ai -> Devices).
+    """
+    from clapcheeks.imessage.elite_intake_consumer import run as run_consumer
+    allowed = tuple(s.strip() for s in senders.split(",") if s.strip())
+    console.print(
+        f"[green]Elite iMessage intake watching[/green] "
+        f"senders={allowed or '<any>'} poll={poll_interval}s (Ctrl+C to stop)"
+    )
+    run_consumer(allowed_senders=allowed, poll_interval=poll_interval)
+
+
+@main.command(name="elite-intake-email-poll")
+@click.option("--query",
+              default="has:attachment subject:elite newer_than:1d",
+              show_default=True,
+              help="Gmail search query.")
+@click.option("--label", default="clapcheeks-elite-intake",
+              help="Gmail label applied to a message once ingested.")
+@click.option("--dry-run", is_flag=True, default=False,
+              help="Don't call the intake API — just print what would happen.")
+def elite_intake_email_poll(query: str, label: str, dry_run: bool) -> None:
+    """Poll Gmail for image attachments matching `query`, POST each one to
+    /api/roster/intake, and apply `label` so the same message isn't
+    re-ingested.
+
+    Requires: `gws` CLI authenticated (uses the default profile), and
+    CLAPCHEEKS_DEVICE_TOKEN in env.
+    """
+    from clapcheeks.imessage.elite_intake_email import poll_once
+    n = poll_once(query=query, label=label, dry_run=dry_run)
+    console.print(f"[green]elite email poll:[/green] {n} attachment(s) processed")
