@@ -2,7 +2,8 @@
 # Clapcheeks Token Harvester — one-shot installer.
 #
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/Julianb233/clapcheeks.tech/main/extensions/token-harvester/install.sh | bash -s -- <DEVICE_TOKEN>
+#   bash install.sh <DEVICE_TOKEN>              # launch once, no auto-restart
+#   bash install.sh <DEVICE_TOKEN> --persistent # install launchd agent so Chrome auto-starts at login + relaunches on crash/quit
 #
 # What it does:
 #   - Clones or updates clapcheeks.tech into ~/clapcheeks-chrome/repo
@@ -13,13 +14,24 @@
 #     auto-saves to chrome.storage.sync
 #   - Opens tinder.com in the same window. First page load harvests and
 #     pushes the token to clapcheeks.tech.
+#   - With --persistent: installs ~/Library/LaunchAgents/com.clapcheeks.chrome.plist
+#     and `launchctl load`s it so the profile auto-starts at every login
+#     and relaunches if you quit Chrome or it crashes.
 
 set -euo pipefail
 
-DEVICE_TOKEN="${1:-${CLAPCHEEKS_DEVICE_TOKEN:-}}"
+DEVICE_TOKEN=""
+PERSISTENT=0
+for arg in "$@"; do
+  case "$arg" in
+    --persistent) PERSISTENT=1 ;;
+    *) [[ -z "$DEVICE_TOKEN" ]] && DEVICE_TOKEN="$arg" ;;
+  esac
+done
+DEVICE_TOKEN="${DEVICE_TOKEN:-${CLAPCHEEKS_DEVICE_TOKEN:-}}"
 if [[ -z "$DEVICE_TOKEN" ]]; then
   echo "ERROR: pass your device token as the first arg."
-  echo "  bash install.sh <DEVICE_TOKEN>"
+  echo "  bash install.sh <DEVICE_TOKEN> [--persistent]"
   exit 1
 fi
 
@@ -106,10 +118,36 @@ echo "==> Launching Chrome with extension + welcome page"
 
 sleep 2
 echo ""
-echo "==> DONE."
-echo "    A dedicated Chrome window opened."
+echo "==> Chrome launched."
 echo "    Tab 1: welcome page showing your token was saved."
 echo "    Tab 2: tinder.com — log in if needed, the extension harvests automatically."
+echo "    Also log in at https://hinge.co and https://www.instagram.com so their"
+echo "    cookies persist in this profile."
 echo ""
-echo "    To reuse this profile later:"
+
+if [[ "$PERSISTENT" -eq 1 ]]; then
+  echo "==> Installing launchd agent for always-running Chrome"
+  PLIST_SRC="${EXT_DIR}/com.clapcheeks.chrome.plist.template"
+  PLIST_DST="${HOME}/Library/LaunchAgents/com.clapcheeks.chrome.plist"
+  if [[ ! -f "$PLIST_SRC" ]]; then
+    echo "    WARN: plist template not found at $PLIST_SRC — skipping persistence"
+  else
+    mkdir -p "${HOME}/Library/LaunchAgents"
+    sed \
+      -e "s|{{CHROME_BIN}}|${CHROME}|g" \
+      -e "s|{{PROFILE_DIR}}|${PROFILE_DIR}|g" \
+      -e "s|{{EXT_DIR}}|${EXT_DIR}|g" \
+      -e "s|{{HOST_DIR}}|${HOST_DIR}|g" \
+      "$PLIST_SRC" > "$PLIST_DST"
+    launchctl unload "$PLIST_DST" 2>/dev/null || true
+    launchctl load -w "$PLIST_DST"
+    echo "    Installed: $PLIST_DST"
+    echo "    Chrome will now auto-start at login and relaunch if you quit it."
+    echo "    Logs: tail -f ${HOST_DIR}/chrome.log"
+    echo "    To disable: launchctl unload '$PLIST_DST' && rm '$PLIST_DST'"
+  fi
+  echo ""
+fi
+
+echo "    To relaunch the profile manually later:"
 echo "      $CHROME --user-data-dir='$PROFILE_DIR' --load-extension='$EXT_DIR' --disable-features=DisableLoadExtensionCommandLineSwitch"

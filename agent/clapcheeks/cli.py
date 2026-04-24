@@ -1440,3 +1440,63 @@ class _nullctx:
     def __init__(self, val): self.val = val
     def __enter__(self): return self.val
     def __exit__(self, *a): pass
+
+
+# ── BlueBubbles fleet integration (2026-04-24) ──────────────────────────────
+
+@main.command(name="bb-register-phone")
+@click.argument("phone")
+@click.option("--slug", default="clapcheeks", show_default=True,
+              help="Slug the webhook will tag inbound messages from this phone with.")
+def bb_register_phone(phone: str, slug: str) -> None:
+    """Register a phone/email in the fleet BlueBubbles contact-index.
+
+    Inbound messages from this address will land in
+    /opt/agency-workspace/fleet-shared/inbox/<slug>/<date>.ndjson so the
+    clapcheeks inbox tailer (clapcheeks bb-inbox-watch) picks them up.
+    """
+    from clapcheeks.imessage.contact_index import register, CONTACT_INDEX_PATH
+    key, prev = register(phone, slug)
+    if prev and prev != slug:
+        console.print(f"[yellow]overwrote[/yellow] {key} → {prev!r} with → {slug!r}")
+    elif prev == slug:
+        console.print(f"[dim]no change: {key} → {slug}[/dim]")
+    else:
+        console.print(f"[green]registered[/green] {key} → {slug}")
+    console.print(f"[dim]file: {CONTACT_INDEX_PATH}[/dim]")
+
+
+@main.command(name="bb-inbox-watch")
+@click.option("--slug", default="clapcheeks", show_default=True,
+              help="Slug dir to tail under fleet-shared/inbox/.")
+@click.option("--also-unknown", is_flag=True, default=False,
+              help="Also tail fleet-shared/inbox/unknown/ (catches unregistered senders).")
+@click.option("--poll-interval", default=1.0, show_default=True, type=float)
+@click.option("--print-only", is_flag=True, default=False,
+              help="Only print events to stdout; do not feed into the reply pipeline.")
+def bb_inbox_watch(slug: str, also_unknown: bool, poll_interval: float, print_only: bool) -> None:
+    """Tail the fleet BlueBubbles inbox and emit inbound iMessage events.
+
+    Replaces chat.db polling on VPS deployments. Requires the BlueBubbles
+    webhook service on the VPS to be running (pm2: bluebubbles-webhook).
+    """
+    from clapcheeks.imessage.bluebubbles_inbox import BlueBubblesInbox, InboundEvent
+
+    def handle(evt: InboundEvent) -> None:
+        console.print(
+            f"[cyan]{evt.ts}[/cyan] [bold]{evt.from_addr or '?'}[/bold] "
+            f"([magenta]{evt.type}[/magenta]) {evt.text or ''}"
+        )
+
+    inbox = BlueBubblesInbox(slug=slug, callback=handle, watch_unknown=also_unknown)
+    console.print(
+        f"[green]BlueBubbles inbox tailing[/green] slug={slug} "
+        f"also_unknown={also_unknown} poll={poll_interval}s (Ctrl+C to stop)"
+    )
+    if print_only:
+        inbox.start(poll_interval=poll_interval)
+    else:
+        # Future: route events into the same pipeline as watcher._handle_new_message
+        # (reply generator + sender). For now, print-only — the reply path is
+        # wired via the existing queue-poll + watcher until we cut over.
+        inbox.start(poll_interval=poll_interval)

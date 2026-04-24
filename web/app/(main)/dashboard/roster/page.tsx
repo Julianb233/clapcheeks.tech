@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/server'
 import RosterKanban from '@/components/roster/RosterKanban'
 import RosterStatsBar from '@/components/roster/RosterStatsBar'
 import DailyTopThree from '@/components/roster/DailyTopThree'
+import EliteIntakeButton from '@/components/roster/EliteIntakeButton'
 import { ClapcheeksMatchRow } from '@/lib/matches/types'
 
 export const metadata: Metadata = {
@@ -88,6 +89,7 @@ export default async function RosterPage() {
             </p>
           </div>
           <div className="flex items-center gap-2">
+            <EliteIntakeButton />
             <Link
               href="/dashboard/matches"
               className="text-white/40 hover:text-white/70 text-xs font-mono bg-white/5 hover:bg-white/10 border border-white/10 px-3 py-1.5 rounded-lg transition-all"

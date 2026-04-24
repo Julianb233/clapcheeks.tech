@@ -130,7 +130,24 @@ export type ClapcheeksMatchRow = {
   social_graph_confidence?: number | null
   social_graph_sources?: string[] | null
   social_graph_scanned_at?: string | null
+  // Elite roster + screenshot intake (2026-04-24 migration)
+  elite?: boolean | null
+  source?: MatchSource | null
+  contact_phone?: string | null
+  contact_email?: string | null
+  google_contact_id?: string | null
+  intake_screenshot_path?: string | null
 }
+
+export type MatchSource =
+  | 'screenshot-web'
+  | 'screenshot-imessage'
+  | 'screenshot-email'
+  | 'manual'
+  | 'tinder'
+  | 'hinge'
+  | 'bumble'
+  | 'sms'
 
 export type MatchListFilters = {
   platform: 'all' | MatchPlatform

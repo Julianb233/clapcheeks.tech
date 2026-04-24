@@ -7,14 +7,32 @@ phone.
 
 ## Install
 
+### Option A — one command (recommended)
+
+```bash
+bash extensions/token-harvester/install.sh <DEVICE_TOKEN> --persistent
+```
+
+The installer creates an isolated Chrome profile at
+`~/clapcheeks-chrome/chrome-profile`, loads the extension into it, opens
+welcome + tinder.com, and (with `--persistent`) installs a launchd agent
+at `~/Library/LaunchAgents/com.clapcheeks.chrome.plist` so Chrome
+auto-starts at every login and relaunches if you quit it or it crashes.
+Log into Tinder, Hinge, and Instagram once — cookies persist in that
+profile from then on.
+
+To disable persistence: `launchctl unload ~/Library/LaunchAgents/com.clapcheeks.chrome.plist`.
+
+### Option B — manual Load unpacked
+
 1. Open `chrome://extensions`.
 2. Toggle **Developer mode** (top-right).
 3. Click **Load unpacked**.
 4. Select this directory (`extensions/token-harvester`).
 
-You'll see a small icon in the toolbar. Click it, paste your **device
-token** (generate one in `clapcheeks.tech/settings/ai → Devices`), and
-hit Save.
+You'll see the Clapcheeks icon in the toolbar. Click it, paste your
+**device token** (generate one in `clapcheeks.tech/settings/ai → Devices`),
+and hit Save.
 
 ## How it works
 
