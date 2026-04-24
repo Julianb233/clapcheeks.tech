@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Clapcheeks Chrome profile, always-running launchd agent.
+  Installed by extensions/token-harvester/install.sh with the persistent
+  flag. Placed at ~/Library/LaunchAgents/com.clapcheeks.chrome.plist with
+  all placeholder tokens substituted. Launches Chrome at login, relaunches
+  on Cmd-Q or crash within 10s (see ThrottleInterval), logs to
+  ~/clapcheeks-chrome/chrome.log. Stop with launchctl unload.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.clapcheeks.chrome</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>{{CHROME_BIN}}</string>
+        <string>--user-data-dir={{PROFILE_DIR}}</string>
+        <string>--load-extension={{EXT_DIR}}</string>
+        <string>--disable-features=DisableLoadExtensionCommandLineSwitch</string>
+        <string>--no-first-run</string>
+        <string>--no-default-browser-check</string>
+        <string>--restore-last-session</string>
+    </array>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+        <key>Crashed</key>
+        <true/>
+    </dict>
+
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+
+    <key>StandardOutPath</key>
+    <string>{{HOST_DIR}}/chrome.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>{{HOST_DIR}}/chrome.log</string>
+</dict>
+</plist>
