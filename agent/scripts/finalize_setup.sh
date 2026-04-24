@@ -34,14 +34,24 @@ if [ -z "$SERVICE_KEY" ]; then
   exit 2
 fi
 
-# 1) Get Chrome Safe Storage password from keychain (this prompts for permission ONCE)
+# 1) Get Chrome Safe Storage password from keychain
 echo ""
 echo "Fetching Chrome cookie encryption key from keychain..."
-echo "(macOS may ask you to allow keychain access — click 'Always Allow' once)"
+
+# If MAC_PASSWORD provided, unlock the login keychain explicitly first.
+# This bypasses the ACL prompt that blocks SSH/script-context access.
+if [ -n "${MAC_PASSWORD:-}" ]; then
+  security unlock-keychain -p "$MAC_PASSWORD" "$HOME/Library/Keychains/login.keychain-db" 2>/dev/null || true
+fi
+
 CHROME_PASS=$(security find-generic-password -wa "Chrome" 2>/dev/null || echo "")
+if [ -z "$CHROME_PASS" ] && [ -n "${MAC_PASSWORD:-}" ]; then
+  # Try with explicit keychain after unlock
+  CHROME_PASS=$(security find-generic-password -wa "Chrome" "$HOME/Library/Keychains/login.keychain-db" 2>/dev/null || echo "")
+fi
 if [ -z "$CHROME_PASS" ]; then
   echo "ERROR: could not read Chrome Safe Storage from keychain."
-  echo "       Try: security find-generic-password -ga Chrome"
+  echo "       Make sure MAC_PASSWORD env is set or run interactively in Terminal.app"
   exit 3
 fi
 
