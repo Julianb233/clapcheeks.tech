@@ -37,12 +37,12 @@ export default async function ProfilePage() {
 
   const { data: analytics } = await supabase
     .from("clapcheeks_analytics_daily")
-    .select("matches, conversations_started, dates_booked")
+    .select("matches, messages_sent, dates_booked")
     .eq("user_id", user.id)
     .gte("date", sinceStr)
 
   const totalMatches = analytics?.reduce((sum, row) => sum + (row.matches || 0), 0) || 0
-  const totalConvos = analytics?.reduce((sum, row) => sum + (row.conversations_started || 0), 0) || 0
+  const totalConvos = analytics?.reduce((sum, row) => sum + (row.messages_sent || 0), 0) || 0
   const totalDates = analytics?.reduce((sum, row) => sum + (row.dates_booked || 0), 0) || 0
 
   return (

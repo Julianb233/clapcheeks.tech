@@ -24,7 +24,7 @@ export async function GET() {
   const [analyticsRes, convoRes] = await Promise.all([
     supabase
       .from('clapcheeks_analytics_daily')
-      .select('app, swipes_right, swipes_left, matches, conversations_started, dates_booked, date')
+      .select('platform, swipes_right, swipes_left, matches, messages_sent, dates_booked, date')
       .eq('user_id', user.id)
       .gte('date', sinceStr)
       .order('date', { ascending: false }),
@@ -44,7 +44,7 @@ export async function GET() {
       swipes_right: acc.swipes_right + (r.swipes_right || 0),
       swipes_left: acc.swipes_left + (r.swipes_left || 0),
       matches: acc.matches + (r.matches || 0),
-      messages_sent: acc.messages_sent + (r.conversations_started || 0),
+      messages_sent: acc.messages_sent + (r.messages_sent || 0),
       dates_booked: acc.dates_booked + (r.dates_booked || 0),
     }),
     { swipes_right: 0, swipes_left: 0, matches: 0, messages_sent: 0, dates_booked: 0 }

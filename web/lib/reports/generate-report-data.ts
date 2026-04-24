@@ -22,13 +22,13 @@ export async function generateReportData(
   const [thisWeekRes, prevWeekRes, coachingRes] = await Promise.all([
     supabase
       .from('clapcheeks_analytics_daily')
-      .select('app, swipes_right, swipes_left, matches, conversations_started, dates_booked')
+      .select('platform, swipes_right, swipes_left, matches, messages_sent, dates_booked')
       .eq('user_id', userId)
       .gte('date', weekStartStr)
       .lte('date', weekEndStr),
     supabase
       .from('clapcheeks_analytics_daily')
-      .select('app, swipes_right, swipes_left, matches, conversations_started, dates_booked')
+      .select('platform, swipes_right, swipes_left, matches, messages_sent, dates_booked')
       .eq('user_id', userId)
       .gte('date', prevStartStr)
       .lte('date', prevEndStr),
@@ -58,7 +58,7 @@ export async function generateReportData(
   // Per-platform breakdown
   const platformMap: Record<string, { swipes: number; matches: number }> = {}
   for (const row of thisWeek) {
-    const p = row.app
+    const p = row.platform || 'unknown'
     if (!platformMap[p]) platformMap[p] = { swipes: 0, matches: 0 }
     platformMap[p].swipes += row.swipes_right
     platformMap[p].matches += row.matches
@@ -124,7 +124,7 @@ function aggregateRows(rows: Array<{
   swipes_right: number
   swipes_left: number
   matches: number
-  conversations_started: number
+  messages_sent: number
   dates_booked: number
 }>): AggregatedStats {
   return rows.reduce(
@@ -132,7 +132,7 @@ function aggregateRows(rows: Array<{
       swipesRight: acc.swipesRight + r.swipes_right,
       swipesLeft: acc.swipesLeft + r.swipes_left,
       matches: acc.matches + r.matches,
-      messages: acc.messages + r.conversations_started,
+      messages: acc.messages + (r.messages_sent || 0),
       dates: acc.dates + r.dates_booked,
     }),
     { swipesRight: 0, swipesLeft: 0, matches: 0, messages: 0, dates: 0 }

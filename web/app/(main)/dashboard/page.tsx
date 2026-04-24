@@ -22,13 +22,12 @@ export const metadata: Metadata = {
 }
 
 interface DailyRow {
-  app: string
+  platform: string
   swipes_right: number
   swipes_left: number
   matches: number
-  conversations_started: number
+  messages_sent: number
   dates_booked: number
-  money_spent: number
   date: string
 }
 
@@ -67,10 +66,10 @@ export default async function Dashboard() {
   const fourteenDaysAgo = new Date()
   fourteenDaysAgo.setDate(fourteenDaysAgo.getDate() - 14)
 
-  const [analyticsRes, convoRes, spendRes, deviceRes, subRes, profileRes] = await Promise.all([
+  const [analyticsRes, convoRes, spendRes, deviceRes, profileRes] = await Promise.all([
     supabase
       .from('clapcheeks_analytics_daily')
-      .select('app, swipes_right, swipes_left, matches, conversations_started, dates_booked, money_spent, date')
+      .select('platform, swipes_right, swipes_left, matches, messages_sent, dates_booked, date')
       .eq('user_id', user.id)
       .gte('date', sinceStr)
       .order('date', { ascending: true }),
@@ -92,12 +91,6 @@ export default async function Dashboard() {
       .order('last_seen_at', { ascending: false })
       .limit(1),
     supabase
-      .from('clapcheeks_subscriptions')
-      .select('status')
-      .eq('user_id', user.id)
-      .limit(1)
-      .single(),
-    supabase
       .from('profiles')
       .select('subscription_tier, subscription_status')
       .eq('id', user.id)
@@ -107,9 +100,9 @@ export default async function Dashboard() {
   // Fetch coaching session
   const coachingSession = await getLatestCoaching(supabase, user.id)
 
-  const isSubscribed = subRes.data?.status === 'active'
   const userPlan = (profileRes.data?.subscription_tier || 'base') as 'base' | 'elite'
   const userSubStatus = profileRes.data?.subscription_status || 'inactive'
+  const isSubscribed = userSubStatus === 'active'
   const userIsElite = userPlan === 'elite' && userSubStatus === 'active'
 
   const rows: DailyRow[] = analyticsRes.data || []
@@ -118,17 +111,16 @@ export default async function Dashboard() {
   const device: DeviceRow | null = deviceRes.data?.[0] || null
   const hasAgent = !!device
 
-  // Aggregate totals
+  // Aggregate totals — note: money_spent lives in clapcheeks_spending, not the daily table
   const totals = rows.reduce(
     (acc, r) => ({
       swipes: acc.swipes + r.swipes_right + r.swipes_left,
       swipes_right: acc.swipes_right + r.swipes_right,
       matches: acc.matches + r.matches,
       dates: acc.dates + r.dates_booked,
-      messages: acc.messages + r.conversations_started,
-      money_spent: acc.money_spent + (r.money_spent || 0),
+      messages: acc.messages + (r.messages_sent || 0),
     }),
-    { swipes: 0, swipes_right: 0, matches: 0, dates: 0, messages: 0, money_spent: 0 }
+    { swipes: 0, swipes_right: 0, matches: 0, dates: 0, messages: 0 }
   )
   const convoTotals = convos.reduce(
     (acc, r) => ({
@@ -168,28 +160,28 @@ export default async function Dashboard() {
   const rizzRows = (thisWeekRows.length > 0 ? thisWeekRows : rows).map(r => ({
     swipes_right: r.swipes_right,
     matches: r.matches,
-    messages_sent: r.conversations_started,
+    messages_sent: r.messages_sent,
     conversations_replied: convos.filter(c => c.date === r.date).reduce((s, c) => s + (c.conversations_replied || 0), 0),
     dates_booked: r.dates_booked,
   }))
   const lastWeekRizzRows = lastWeekRows.map(r => ({
     swipes_right: r.swipes_right,
     matches: r.matches,
-    messages_sent: r.conversations_started,
+    messages_sent: r.messages_sent,
     conversations_replied: convos.filter(c => c.date === r.date).reduce((s, c) => s + (c.conversations_replied || 0), 0),
     dates_booked: r.dates_booked,
   }))
   const rizzScore = calculateRizzScore(rizzRows)
   const rizzTrend = getRizzTrend(rizzScore, calculateRizzScore(lastWeekRizzRows))
 
-  // Spending — compute early so CPN can use it
+  // Spending — sourced only from clapcheeks_spending (live schema has no money_spent on analytics_daily)
   const externalSpent = spending.reduce((s, r) => s + Number(r.amount), 0)
-  const totalSpent = totals.money_spent + externalSpent
+  const totalSpent = externalSpent
 
   // CPN — Cost Per Nut
   const totalMessagesSent = convos.reduce((s, c) => s + (c.messages_sent || 0), 0)
   const cpnResult = calculateCPN({
-    moneySpent: totals.money_spent + externalSpent,
+    moneySpent: totalSpent,
     totalSwipes: totals.swipes_right,
     totalMessagesSent,
     datesBooked: totals.dates,
@@ -201,8 +193,10 @@ export default async function Dashboard() {
   const lastWeekConvos = convos.filter(c => c.date >= fmtDate(fourteenDaysAgo) && c.date < fmtDate(sevenDaysAgo))
   const thisWeekMsgsSent = thisWeekConvos.reduce((s, c) => s + (c.messages_sent || 0), 0)
   const lastWeekMsgsSent = lastWeekConvos.reduce((s, c) => s + (c.messages_sent || 0), 0)
-  const thisWeekSpent = thisWeekRows.reduce((s, r) => s + (r.money_spent || 0), 0)
-  const lastWeekSpent = lastWeekRows.reduce((s, r) => s + (r.money_spent || 0), 0)
+  const thisWeekSpending = spending.filter(s => s.date >= fmtDate(sevenDaysAgo))
+  const lastWeekSpending = spending.filter(s => s.date >= fmtDate(fourteenDaysAgo) && s.date < fmtDate(sevenDaysAgo))
+  const thisWeekSpent = thisWeekSpending.reduce((s, r) => s + Number(r.amount || 0), 0)
+  const lastWeekSpent = lastWeekSpending.reduce((s, r) => s + Number(r.amount || 0), 0)
 
   const thisWeekCPN = calculateCPN({
     moneySpent: thisWeekSpent,
@@ -240,18 +234,16 @@ export default async function Dashboard() {
   for (const r of spending) {
     spendByCategory[r.category] = (spendByCategory[r.category] || 0) + Number(r.amount)
   }
-  if (totals.money_spent > 0) {
-    spendByCategory['subscriptions'] = (spendByCategory['subscriptions'] || 0) + totals.money_spent
-  }
 
   // Per-platform breakdown (detailed for DashboardLive)
   const byPlatform: Record<string, { swipes_right: number; matches: number; messages_sent: number; dates_booked: number }> = {}
   for (const r of rows) {
-    if (!byPlatform[r.app]) byPlatform[r.app] = { swipes_right: 0, matches: 0, messages_sent: 0, dates_booked: 0 }
-    byPlatform[r.app].swipes_right += r.swipes_right
-    byPlatform[r.app].matches += r.matches
-    byPlatform[r.app].messages_sent += r.conversations_started
-    byPlatform[r.app].dates_booked += r.dates_booked
+    const key = r.platform || 'unknown'
+    if (!byPlatform[key]) byPlatform[key] = { swipes_right: 0, matches: 0, messages_sent: 0, dates_booked: 0 }
+    byPlatform[key].swipes_right += r.swipes_right
+    byPlatform[key].matches += r.matches
+    byPlatform[key].messages_sent += (r.messages_sent || 0)
+    byPlatform[key].dates_booked += r.dates_booked
   }
 
   // Build initial data for the live client component

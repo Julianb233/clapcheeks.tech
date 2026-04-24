@@ -27,7 +27,7 @@ export async function GET(request: NextRequest) {
   const [analyticsRes, convoRes, spendRes] = await Promise.all([
     supabase
       .from('clapcheeks_analytics_daily')
-      .select('app, swipes_right, swipes_left, matches, conversations_started, dates_booked, money_spent, date')
+      .select('platform, swipes_right, swipes_left, matches, messages_sent, dates_booked, date')
       .eq('user_id', user.id)
       .gte('date', fmt(rangeStart))
       .order('date', { ascending: true }),
@@ -54,7 +54,7 @@ export async function GET(request: NextRequest) {
       swipes_right: acc.swipes_right + (r.swipes_right || 0),
       swipes_left: acc.swipes_left + (r.swipes_left || 0),
       matches: acc.matches + (r.matches || 0),
-      messages_sent: acc.messages_sent + (r.conversations_started || 0),
+      messages_sent: acc.messages_sent + (r.messages_sent || 0),
       dates_booked: acc.dates_booked + (r.dates_booked || 0),
     }),
     { swipes_right: 0, swipes_left: 0, matches: 0, messages_sent: 0, dates_booked: 0 }
@@ -71,11 +71,12 @@ export async function GET(request: NextRequest) {
   // Per-platform breakdown
   const platforms: Record<string, { swipes_right: number; matches: number; messages_sent: number; dates_booked: number }> = {}
   for (const r of analytics) {
-    if (!platforms[r.app]) platforms[r.app] = { swipes_right: 0, matches: 0, messages_sent: 0, dates_booked: 0 }
-    platforms[r.app].swipes_right += r.swipes_right || 0
-    platforms[r.app].matches += r.matches || 0
-    platforms[r.app].messages_sent += r.conversations_started || 0
-    platforms[r.app].dates_booked += r.dates_booked || 0
+    const key = r.platform || 'unknown'
+    if (!platforms[key]) platforms[key] = { swipes_right: 0, matches: 0, messages_sent: 0, dates_booked: 0 }
+    platforms[key].swipes_right += r.swipes_right || 0
+    platforms[key].matches += r.matches || 0
+    platforms[key].messages_sent += r.messages_sent || 0
+    platforms[key].dates_booked += r.dates_booked || 0
   }
 
   // Daily time series (merge analytics + conversations by date)
@@ -87,7 +88,7 @@ export async function GET(request: NextRequest) {
     if (!dailyMap[r.date]) dailyMap[r.date] = { date: r.date, swipes_right: 0, matches: 0, messages_sent: 0, dates_booked: 0, conversations_replied: 0 }
     dailyMap[r.date].swipes_right += r.swipes_right || 0
     dailyMap[r.date].matches += r.matches || 0
-    dailyMap[r.date].messages_sent += r.conversations_started || 0
+    dailyMap[r.date].messages_sent += r.messages_sent || 0
     dailyMap[r.date].dates_booked += r.dates_booked || 0
   }
   for (const r of convos) {
@@ -102,7 +103,7 @@ export async function GET(request: NextRequest) {
     .map(r => ({
       swipes_right: r.swipes_right || 0,
       matches: r.matches || 0,
-      messages_sent: r.conversations_started || 0,
+      messages_sent: r.messages_sent || 0,
       conversations_replied: convos.filter(c => c.date === r.date).reduce((s, c) => s + (c.conversations_replied || 0), 0),
       dates_booked: r.dates_booked || 0,
     }))
@@ -111,7 +112,7 @@ export async function GET(request: NextRequest) {
     .map(r => ({
       swipes_right: r.swipes_right || 0,
       matches: r.matches || 0,
-      messages_sent: r.conversations_started || 0,
+      messages_sent: r.messages_sent || 0,
       conversations_replied: convos.filter(c => c.date === r.date).reduce((s, c) => s + (c.conversations_replied || 0), 0),
       dates_booked: r.dates_booked || 0,
     }))
@@ -119,7 +120,7 @@ export async function GET(request: NextRequest) {
   const rizzScore = calculateRizzScore(thisWeekRows.length > 0 ? thisWeekRows : analytics.map(r => ({
     swipes_right: r.swipes_right || 0,
     matches: r.matches || 0,
-    messages_sent: r.conversations_started || 0,
+    messages_sent: r.messages_sent || 0,
     conversations_replied: 0,
     dates_booked: r.dates_booked || 0,
   })))

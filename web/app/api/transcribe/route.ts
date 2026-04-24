@@ -42,7 +42,7 @@ export async function POST(req: NextRequest) {
   const filename = audio.name || 'audio.webm'
   const file = audio instanceof File
     ? audio
-    : new File([audio], filename, { type: audio.type || 'audio/webm' })
+    : new File([audio as Blob], filename, { type: (audio as Blob).type || 'audio/webm' })
 
   const body = new FormData()
   body.append('file', file)

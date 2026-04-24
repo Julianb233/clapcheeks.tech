@@ -69,7 +69,7 @@ export async function generateCoaching(supabase: SupabaseClient, userId: string)
 
   const { data: rows } = await supabase
     .from('clapcheeks_analytics_daily')
-    .select('app, swipes_right, swipes_left, matches, conversations_started, dates_booked, date')
+    .select('platform, swipes_right, swipes_left, matches, messages_sent, dates_booked, date')
     .eq('user_id', userId)
     .gte('date', sinceStr)
     .order('date', { ascending: false })
@@ -84,7 +84,7 @@ export async function generateCoaching(supabase: SupabaseClient, userId: string)
       swipes_right: acc.swipes_right + (r.swipes_right || 0),
       swipes_left: acc.swipes_left + (r.swipes_left || 0),
       matches: acc.matches + (r.matches || 0),
-      messages_sent: acc.messages_sent + (r.conversations_started || 0),
+      messages_sent: acc.messages_sent + (r.messages_sent || 0),
       dates_booked: acc.dates_booked + (r.dates_booked || 0),
     }),
     { swipes_right: 0, swipes_left: 0, matches: 0, messages_sent: 0, dates_booked: 0 }
@@ -103,9 +103,10 @@ export async function generateCoaching(supabase: SupabaseClient, userId: string)
   // Per-platform breakdown
   const byPlatform: Record<string, { swipes: number; matches: number }> = {}
   for (const r of rows) {
-    if (!byPlatform[r.app]) byPlatform[r.app] = { swipes: 0, matches: 0 }
-    byPlatform[r.app].swipes += r.swipes_right || 0
-    byPlatform[r.app].matches += r.matches || 0
+    const key = r.platform || 'unknown'
+    if (!byPlatform[key]) byPlatform[key] = { swipes: 0, matches: 0 }
+    byPlatform[key].swipes += r.swipes_right || 0
+    byPlatform[key].matches += r.matches || 0
   }
 
   const statsSnapshot: StatsSnapshot = {
