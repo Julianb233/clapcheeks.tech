@@ -3,8 +3,26 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/*
+ * Light mode (default when `.dark` class is not on <html>).
+ *
+ * Clapcheeks was originally designed dark-only with a LOT of hardcoded
+ * `text-white`, `bg-black`, `bg-white/5`, `border-white/10` utilities
+ * across ~58 files.  Rather than rewrite every component, we remap the
+ * underlying Tailwind v4 color tokens (`--color-white`, `--color-black`)
+ * at the `:root` level for light mode so those utilities automatically
+ * invert.  The semantic tokens (`--background`, `--foreground`, etc.)
+ * continue to work for shadcn/ui primitives.
+ */
 :root {
-  --background: oklch(1 0 0);
+  /* Remap Tailwind's base white/black tokens so hardcoded
+   * `bg-white/5`, `text-white/60`, `bg-black`, `border-white/10`
+   * all flip to sensible light-mode values when `.dark` is NOT on <html>.
+   * These are the same tokens Tailwind v4 emits in theme.css. */
+  --color-white: #0a0a12;   /* "white" means "primary text color" in this codebase — flip to near-black on light */
+  --color-black: #f7f7fb;   /* "black" means "page background" — flip to near-white on light */
+
+  --background: oklch(0.99 0 0);
   --foreground: oklch(0.145 0 0);
   --card: oklch(1 0 0);
   --card-foreground: oklch(0.145 0 0);
@@ -40,6 +58,12 @@
 }
 
 .dark {
+  /* Restore the true white/black tokens in dark mode so the
+   * original design (white text on near-black backgrounds) looks
+   * exactly like it did before. */
+  --color-white: #ffffff;
+  --color-black: #000000;
+
   --background: oklch(0.145 0 0);
   --foreground: oklch(0.985 0 0);
   --card: oklch(0.145 0 0);
@@ -124,4 +148,65 @@
   body {
     @apply bg-background text-foreground;
   }
+}
+
+/*
+ * Light-mode fixups for hardcoded hex backgrounds that can't ride on
+ * --color-white / --color-black.  These were originally fixed dark
+ * shades (`bg-[#05050A]`, `bg-[#0a0a0f]`, `bg-[#0B0B14]`, `bg-[#0a0a14]`).
+ * When `.dark` is NOT on <html>, we flip them to light surface colors
+ * so page backgrounds and side panels read correctly.
+ *
+ * Attribute selectors match Tailwind's escaped class names in the
+ * compiled CSS (e.g. `.bg-\[\#05050A\]\/95`).
+ */
+html:not(.dark) [class*="bg-[#05050A]"],
+html:not(.dark) [class*="bg-[#0a0a0f]"],
+html:not(.dark) [class*="bg-[#0B0B14]"],
+html:not(.dark) [class*="bg-[#0a0a14]"],
+html:not(.dark) [class*="bg-[#0b0b14]"] {
+  background-color: oklch(0.98 0 0) !important;
+}
+
+/*
+ * The landing page's `.alpha-card`, `.glass-card`, `.code-block`
+ * use explicit rgba backgrounds that assume a dark substrate.
+ * Re-point them in light mode.
+ */
+html:not(.dark) .alpha-card {
+  background: rgba(255, 255, 255, 0.75);
+  border-color: rgba(201, 164, 39, 0.35);
+}
+html:not(.dark) .alpha-card::before {
+  background: linear-gradient(135deg, rgba(201, 164, 39, 0.05) 0%, transparent 60%);
+}
+html:not(.dark) .glass-card {
+  background: rgba(0, 0, 0, 0.025);
+  border-color: rgba(0, 0, 0, 0.08);
+}
+html:not(.dark) .code-block {
+  background: rgba(0, 0, 0, 0.04);
+  border-color: rgba(201, 164, 39, 0.25);
+}
+html:not(.dark) .diagonal-slash {
+  background: oklch(0.98 0 0);
+}
+
+/*
+ * Make the gold-text gradient still readable in light mode by
+ * darkening the gold tones slightly (the shimmer on white is too
+ * bright otherwise).
+ */
+html:not(.dark) .gold-text,
+html:not(.dark) .gradient-text {
+  background: linear-gradient(135deg, #9c7e1e 0%, #b8941f 50%, #9c7e1e 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+/* Soften the PageOrbs in light mode — the purple/red orbs become
+   muddy blobs on white.  Turn them off for readability. */
+html:not(.dark) .orb {
+  display: none;
 }

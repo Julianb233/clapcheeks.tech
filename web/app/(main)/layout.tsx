@@ -27,7 +27,7 @@ export default async function MainLayout({ children }: { children: React.ReactNo
           <main className="min-h-screen">{children}</main>
         </div>
       </div>
-      <Toaster theme="dark" position="bottom-right" richColors closeButton />
+      <Toaster position="bottom-right" richColors closeButton />
     </>
   )
 }
