@@ -19,11 +19,14 @@
   "host_permissions": [
     "https://tinder.com/*",
     "https://*.tinder.com/*",
+    "https://api.gotinder.com/*",
     "https://hinge.co/*",
     "https://*.hinge.co/*",
+    "https://*.hingeaws.net/*",
     "https://bumble.com/*",
     "https://www.instagram.com/*",
     "https://instagram.com/*",
+    "https://i.instagram.com/*",
     "https://*.clapcheeks.tech/*"
   ],
   "background": {

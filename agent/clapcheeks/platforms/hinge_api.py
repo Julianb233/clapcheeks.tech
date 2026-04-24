@@ -415,6 +415,44 @@ class HingeAPIClient:
         matches = (data.get("matches") if isinstance(data, dict) else data) or []
         return matches[:count]
 
+    def get_messages(self, match_id: str, limit: int = 50) -> list[dict]:
+        """Fetch message history for a single match (oldest first).
+
+        Hinge's iOS API serves threads at /message/match/v1/{matchId}. The
+        response wraps an array under ``messages``. Empty list on any
+        failure (logged) so callers can treat it as "no messages yet".
+        """
+        if not match_id:
+            return []
+        try:
+            data = self._request(
+                "GET",
+                f"/message/match/v1/{match_id}?limit={limit}",
+            )
+        except Exception as exc:
+            logger.debug("get_messages(%s) failed: %s", match_id, exc)
+            return []
+        msgs = (data.get("messages") if isinstance(data, dict) else data) or []
+        out: list[dict] = []
+        for m in msgs:
+            out.append({
+                "message_id": m.get("messageId") or m.get("id"),
+                "from_self": bool(m.get("fromSelf") or m.get("isSelf")),
+                "body": m.get("body") or m.get("text"),
+                "sent_at": m.get("createdAt") or m.get("sentAt"),
+            })
+        return out
+
+    @staticmethod
+    def message_thread_url(match_id: str, limit: int = 50, base_url: str | None = None) -> str:
+        """Build the URL the Chrome-extension job_queue should fetch.
+
+        Provided so callers enqueueing jobs don't hard-code the path in
+        multiple places.
+        """
+        b = (base_url or DEFAULT_BASE).rstrip("/")
+        return f"{b}/message/match/v1/{match_id}?limit={limit}"
+
     # ------------------------------------------------------------------
     # Full match intake (Phase A - AI-8315)
     # ------------------------------------------------------------------
