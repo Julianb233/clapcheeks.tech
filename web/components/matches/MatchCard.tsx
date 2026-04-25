@@ -20,7 +20,7 @@ export default function MatchCard({ match, lastMessage }: Props) {
 
   return (
     <Link
-      href={`/dashboard/matches/${match.id}`}
+      href={`/matches/${match.id}`}
       className="group block bg-white/[0.03] border border-white/10 rounded-xl overflow-hidden hover:border-yellow-500/40 hover:bg-white/[0.05] transition-all"
     >
       <div className="relative aspect-[3/4] w-full bg-gradient-to-br from-zinc-800 to-zinc-900 overflow-hidden">

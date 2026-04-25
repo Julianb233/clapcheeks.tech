@@ -13,29 +13,28 @@ type NavItem = {
   badge?: string
 }
 
+// Roster comes first — Julian wants the funnel of girls as the landing-after-login.
+// Pages that depend on tables missing on prod (content-library, autonomy, support)
+// are removed from nav until the migrations land — they'd 500 otherwise.
 const PRIMARY: NavItem[] = [
+  { href: '/dashboard/roster', label: 'Roster', icon: <RosterIcon /> },
   { href: '/dashboard', label: 'Dashboard', icon: <HomeIcon /> },
-  { href: '/ai-first-date', label: 'AI First Date', icon: <HeartIcon />, badge: 'new' },
   { href: '/dashboard/matches', label: 'Matches', icon: <HeartIcon /> },
-  { href: '/dashboard/roster', label: 'Roster', icon: <RosterIcon />, badge: 'new' },
-  { href: '/dashboard/content-library', label: 'Content Library', icon: <CameraIcon />, badge: 'new' },
   { href: '/leads', label: 'Leads', icon: <PipelineIcon /> },
-  { href: '/matches', label: 'Match Brief', icon: <ProfileIcon />, badge: 'new' },
   { href: '/conversation', label: 'Conversations', icon: <ChatIcon /> },
   { href: '/intelligence', label: 'Intelligence', icon: <SparkIcon /> },
   { href: '/analytics', label: 'Analytics', icon: <ChartIcon /> },
   { href: '/photos', label: 'Photos', icon: <CameraIcon /> },
   { href: '/coaching', label: 'Coaching', icon: <RizzIcon /> },
+  { href: '/ai-first-date', label: 'AI First Date', icon: <HeartIcon />, badge: 'new' },
 ]
 
 const SECONDARY: NavItem[] = [
-  { href: '/autonomy', label: 'Autonomy', icon: <SparkIcon /> },
-  { href: '/referrals', label: 'Referrals', icon: <GiftIcon />, badge: 'new' },
-  { href: '/settings/ai', label: 'AI Settings', icon: <GearIcon />, badge: 'new' },
+  { href: '/referrals', label: 'Referrals', icon: <GiftIcon /> },
+  { href: '/settings/ai', label: 'AI Settings', icon: <GearIcon /> },
   { href: '/settings', label: 'Weekly Reports', icon: <BellIcon /> },
   { href: '/billing', label: 'Billing', icon: <CardIcon /> },
   { href: '/device', label: 'Device', icon: <LaptopIcon /> },
-  { href: '/support', label: 'Support', icon: <HelpIcon /> },
 ]
 
 export default function AppSidebar() {

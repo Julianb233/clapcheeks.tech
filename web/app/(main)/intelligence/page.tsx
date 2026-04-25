@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
-import { createClient } from '@/lib/supabase/client'
 
 interface Stats {
   opener_reply_rate: number
@@ -43,17 +42,9 @@ export default function IntelligencePage() {
   useEffect(() => {
     async function fetchData() {
       try {
-        const supabase = createClient()
-        const { data: { session } } = await supabase.auth.getSession()
-        const token = session?.access_token
-        const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
-
-        const headers: Record<string, string> = {}
-        if (token) headers['Authorization'] = `Bearer ${token}`
-
         const [statsRes, abRes] = await Promise.all([
-          fetch(`${apiBase}/intelligence/stats`, { headers }),
-          fetch(`${apiBase}/intelligence/ab-test`, { headers }),
+          fetch('/api/intelligence/stats'),
+          fetch('/api/intelligence/ab-test'),
         ])
 
         if (statsRes.ok) setStats(await statsRes.json())
