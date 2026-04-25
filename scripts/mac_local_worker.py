@@ -117,51 +117,54 @@ _chat_db_disabled = False
 
 
 def chatdb_messages_for(phone: str, since_iso: str | None) -> list[dict]:
+    """Read chat.db for one phone. Silently no-ops if chat.db isn't readable
+    (macOS Full Disk Access). The MacBook Pro VPS nightly cron uses the
+    julianbradley user (which has FDA) to keep Supabase fresh, so this
+    Mac Mini worker just reads from Supabase."""
     global _chat_db_disabled
     if _chat_db_disabled or not CHAT_DB.exists():
         return []
     try:
         conn = sqlite3.connect(f"file:{CHAT_DB}?mode=ro&immutable=1", uri=True)
-    except sqlite3.OperationalError as e:
-        # macOS Full Disk Access denied — skip chat.db forever this run.
-        # The MacBook Pro nightly VPS cron feeds messages into Supabase
-        # using the julianbradley user account which is authorized.
-        log(f"chat.db inaccessible (Full Disk Access not granted): {e}; falling back to Supabase-only mode")
+        cur = conn.cursor()
+        where = "h.id = ?"
+        params: list = [phone]
+        if since_iso:
+            where += (
+                " AND m.date/1000000000 + strftime('%s','2001-01-01') > "
+                "strftime('%s', ?)"
+            )
+            params.append(since_iso)
+        cur.execute(
+            f"""
+            SELECT m.guid, m.is_from_me, COALESCE(m.text, ''), m.attributedBody,
+                   datetime(m.date/1000000000 + strftime('%s','2001-01-01'),
+                            'unixepoch')
+            FROM message m JOIN handle h ON m.handle_id = h.ROWID
+            WHERE {where}
+            ORDER BY m.date ASC
+            """,
+            params,
+        )
+        rows = cur.fetchall()
+        out = []
+        for guid, is_from_me, text, body, ts in rows:
+            t = text or ""
+            if not t and body:
+                t = decode_attributed_body(bytes(body))
+            out.append({
+                "guid": guid,
+                "is_from_me": int(is_from_me),
+                "text": t,
+                "ts_utc": ts,
+            })
+        conn.close()
+        return out
+    except (sqlite3.OperationalError, sqlite3.DatabaseError, OSError) as e:
+        if not _chat_db_disabled:
+            log(f"chat.db inaccessible: {e}; switching to Supabase-only mode")
         _chat_db_disabled = True
         return []
-    cur = conn.cursor()
-    where = "h.id = ?"
-    params: list = [phone]
-    if since_iso:
-        where += (
-            " AND m.date/1000000000 + strftime('%s','2001-01-01') > "
-            "strftime('%s', ?)"
-        )
-        params.append(since_iso)
-    cur.execute(
-        f"""
-        SELECT m.guid, m.is_from_me, COALESCE(m.text, ''), m.attributedBody,
-               datetime(m.date/1000000000 + strftime('%s','2001-01-01'),
-                        'unixepoch')
-        FROM message m JOIN handle h ON m.handle_id = h.ROWID
-        WHERE {where}
-        ORDER BY m.date ASC
-        """,
-        params,
-    )
-    out = []
-    for guid, is_from_me, text, body, ts in cur.fetchall():
-        t = text or ""
-        if not t and body:
-            t = decode_attributed_body(bytes(body))
-        out.append({
-            "guid": guid,
-            "is_from_me": int(is_from_me),
-            "text": t,
-            "ts_utc": ts,
-        })
-    conn.close()
-    return out
 
 
 # ---------- Ollama ----------
@@ -372,11 +375,7 @@ def tick() -> None:
 
         # Pull anything new from chat.db (best-effort — falls back silently
         # to Supabase-only mode if Full Disk Access isn't granted).
-        try:
-            new_msgs = chatdb_messages_for(phone, last_inbound_ts)
-        except Exception as e:
-            log(f"{m['name']}: chat.db read err: {e}")
-            new_msgs = []
+        new_msgs = chatdb_messages_for(phone, last_inbound_ts)
         new_real = [x for x in new_msgs if is_real(x["text"])]
 
         if new_real:
