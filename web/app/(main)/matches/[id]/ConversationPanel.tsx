@@ -41,6 +41,35 @@ export function ConversationPanel({
   }, [matchId])
 
   const [draftSource, setDraftSource] = useState<string | null>(null)
+  const [sendingIdx, setSendingIdx] = useState<number | null>(null)
+  const [sentIdx, setSentIdx] = useState<number | null>(null)
+
+  async function sendDraft(idx: number, text: string) {
+    if (!confirm(`Send to ${matchName}:\n\n"${text}"`)) return
+    setSendingIdx(idx)
+    setErr(null)
+    try {
+      const res = await fetch(`/api/matches/${matchId}/send`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ text }),
+      })
+      const j = (await res.json().catch(() => ({}))) as { error?: string }
+      if (!res.ok) throw new Error(j.error ?? `HTTP ${res.status}`)
+      setSentIdx(idx)
+      // Optimistically add to local thread
+      setMessages((prev) => [
+        ...prev,
+        { ts: new Date().toISOString(), from: 'him', text },
+      ])
+      setSuggestions([])
+      setTimeout(() => setSentIdx(null), 2500)
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Send failed')
+    } finally {
+      setSendingIdx(null)
+    }
+  }
 
   async function draft() {
     setDrafting(true)
@@ -222,21 +251,40 @@ export function ConversationPanel({
           </div>
           <div className="space-y-2">
             {suggestions.map((s, i) => (
-              <button
+              <div
                 key={i}
-                type="button"
-                onClick={() => {
-                  void navigator.clipboard.writeText(s)
-                }}
-                className="w-full text-left p-3 rounded-lg border border-white/10 hover:border-pink-500/40 hover:bg-white/[0.07] text-sm transition-colors"
-                title="Click to copy"
+                className="flex gap-2 items-stretch"
               >
-                {s}
-              </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    void navigator.clipboard.writeText(s)
+                  }}
+                  className="flex-1 text-left p-3 rounded-lg border border-white/10 hover:border-pink-500/40 hover:bg-white/[0.07] text-sm transition-colors"
+                  title="Click to copy"
+                >
+                  {s}
+                </button>
+                <button
+                  type="button"
+                  disabled={sendingIdx !== null}
+                  onClick={() => void sendDraft(i, s)}
+                  className={`px-3 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors ${
+                    sentIdx === i
+                      ? 'bg-emerald-600 text-white'
+                      : sendingIdx === i
+                        ? 'bg-pink-700 text-white/60'
+                        : 'bg-pink-600 hover:bg-pink-500 text-white'
+                  } disabled:opacity-50`}
+                  title={`Send to ${matchName}`}
+                >
+                  {sentIdx === i ? '✓ Sent' : sendingIdx === i ? '…' : 'Send →'}
+                </button>
+              </div>
             ))}
           </div>
           <div className="text-[10px] text-white/40 mt-2">
-            Click any suggestion to copy.
+            Tap text to copy · Tap Send to fire it through iMessage to {matchName}.
           </div>
         </div>
       )}
