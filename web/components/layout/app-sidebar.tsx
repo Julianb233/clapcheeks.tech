@@ -17,6 +17,7 @@ type NavItem = {
 // Pages that depend on tables missing on prod (content-library, autonomy, support)
 // are removed from nav until the migrations land — they'd 500 otherwise.
 const PRIMARY: NavItem[] = [
+  { href: '/inbox', label: 'Inbox', icon: <ChatIcon />, badge: 'new' },
   { href: '/dashboard/roster', label: 'Roster', icon: <RosterIcon /> },
   { href: '/dashboard', label: 'Dashboard', icon: <HomeIcon /> },
   { href: '/dashboard/matches', label: 'Matches', icon: <HeartIcon /> },

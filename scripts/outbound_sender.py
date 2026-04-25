@@ -95,6 +95,8 @@ def main() -> int:
             continue
         changed = False
         for item in queue:
+            # Skip anything that isn't actively pending (sent, cancelled,
+            # failed all stay as-is).
             if item.get("status") != "pending":
                 continue
             phone = item.get("her_phone") or m.get("her_phone")
