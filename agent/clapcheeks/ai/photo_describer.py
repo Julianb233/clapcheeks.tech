@@ -20,7 +20,7 @@ import requests
 
 logger = logging.getLogger(__name__)
 
-VISION_MODEL = os.environ.get("OLLAMA_VISION_MODEL", "llama3.2-vision")
+VISION_MODEL = os.environ.get("OLLAMA_VISION_MODEL", "llama3.2-vision:latest")
 DESCRIBE_PROMPT = (
     "Describe this dating-app profile photo in ONE compact sentence. "
     "Focus on what she's doing or what's notable: setting, activity, "
