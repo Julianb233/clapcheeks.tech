@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { recomputeScore } from '@/lib/match-scoring'
 
 // POST /api/matches/[id]/flake
 // Body: { note?: string, demote_stage?: boolean }
@@ -21,7 +22,7 @@ export async function POST(
 
   const { data: match } = await (supabase as any)
     .from('clapcheeks_matches')
-    .select('id, user_id, match_id, flake_count, stage')
+    .select('id, user_id, match_id, flake_count, reschedule_count, stage, messages_total, messages_7d, his_to_her_ratio, avg_reply_hours, time_to_date_days, sentiment_trajectory, close_probability, health_score')
     .eq('id', id)
     .eq('user_id', user.id)
     .maybeSingle()
@@ -46,6 +47,26 @@ export async function POST(
   if (body.demote_stage === true || (body.demote_stage !== false && newFlakeCount >= 2)) {
     update.stage = 'faded'
   }
+
+  // Recompute score with the bumped flake count + (possibly) new stage.
+  const score = recomputeScore({
+    flake_count: newFlakeCount,
+    reschedule_count: match.reschedule_count ?? 0,
+    messages_total: match.messages_total ?? 0,
+    messages_7d: match.messages_7d ?? 0,
+    his_to_her_ratio: match.his_to_her_ratio ?? null,
+    avg_reply_hours: match.avg_reply_hours ?? null,
+    time_to_date_days: match.time_to_date_days ?? null,
+    sentiment_trajectory: (match.sentiment_trajectory ?? null) as 'positive' | 'neutral' | 'negative' | null,
+    stage: (update.stage as string | undefined) ?? match.stage,
+    current_close_probability: match.close_probability ?? null,
+    current_health_score: match.health_score ?? null,
+  })
+  update.close_probability = score.close_probability
+  update.health_score = score.health_score
+  update.scoring_reason = score.reason
+  update.scored_at = now
+  update.health_score_updated_at = now
 
   await (supabase as any)
     .from('clapcheeks_matches')

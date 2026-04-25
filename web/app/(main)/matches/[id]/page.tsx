@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { redirect, notFound } from 'next/navigation'
 import MatchProfileView from './match-profile-view'
 import { ConversationPanel } from './ConversationPanel'
+import { HistoryTab } from './HistoryTab'
 
 export const metadata: Metadata = {
   title: 'Match Profile - Clapcheeks',
@@ -43,6 +44,14 @@ export default async function MatchDetailPage({
             flakeCount={(match.flake_count as number) ?? 0}
             rescheduleCount={(match.reschedule_count as number) ?? 0}
           />
+        </div>
+        <div className="mt-8">
+          <div className="p-5 rounded-xl border border-white/10 bg-white/5">
+            <h3 className="text-sm font-semibold uppercase tracking-wide text-white/60 mb-3">
+              History
+            </h3>
+            <HistoryTab matchId={match.id as string} />
+          </div>
         </div>
       </div>
     </div>

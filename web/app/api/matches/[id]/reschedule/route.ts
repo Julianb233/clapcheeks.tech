@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { recomputeScore } from '@/lib/match-scoring'
 
 // POST /api/matches/[id]/reschedule
 // Body: { new_slot_iso: string, note?: string }
@@ -21,7 +22,7 @@ export async function POST(
 
   const { data: match } = await (supabase as any)
     .from('clapcheeks_matches')
-    .select('id, user_id, match_id, reschedule_count')
+    .select('id, user_id, match_id, reschedule_count, flake_count, stage, messages_total, messages_7d, his_to_her_ratio, avg_reply_hours, time_to_date_days, sentiment_trajectory, close_probability, health_score')
     .eq('id', id)
     .eq('user_id', user.id)
     .maybeSingle()
@@ -40,13 +41,33 @@ export async function POST(
 
   const now = new Date().toISOString()
 
-  // Increment counter + stamp last_reschedule_at on the match row.
+  const newReschCount = (match.reschedule_count ?? 0) + 1
+  const score = recomputeScore({
+    flake_count: match.flake_count ?? 0,
+    reschedule_count: newReschCount,
+    messages_total: match.messages_total ?? 0,
+    messages_7d: match.messages_7d ?? 0,
+    his_to_her_ratio: match.his_to_her_ratio ?? null,
+    avg_reply_hours: match.avg_reply_hours ?? null,
+    time_to_date_days: match.time_to_date_days ?? null,
+    sentiment_trajectory: (match.sentiment_trajectory ?? null) as 'positive' | 'neutral' | 'negative' | null,
+    stage: match.stage,
+    current_close_probability: match.close_probability ?? null,
+    current_health_score: match.health_score ?? null,
+  })
+
+  // Increment counter + stamp last_reschedule_at + recompute score.
   await (supabase as any)
     .from('clapcheeks_matches')
     .update({
-      reschedule_count: (match.reschedule_count ?? 0) + 1,
+      reschedule_count: newReschCount,
       last_reschedule_at: now,
       updated_at: now,
+      close_probability: score.close_probability,
+      health_score: score.health_score,
+      scoring_reason: score.reason,
+      scored_at: now,
+      health_score_updated_at: now,
     })
     .eq('id', id)
     .eq('user_id', user.id)

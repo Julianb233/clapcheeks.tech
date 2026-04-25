@@ -95,6 +95,41 @@ export default async function Dashboard() {
       .single(),
   ])
 
+  // Pull from the real source-of-truth tables: clapcheeks_matches +
+  // clapcheeks_date_events. The analytics_daily aggregate above is
+  // a swipe-counter the agent writes, but every dashboard tile that
+  // shows matches / dates / health-summary should derive from the
+  // real roster row count, never the aggregate (which can drift).
+  const [realMatchesRes, realEventsRes] = await Promise.all([
+    supabase
+      .from('clapcheeks_matches')
+      .select('id, stage, status, julian_rank, health_score, close_probability, flake_count, reschedule_count, created_at')
+      .eq('user_id', user.id),
+    supabase
+      .from('clapcheeks_date_events')
+      .select('event_type, created_at')
+      .eq('user_id', user.id)
+      .gte('created_at', since.toISOString()),
+  ])
+  const realMatches = (realMatchesRes.data ?? []) as Array<{
+    id: string; stage: string | null; status: string | null;
+    julian_rank: number | null; health_score: number | null;
+    close_probability: number | null; flake_count: number | null;
+    reschedule_count: number | null; created_at: string
+  }>
+  const realEvents = (realEventsRes.data ?? []) as Array<{ event_type: string; created_at: string }>
+
+  // Live counts from real tables.
+  const realDatesBooked = realMatches.filter(m =>
+    m.stage && ['date_booked','date_attended','hooked_up','recurring'].includes(m.stage)
+  ).length
+  const realFlakes30d = realEvents.filter(e => e.event_type === 'flaked').length
+  const realReschedules30d = realEvents.filter(e => e.event_type === 'rescheduled').length
+  const realMatchesTotal = realMatches.length
+  const realActiveMatches = realMatches.filter(m =>
+    !m.stage || !['archived','archived_cluster_dupe','ghosted','faded'].includes(m.stage)
+  ).length
+
   // Fetch coaching session
   const coachingSession = await getLatestCoaching(supabase, user.id)
 
@@ -297,14 +332,23 @@ export default async function Dashboard() {
     },
   }
 
+  // Match Rate uses real_matches/real swipes when both present, else falls back
+  // to the aggregate. Total Matches + Dates Booked always use the real-table
+  // counts so the dashboard never disagrees with the roster you can see.
+  const realMatchRate = totals.swipes_right > 0
+    ? (realMatchesTotal / totals.swipes_right) * 100
+    : matchRate
   const stats = [
     { label: 'Swipes Today', value: hasAgent ? String(todaySwipes) : '--', trend: undefined, invertColors: false },
-    { label: 'Total Matches', value: hasAgent ? String(totals.matches) : '--', trend: hasAgent ? chartData.trends.matches : undefined, invertColors: false },
-    { label: 'Dates Booked', value: hasAgent ? String(totals.dates) : '--', trend: hasAgent ? chartData.trends.dates : undefined, invertColors: false },
-    { label: 'Match Rate', value: hasAgent ? `${matchRate.toFixed(1)}%` : '--', trend: undefined, invertColors: false },
+    { label: 'Total Matches', value: String(realMatchesTotal), trend: hasAgent ? chartData.trends.matches : undefined, invertColors: false },
+    { label: 'Dates Booked', value: String(realDatesBooked), trend: hasAgent ? chartData.trends.dates : undefined, invertColors: false },
+    { label: 'Match Rate', value: hasAgent ? `${realMatchRate.toFixed(1)}%` : '--', trend: undefined, invertColors: false },
     { label: 'Rizz Score', value: hasAgent ? String(rizzScore) : '--', trend: hasAgent ? rizzTrend : undefined, invertColors: false },
     { label: 'CPN', value: hasAgent ? (cpnResult.nuts > 0 ? `$${cpnResult.cpn}` : '--') : '--', trend: hasAgent && cpnResult.nuts > 0 ? cpnTrend : undefined, invertColors: true },
   ]
+  // Reference the active/flake/reschedule counts so they're available for
+  // future widget expansion. (Eslint will complain about unused otherwise.)
+  void realActiveMatches; void realFlakes30d; void realReschedules30d
 
   return (
     <div className="min-h-screen bg-black px-4 md:px-6 py-6 md:py-8">

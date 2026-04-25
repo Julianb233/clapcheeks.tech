@@ -11,6 +11,14 @@
     {
       "path": "/api/cron/refresh-voice-profile",
       "schedule": "30 6 * * *"
+    },
+    {
+      "path": "/api/cron/hot-reply-notify",
+      "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/morning-brief",
+      "schedule": "0 15 * * *"
     }
   ]
 }
