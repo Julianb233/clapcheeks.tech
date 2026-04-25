@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { ScheduleDateButton } from './ScheduleDateButton'
 
 type Msg = { ts?: string; from?: 'her' | 'him'; text: string }
 
@@ -99,7 +100,8 @@ export function ConversationPanel({
         <h3 className="text-sm font-semibold uppercase tracking-wide text-white/60">
           Conversation
         </h3>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
+          <ScheduleDateButton matchId={matchId} matchName={matchName} />
           <button
             type="button"
             onClick={() => void generateBrief()}
