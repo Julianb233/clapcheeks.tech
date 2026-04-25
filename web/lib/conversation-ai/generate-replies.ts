@@ -1,5 +1,11 @@
 import { SupabaseClient } from '@supabase/supabase-js'
 import { chatComplete, extractJsonArray } from './llm-provider'
+import {
+  analyzeConversation,
+  generateStrategy,
+  renderStrategyForPrompt,
+  type IncomingMessage,
+} from './analyzer'
 
 interface ReplySuggestion {
   text: string
@@ -118,6 +124,32 @@ function renderPersonaBlock(persona: Record<string, unknown> | null): string {
   return lines.join('\n')
 }
 
+/**
+ * Best-effort parser for plain-text conversation transcripts of the shape
+ *   "Them: hi"
+ *   "Me: hey"
+ * into the message dicts our analyzer expects. Returns [] on a free-form
+ * blob so we degrade gracefully (analysis stays generic, persona/voice
+ * still apply).
+ */
+function parseConversationContext(context: string): IncomingMessage[] {
+  if (!context) return []
+  const lines = context.split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
+  const out: IncomingMessage[] = []
+  for (const line of lines) {
+    const m = line.match(/^(Them|Her|You|Me|I|Match|User|Assistant)\s*[:\-]\s*(.+)$/i)
+    if (!m) continue
+    const speaker = m[1].toLowerCase()
+    const text = m[2].trim()
+    const role =
+      speaker === 'them' || speaker === 'her' || speaker === 'match' || speaker === 'user'
+        ? 'user'
+        : 'assistant'
+    out.push({ role, content: text })
+  }
+  return out
+}
+
 export async function generateReplies(
   supabase: SupabaseClient,
   userId: string,
@@ -159,6 +191,14 @@ Style details: ${JSON.stringify(voiceProfile.profile_data || {})}`
     ? `\nProfile context about the user: ${profileContext}`
     : ''
 
+  // PHASE-41 (AI-8326) — analyze the conversation and inject a strategy
+  // block. Best-effort: if context isn't a Them:/Me: transcript, parsed[] is
+  // empty and the strategy is generic but still safe.
+  const parsedMessages = parseConversationContext(conversationContext)
+  const conversationAnalysis = analyzeConversation(parsedMessages)
+  const conversationStrategy = generateStrategy({}, parsedMessages, conversationAnalysis)
+  const strategyBlock = renderStrategyForPrompt(conversationStrategy)
+
   // PHASE-E — persona block leads, so voice + formatting rules set the floor
   // before any other instruction.
   const systemPrompt = [
@@ -168,6 +208,8 @@ Style details: ${JSON.stringify(voiceProfile.profile_data || {})}`
     "Generate reply suggestions that match the user's natural voice.",
     '',
     voiceContext,
+    '',
+    strategyBlock, // PHASE-41 (AI-8326) — match-specific strategy + readiness score
     '',
     'Research-backed dating strategy:',
     '- Ask for a date after ~7 messages. Skip asking for phone number first (60% chance date never happens if you ask for number before date).',
