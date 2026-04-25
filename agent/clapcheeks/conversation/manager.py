@@ -122,11 +122,26 @@ class ConversationManager:
                 logger.debug("Failed to log progression: %s", exc)
         threading.Thread(target=_post, daemon=True).start()
 
-    def generate_reply_for_conversation(self, conversation_history: list[dict], platform: str) -> str:
-        """Generate a reply using the local AI fallback chain."""
-        return generate_reply(conversation_history, platform)
+    def generate_reply_for_conversation(
+        self,
+        conversation_history: list[dict],
+        platform: str,
+        match_profile: dict | None = None,
+    ) -> str:
+        """Generate a reply using the local AI fallback chain.
 
-    def suggest_reply(self, conversation: list[dict], contact_name: str | None = None, calendar_context: str | None = None) -> str | None:
+        Pass `match_profile` (raw rec/user dict from Hinge/Tinder/IG) so the
+        AI prompt includes her zodiac, interests, prompt themes, etc.
+        """
+        return generate_reply(conversation_history, platform, match_profile=match_profile)
+
+    def suggest_reply(
+        self,
+        conversation: list[dict],
+        contact_name: str | None = None,
+        calendar_context: str | None = None,
+        match_profile: dict | None = None,
+    ) -> str | None:
         try:
             # Analyze match's style
             match_style = self._analyze_match_style(conversation)
@@ -146,6 +161,8 @@ class ConversationManager:
             }
             if calendar_context:
                 payload["calendar_context"] = calendar_context
+            if match_profile:
+                payload["match_profile"] = match_profile
 
             resp = requests.post(f"{self._ai_url}/reply/suggest", json=payload, timeout=15)
             resp.raise_for_status()
@@ -153,18 +170,29 @@ class ConversationManager:
         except Exception as exc:
             logger.warning("AI service call failed: %s — trying local fallback", exc)
             try:
-                return generate_reply(conversation, self._platform)
+                # Local fallback: pass match_profile so Ollama gets full intel
+                return generate_reply(conversation, self._platform, match_profile=match_profile)
             except Exception as fallback_exc:
                 logger.warning("Local fallback also failed: %s", fallback_exc)
                 return None
 
-    def suggest_date_message(self, match_name: str, conversation: list[dict]) -> str | None:
+    def suggest_date_message(
+        self,
+        match_name: str,
+        conversation: list[dict],
+        match_profile: dict | None = None,
+    ) -> str | None:
         free_slots = self._get_free_slots()
         calendar_context = None
         if free_slots:
             labels = [s["label"] for s in free_slots[:3]]
             calendar_context = f"Available: {', '.join(labels)}"
-        return self.suggest_reply(conversation=conversation, contact_name=match_name, calendar_context=calendar_context)
+        return self.suggest_reply(
+            conversation=conversation,
+            contact_name=match_name,
+            calendar_context=calendar_context,
+            match_profile=match_profile,
+        )
 
     def get_new_matches(self) -> list[dict]:
         try:
@@ -348,3 +376,56 @@ class ConversationManager:
         summary["errors"] += reengage_results["errors"]
 
         return summary
+
+
+def fetch_match_profile_from_supabase(match_id: str, user_id: str) -> dict | None:
+    """Fetch a match's profile (zodiac, prompts, photos, intel) from
+    clapcheeks_matches.match_intel JSONB. Returns None if missing.
+
+    Used to wire full match context into the reply generator so Ollama
+    speaks *to this specific person*, not a generic match.
+    """
+    if not match_id or not user_id:
+        return None
+    try:
+        from clapcheeks.sync import _load_supabase_env
+        from supabase import create_client
+    except Exception:
+        return None
+    url, key = _load_supabase_env()
+    if not url or not key:
+        return None
+    try:
+        client = create_client(url, key)
+        resp = (
+            client.table("clapcheeks_matches")
+            .select("match_intel,name,age,bio,job,school,zodiac,prompts_jsonb,photos_jsonb,instagram_handle,distance_miles")
+            .eq("user_id", user_id)
+            .eq("match_id", match_id)
+            .limit(1)
+            .execute()
+        )
+        rows = resp.data or []
+        if not rows:
+            return None
+        r = rows[0]
+        # Reconstruct a Hinge-style match-profile shape that match_intel.extract() understands
+        return {
+            "subject": {
+                "firstName": r.get("name"),
+                "age": r.get("age"),
+                "bio": r.get("bio"),
+                "prompts": r.get("prompts_jsonb") or [],
+                "photos": r.get("photos_jsonb") or [],
+                "employments": [{"jobTitle": r.get("job")}] if r.get("job") else [],
+                "educations": [{"schoolName": r.get("school")}] if r.get("school") else [],
+                "zodiac": r.get("zodiac"),
+                "instagram": {"username": r.get("instagram_handle")} if r.get("instagram_handle") else None,
+                "distance_miles": r.get("distance_miles"),
+            },
+            "match_intel": r.get("match_intel"),  # cached intel from prior scoring
+        }
+    except Exception as exc:
+        import logging
+        logging.getLogger(__name__).debug("fetch_match_profile failed: %s", exc)
+        return None
