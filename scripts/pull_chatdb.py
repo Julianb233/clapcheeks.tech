@@ -67,6 +67,84 @@ PHONES = [
 DB = str(Path.home() / "Library" / "Messages" / "chat.db")
 
 
+_HAS_TRANSCRIPTION_COL: bool | None = None
+
+
+def _attachment_columns(cur) -> str:
+    """attachment.transcription only exists on macOS 15+ / iOS 18+. Detect
+    once and pick SELECT accordingly."""
+    global _HAS_TRANSCRIPTION_COL
+    if _HAS_TRANSCRIPTION_COL is None:
+        cur.execute("PRAGMA table_info(attachment)")
+        cols = {row[1] for row in cur.fetchall()}
+        _HAS_TRANSCRIPTION_COL = "transcription" in cols
+    return (
+        "a.filename, a.mime_type, a.total_bytes, a.transcription"
+        if _HAS_TRANSCRIPTION_COL
+        else "a.filename, a.mime_type, a.total_bytes, NULL AS transcription"
+    )
+
+
+def fetch_attachments(cur, msg_rowid: int) -> list[dict]:
+    """Pull every attachment row joined to a message. Returns list of
+    {kind, mime, filename, total_bytes, transcription} where kind is one
+    of: audio, image, video, file. macOS stores audio messages with
+    mime_type='audio/x-caf' or 'audio/amr'."""
+    cur.execute(
+        f"""
+        SELECT {_attachment_columns(cur)}
+        FROM attachment a
+        JOIN message_attachment_join j ON j.attachment_id = a.ROWID
+        WHERE j.message_id = ?
+        """,
+        (msg_rowid,),
+    )
+    out = []
+    for filename, mime, total_bytes, transcription in cur.fetchall():
+        mime = mime or ""
+        if mime.startswith("audio/"):
+            kind = "audio"
+        elif mime.startswith("image/"):
+            kind = "image"
+        elif mime.startswith("video/"):
+            kind = "video"
+        else:
+            kind = "file"
+        out.append({
+            "kind": kind,
+            "mime": mime,
+            "filename": filename,
+            "total_bytes": total_bytes,
+            "transcription": transcription,  # macOS Live Transcription on iOS 18+
+        })
+    return out
+
+
+def label_for_attachments(atts: list[dict]) -> str:
+    """Render a placeholder text for attachment-only messages so the UI
+    shows '🎤 audio note (3s)' instead of the empty replacement char."""
+    if not atts:
+        return ""
+    parts: list[str] = []
+    for a in atts:
+        if a["kind"] == "audio":
+            # macOS Live Transcription sometimes fills `transcription`
+            tx = (a.get("transcription") or "").strip()
+            if tx:
+                parts.append(f"🎤 \"{tx}\"")
+            else:
+                parts.append("🎤 audio note")
+        elif a["kind"] == "image":
+            parts.append("📷 photo")
+        elif a["kind"] == "video":
+            parts.append("🎥 video")
+        else:
+            fn = a.get("filename") or ""
+            short = Path(fn).name if fn else "file"
+            parts.append(f"📎 {short}")
+    return " · ".join(parts)
+
+
 def main() -> int:
     conn = sqlite3.connect(f"file:{DB}?mode=ro&immutable=1", uri=True)
     cur = conn.cursor()
@@ -75,13 +153,15 @@ def main() -> int:
         cur.execute(
             """
             SELECT
+              m.ROWID                                                   AS rowid,
               m.guid,
               m.is_from_me,
-              COALESCE(m.text, '') AS text,
-              m.attributedBody    AS body,
+              COALESCE(m.text, '')                                      AS text,
+              m.attributedBody                                          AS body,
+              m.cache_has_attachments                                   AS has_atts,
               datetime(m.date/1000000000 + strftime('%s','2001-01-01'),
-                       'unixepoch') AS ts_utc,
-              m.associated_message_type AS reaction_type
+                       'unixepoch')                                     AS ts_utc,
+              m.associated_message_type                                 AS reaction_type
             FROM message m
             JOIN handle h ON m.handle_id = h.ROWID
             WHERE h.id = ?
@@ -90,19 +170,38 @@ def main() -> int:
             (phone,),
         )
         rows = []
-        for guid, is_from_me, text, body, ts, reaction_type in cur.fetchall():
+        for rowid, guid, is_from_me, text, body, has_atts, ts, reaction_type in cur.fetchall():
             t = text or ""
             if not t and body:
                 t = decode_attributed_body(bytes(body))
-            rows.append(
-                {
-                    "guid": guid,
-                    "is_from_me": int(is_from_me),
-                    "text": t,
-                    "ts_utc": ts,
-                    "reaction_type": reaction_type or 0,
-                }
-            )
+            atts: list[dict] = []
+            if has_atts:
+                atts = fetch_attachments(cur, rowid)
+            # Replace OBJ char (￼) with attachment label, OR if text is
+            # empty and we have attachments, use the label as the text.
+            stripped = t.replace("￼", "").strip()
+            if not stripped and atts:
+                t = label_for_attachments(atts)
+            elif "￼" in t and atts:
+                # Inline attachments: substitute each ￼ with its label
+                pieces = t.split("￼")
+                labels = [label_for_attachments([a]) for a in atts]
+                merged = []
+                for i, piece in enumerate(pieces):
+                    merged.append(piece)
+                    if i < len(labels):
+                        merged.append(labels[i])
+                t = "".join(merged).strip()
+            row = {
+                "guid": guid,
+                "is_from_me": int(is_from_me),
+                "text": t,
+                "ts_utc": ts,
+                "reaction_type": reaction_type or 0,
+            }
+            if atts:
+                row["attachments"] = atts
+            rows.append(row)
         out[phone] = rows
     json.dump(out, sys.stdout)
     return 0

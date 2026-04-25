@@ -34,15 +34,40 @@ export function ConversationPanel({
 
   useEffect(() => {
     let cancelled = false
-    fetch(`/api/matches/${matchId}/conversation`)
-      .then((r) => r.json())
-      .then((d) => {
+
+    async function load() {
+      try {
+        const r = await fetch(`/api/matches/${matchId}/conversation`, {
+          cache: 'no-store',
+        })
+        if (!r.ok) return
+        const d = (await r.json()) as { messages?: Msg[] }
         if (!cancelled) setMessages(d.messages ?? [])
-      })
-      .catch(() => {})
-      .finally(() => !cancelled && setLoading(false))
+      } catch {
+        // ignore — keep last good messages on transient errors
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+
+    void load()
+    // Poll every 20s while the panel is mounted so new her-messages
+    // appear without needing a page reload. The Mac chat.db sync runs
+    // every 15min on the VPS so worst-case latency to UI is ~15min, but
+    // poll is cheap (small JSON) and keeps the panel feeling live.
+    const id = window.setInterval(() => void load(), 20_000)
+
+    // Also refresh on tab focus so coming back from another window
+    // doesn't show stale state.
+    function onVisibility() {
+      if (!document.hidden) void load()
+    }
+    document.addEventListener('visibilitychange', onVisibility)
+
     return () => {
       cancelled = true
+      window.clearInterval(id)
+      document.removeEventListener('visibilitychange', onVisibility)
     }
   }, [matchId])
 

@@ -4,6 +4,7 @@ import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { CancelQueuedButton } from './CancelQueuedButton'
 import { TopFiveSendButton } from './TopFiveSendButton'
+import { AutoRefresh } from './AutoRefresh'
 
 export const metadata: Metadata = {
   title: 'Inbox — Clapcheeks',
@@ -191,6 +192,7 @@ export default async function InboxPage() {
 
   return (
     <div className="min-h-screen bg-black text-white p-4 md:p-8">
+      <AutoRefresh />
       <div className="max-w-4xl mx-auto">
         <div className="mb-6 flex items-center justify-between">
           <div>
