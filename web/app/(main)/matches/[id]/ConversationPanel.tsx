@@ -4,6 +4,8 @@ import { useEffect, useState } from 'react'
 import { ScheduleDateButton } from './ScheduleDateButton'
 import { DateOutcomeButton } from './DateOutcomeButton'
 import { PhotoUploadButton } from './PhotoUploadButton'
+import { RescheduleButton } from './RescheduleButton'
+import { FlakeButton } from './FlakeButton'
 
 type Msg = { ts?: string; from?: 'her' | 'him'; text: string }
 
@@ -12,11 +14,15 @@ export function ConversationPanel({
   matchName,
   platform,
   stage,
+  flakeCount = 0,
+  rescheduleCount = 0,
 }: {
   matchId: string
   matchName: string
   platform: string
   stage?: string | null
+  flakeCount?: number
+  rescheduleCount?: number
 }) {
   const [messages, setMessages] = useState<Msg[]>([])
   const [loading, setLoading] = useState(true)
@@ -164,11 +170,20 @@ export function ConversationPanel({
         <div className="flex gap-2 flex-wrap">
           <PhotoUploadButton matchId={matchId} />
           <ScheduleDateButton matchId={matchId} matchName={matchName} />
+          <RescheduleButton matchId={matchId} matchName={matchName} />
+          <FlakeButton matchId={matchId} matchName={matchName} flakeCount={flakeCount} />
           <DateOutcomeButton
             matchId={matchId}
             matchName={matchName}
             stage={stage ?? null}
           />
+          {(flakeCount > 0 || rescheduleCount > 0) && (
+            <div className="text-[10px] text-white/40 font-mono px-2 self-center">
+              {rescheduleCount > 0 && <span>{rescheduleCount}× rescheduled</span>}
+              {rescheduleCount > 0 && flakeCount > 0 && <span className="mx-1">·</span>}
+              {flakeCount > 0 && <span className="text-rose-400/80">{flakeCount}× flaked</span>}
+            </div>
+          )}
           <button
             type="button"
             onClick={() => void generateBrief()}
