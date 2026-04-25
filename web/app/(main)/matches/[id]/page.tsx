@@ -39,6 +39,7 @@ export default async function MatchDetailPage({
             matchId={match.id as string}
             matchName={(match.name || match.match_name || 'Match') as string}
             platform={(match.platform || 'imessage') as string}
+            stage={(match.stage as string) ?? null}
           />
         </div>
       </div>
