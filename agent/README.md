@@ -46,3 +46,16 @@ After setup, visit [clapcheeks.tech](https://clapcheeks.tech) to view your analy
 
 - Docs: https://clapcheeks.tech/docs
 - GitHub: https://github.com/Julianb233/clapcheeks.tech
+
+## AI Reply Generation
+
+The reply pipeline (`clapcheeks.ai.reply.generate_reply`) tries providers in order:
+1. **Ollama** (local LLM via `ollama` Python pkg) — preferred, free, fast
+2. **Claude API** (via `anthropic` pkg, `ANTHROPIC_API_KEY`) — fallback
+3. **Kimi API** (`KIMI_API_KEY`) — secondary fallback
+4. Safe static fallback
+
+**Ollama setup**: Install on Mac Mini via `brew install --cask ollama`, run
+`ollama pull llama3.2`, start with `OLLAMA_HOST=0.0.0.0:11434 ollama serve`.
+Then on the VPS, set `OLLAMA_HOST=http://<mini-tailscale-ip>:11434` in
+`.env.local`. Verify with `curl http://<mini-ip>:11434/api/tags`.
