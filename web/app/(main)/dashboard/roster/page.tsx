@@ -16,8 +16,15 @@ export const metadata: Metadata = {
 // Loose cast until the clapcheeks_matches type is regenerated for Phase J columns.
 type ConvoLite = {
   match_id: string
-  last_message: string | null
+  messages: unknown
   last_message_at: string | null
+}
+
+function extractLastMessage(messages: unknown): string | null {
+  if (!Array.isArray(messages) || messages.length === 0) return null
+  const last = messages[messages.length - 1] as Record<string, unknown>
+  const text = (last?.text ?? last?.body ?? last?.content ?? null) as string | null
+  return typeof text === 'string' ? text : null
 }
 
 export default async function RosterPage() {
@@ -54,7 +61,7 @@ export default async function RosterPage() {
       if (matchIds.length > 0) {
         const { data } = await supabase
           .from('clapcheeks_conversations')
-          .select('match_id, last_message, last_message_at')
+          .select('match_id, messages, last_message_at')
           .eq('user_id', user.id)
           .in('match_id', matchIds)
         const map = new Map<string, ConvoLite>()
@@ -63,7 +70,7 @@ export default async function RosterPage() {
         }
         for (const m of matches) {
           const c = m.external_id ? map.get(m.external_id) : undefined
-          lastMessages[m.id] = c?.last_message ?? null
+          lastMessages[m.id] = c ? extractLastMessage(c.messages) : null
         }
       }
     } catch {
