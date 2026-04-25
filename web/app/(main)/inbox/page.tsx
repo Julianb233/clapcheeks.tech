@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { CancelQueuedButton } from './CancelQueuedButton'
+import { TopFiveSendButton } from './TopFiveSendButton'
 
 export const metadata: Metadata = {
   title: 'Inbox — Clapcheeks',
@@ -23,10 +24,36 @@ type Match = {
   stage: string | null
   julian_rank: number | null
   health_score: number | null
+  close_probability: number | null
+  flake_count: number | null
+  reschedule_count: number | null
   last_activity_at: string | null
   last_her_initiated_at: string | null
   photos_jsonb: unknown
   match_intel: unknown
+}
+
+function attentionTone(m: Match, lastTs: string | null | undefined, sheLast: boolean): { label: string; className: string } | null {
+  if (!sheLast || !lastTs) return null
+  const hours = (Date.now() - new Date(lastTs).getTime()) / 3_600_000
+  if (hours < 0) return null
+  // High-rank reply within 30 min — drop everything
+  if ((m.julian_rank ?? 0) >= 8 && hours < 0.5) {
+    return { label: 'REPLY NOW', className: 'bg-rose-500/30 text-rose-200 border-rose-500/50 animate-pulse' }
+  }
+  // Warm: high close-prob within 2h
+  if ((m.close_probability ?? 0) >= 0.6 && hours < 2) {
+    return { label: 'WARM', className: 'bg-amber-500/25 text-amber-200 border-amber-500/40' }
+  }
+  // Cooling: 6-24h since her message
+  if (hours > 6 && hours < 24) {
+    return { label: 'COOLING', className: 'bg-sky-500/20 text-sky-300 border-sky-500/40' }
+  }
+  // Cold: > 1d
+  if (hours > 24) {
+    return { label: 'COLD', className: 'bg-zinc-500/15 text-zinc-400 border-zinc-500/30' }
+  }
+  return null
 }
 type Conv = {
   match_id: string
@@ -75,7 +102,7 @@ export default async function InboxPage() {
     (supabase as any)
       .from('clapcheeks_matches')
       .select(
-        'id, name, match_name, her_phone, match_id, platform, stage, julian_rank, health_score, last_activity_at, last_her_initiated_at, photos_jsonb, match_intel',
+        'id, name, match_name, her_phone, match_id, platform, stage, julian_rank, health_score, close_probability, flake_count, reschedule_count, last_activity_at, last_her_initiated_at, photos_jsonb, match_intel',
       )
       .eq('user_id', user.id)
       .not('stage', 'in', '("archived","archived_cluster_dupe")')
@@ -137,6 +164,31 @@ export default async function InboxPage() {
     return tb - ta
   })
 
+  // ---- TOP 5 priority list ----
+  // Score each row so the most-urgent reply opportunities surface to the top.
+  // Higher = more urgent. Mostly drives off "she texted, you haven't replied".
+  function priorityScore(r: (typeof rows)[number]): number {
+    const { m, lastTs, sheLast } = r
+    if (!sheLast) return 0 // Only "her turn" matches qualify
+    const hours =
+      lastTs ? Math.max(0, (Date.now() - new Date(lastTs).getTime()) / 3_600_000) : 999
+    let score = 0
+    score += (m.julian_rank ?? 0) * 10                  // rank weight
+    score += (m.close_probability ?? 0) * 80            // close prob weight
+    score += (m.health_score ?? 0) * 0.4                // health weight
+    if (hours < 0.5) score += 60                        // burning hot
+    else if (hours < 2) score += 35
+    else if (hours < 6) score += 15
+    else if (hours < 24) score += 5
+    else score -= Math.min(40, (hours - 24) * 0.3)      // decay after 1d
+    return score
+  }
+  const topFive = rows
+    .filter((r) => r.sheLast)
+    .map((r) => ({ ...r, score: priorityScore(r) }))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 5)
+
   return (
     <div className="min-h-screen bg-black text-white p-4 md:p-8">
       <div className="max-w-4xl mx-auto">
@@ -158,6 +210,102 @@ export default async function InboxPage() {
             All match cards →
           </Link>
         </div>
+
+        {topFive.length > 0 && (
+          <section className="mb-6 rounded-2xl border border-pink-500/40 bg-gradient-to-br from-pink-600/10 to-purple-600/10 p-4">
+            <div className="flex items-baseline justify-between mb-3">
+              <div className="text-xs uppercase tracking-wider text-pink-200 font-semibold">
+                🔥 Top {topFive.length} — reply now
+              </div>
+              <div className="text-[10px] text-white/40 font-mono">
+                ranked by julian_rank × close_prob × recency
+              </div>
+            </div>
+            <div className="space-y-2">
+              {topFive.map(({ m, last, lastTs }) => {
+                const name = m.name || m.match_name || 'Unknown'
+                const photo = coverPhoto(m.photos_jsonb)
+                const intel = intelObj(m.match_intel)
+                const drafts = Array.isArray(intel.suggested_replies)
+                  ? (intel.suggested_replies as Array<{ text?: string }>)
+                  : []
+                const firstDraft = drafts[0]?.text ?? ''
+                const preview = (last?.text ?? '').slice(0, 90)
+                return (
+                  <div
+                    key={`top-${m.id}`}
+                    className="flex items-stretch gap-3 rounded-xl border border-pink-500/20 bg-black/50 hover:border-pink-400/50 transition-colors p-3"
+                  >
+                    <Link
+                      href={`/matches/${m.id}`}
+                      className="flex-shrink-0 w-12 h-12 rounded-full overflow-hidden bg-gradient-to-br from-pink-900/40 to-purple-900/40 flex items-center justify-center"
+                    >
+                      {photo ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={photo}
+                          alt={name}
+                          className="w-full h-full object-cover"
+                          loading="lazy"
+                          referrerPolicy="no-referrer"
+                        />
+                      ) : (
+                        <span className="text-lg text-white/50">
+                          {name[0]?.toUpperCase()}
+                        </span>
+                      )}
+                    </Link>
+                    <div className="flex-1 min-w-0">
+                      <Link
+                        href={`/matches/${m.id}`}
+                        className="block hover:text-pink-300 transition-colors"
+                      >
+                        <div className="flex items-baseline gap-2">
+                          <span className="font-semibold">{name}</span>
+                          {typeof m.julian_rank === 'number' && (
+                            <span className="text-[10px] text-pink-300 font-mono">
+                              #{m.julian_rank}
+                            </span>
+                          )}
+                          {typeof m.close_probability === 'number' && (
+                            <span className="text-[10px] text-white/40 font-mono">
+                              p={m.close_probability.toFixed(2)}
+                            </span>
+                          )}
+                          <span className="text-[10px] text-white/40 font-mono ml-auto">
+                            {relTime(lastTs)}
+                          </span>
+                        </div>
+                        {preview && (
+                          <div className="text-xs text-emerald-300/80 mt-1 truncate">
+                            💌 “{preview}”
+                          </div>
+                        )}
+                      </Link>
+                      {firstDraft ? (
+                        <div className="mt-2 text-xs text-white/85 bg-white/5 rounded-lg px-3 py-2 border border-white/10">
+                          <span className="text-white/40 mr-1">draft:</span>
+                          {firstDraft}
+                        </div>
+                      ) : (
+                        <div className="mt-2 text-[11px] text-white/40 italic">
+                          (no draft yet — open match to generate one)
+                        </div>
+                      )}
+                    </div>
+                    {firstDraft && (
+                      <TopFiveSendButton
+                        matchId={m.id}
+                        matchName={name}
+                        draftText={firstDraft}
+                      />
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          </section>
+        )}
 
         {pendingSends.length > 0 && (
           <section className="mb-6 rounded-2xl border border-amber-500/40 bg-amber-500/5 p-4">
@@ -235,15 +383,27 @@ export default async function InboxPage() {
                           #{m.julian_rank}
                         </span>
                       )}
-                      {sheLast && (
-                        <span className="text-[10px] ml-2 px-1.5 py-0.5 rounded bg-emerald-500/30 text-emerald-200">
-                          her turn
-                        </span>
+                      {(() => {
+                        const tone = attentionTone(m, lastTs, sheLast)
+                        return tone ? (
+                          <span className={`text-[10px] ml-2 px-1.5 py-0.5 rounded border font-mono uppercase tracking-wider ${tone.className}`}>
+                            {tone.label}
+                          </span>
+                        ) : sheLast ? (
+                          <span className="text-[10px] ml-2 px-1.5 py-0.5 rounded bg-emerald-500/30 text-emerald-200">
+                            her turn
+                          </span>
+                        ) : sheReached ? (
+                          <span className="text-[10px] ml-2 px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300">
+                            recently active
+                          </span>
+                        ) : null
+                      })()}
+                      {(m.flake_count ?? 0) > 0 && (
+                        <span className="text-[9px] ml-1.5 text-rose-400/70 font-mono">{m.flake_count}× flake</span>
                       )}
-                      {sheReached && !sheLast && (
-                        <span className="text-[10px] ml-2 px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300">
-                          recently active
-                        </span>
+                      {(m.reschedule_count ?? 0) > 0 && (
+                        <span className="text-[9px] ml-1 text-amber-400/70 font-mono">{m.reschedule_count}× resch</span>
                       )}
                     </div>
                     <div className="text-[10px] text-white/40 font-mono whitespace-nowrap">
