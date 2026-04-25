@@ -60,7 +60,8 @@ export async function GET(req: Request) {
     probe(`${base}/dashboard/roster`, 307, 'authed /dashboard/roster'),
     probe(`${base}/inbox`, 307, 'authed /inbox'),
     probe(`${base}/api/intelligence/stats`, 401, 'api /api/intelligence/stats'),
-    probe('https://bubbles-macbook.aiacrobatics.com/api/v1/server/info', 200, 'bluebubbles macbook'),
+    // BlueBubbles requires ?password= on every endpoint, so include it for a real liveness check.
+    probe(`https://bubbles-macbook.aiacrobatics.com/api/v1/server/info?password=${encodeURIComponent(process.env.BLUEBUBBLES_PASSWORD || '')}`, 200, 'bluebubbles macbook'),
     probe('https://ollama-macbook.aiacrobatics.com/api/tags', 200, 'ollama tunnel'),
   ])
 
