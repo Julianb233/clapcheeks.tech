@@ -7,6 +7,7 @@ keyring>=24.0
 playwright>=1.44
 python-dotenv>=1.0
 ollama>=0.3
+anthropic>=0.40
 Appium-Python-Client>=3.1
 browserbase>=0.3
 supabase>=2.0
