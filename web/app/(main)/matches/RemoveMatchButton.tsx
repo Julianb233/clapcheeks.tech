@@ -1,7 +1,15 @@
 'use client'
 
 import { useRouter } from 'next/navigation'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+
+type RemoveResponse = {
+  mode?: 'soft' | 'hard'
+  removed?: string
+  previousStage?: string
+  previousStatus?: string
+  error?: string
+}
 
 export function RemoveMatchButton({
   matchId,
@@ -14,21 +22,93 @@ export function RemoveMatchButton({
   const [confirming, setConfirming] = useState(false)
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
+  const [undo, setUndo] = useState<{
+    previousStage?: string
+    previousStatus?: string
+    countdown: number
+  } | null>(null)
+  const timerRef = useRef<number | null>(null)
+
+  useEffect(() => {
+    if (undo == null) return
+    if (undo.countdown <= 0) {
+      setUndo(null)
+      return
+    }
+    timerRef.current = window.setTimeout(
+      () => setUndo({ ...undo, countdown: undo.countdown - 1 }),
+      1000,
+    )
+    return () => {
+      if (timerRef.current) window.clearTimeout(timerRef.current)
+    }
+  }, [undo])
 
   async function doRemove() {
     setBusy(true)
     setErr(null)
     try {
       const res = await fetch(`/api/matches/${matchId}`, { method: 'DELETE' })
+      const j = (await res.json().catch(() => ({}))) as RemoveResponse
       if (!res.ok) {
-        const j = (await res.json().catch(() => ({}))) as { error?: string }
         throw new Error(j.error ?? `HTTP ${res.status}`)
       }
+      setConfirming(false)
+      setUndo({
+        previousStage: j.previousStage,
+        previousStatus: j.previousStatus,
+        countdown: 30,
+      })
       router.refresh()
     } catch (e) {
       setErr(e instanceof Error ? e.message : 'Remove failed')
+    } finally {
       setBusy(false)
     }
+  }
+
+  async function doUndo() {
+    if (!undo) return
+    setBusy(true)
+    try {
+      await fetch(`/api/matches/${matchId}/restore`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          stage: undo.previousStage,
+          status: undo.previousStatus,
+        }),
+      })
+      setUndo(null)
+      router.refresh()
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  if (undo) {
+    return (
+      <div
+        className="absolute top-2 right-2 left-2 z-30 flex items-center justify-between gap-2 rounded-lg bg-emerald-900/95 backdrop-blur px-3 py-2 text-xs"
+        onClick={(e) => {
+          e.preventDefault()
+          e.stopPropagation()
+        }}
+      >
+        <span>Removed. Undo? ({undo.countdown}s)</span>
+        <button
+          type="button"
+          onClick={(e) => {
+            e.preventDefault()
+            e.stopPropagation()
+            void doUndo()
+          }}
+          className="px-2 py-1 rounded bg-white/20 hover:bg-white/30 font-semibold"
+        >
+          Undo
+        </button>
+      </div>
+    )
   }
 
   if (!confirming) {
@@ -60,7 +140,7 @@ export function RemoveMatchButton({
       <div className="text-center">
         <div className="text-sm font-medium mb-1">Remove {matchName}?</div>
         <div className="text-xs text-white/60">
-          Deletes the match and conversation history.
+          Archives the match. You&apos;ll have 30s to undo.
         </div>
       </div>
       <div className="flex gap-2">

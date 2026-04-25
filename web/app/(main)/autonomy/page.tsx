@@ -11,7 +11,7 @@ export const metadata: Metadata = {
 export default async function AutonomyPage() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/auth')
+  if (!user) redirect('/login')
 
   // Fetch initial data in parallel
   const [configRes, queueRes, actionsRes, modelRes, swipesCountRes] = await Promise.all([

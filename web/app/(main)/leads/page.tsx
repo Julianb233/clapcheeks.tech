@@ -22,7 +22,7 @@ const STAGES = [
 export default async function LeadsPage() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/auth')
+  if (!user) redirect('/login')
 
   const { data, error } = await supabase
     .from('clapcheeks_leads')

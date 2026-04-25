@@ -3,6 +3,10 @@
     {
       "path": "/api/reports/cron",
       "schedule": "0 8 * * 0"
+    },
+    {
+      "path": "/api/cron/restage",
+      "schedule": "0 6 * * *"
     }
   ]
 }

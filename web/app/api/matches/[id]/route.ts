@@ -4,9 +4,10 @@ import { createClient } from '@/lib/supabase/server'
 /**
  * PATCH /api/matches/[id] — update stage/status/rank and/or merge into
  *                          match_intel JSONB.
- * DELETE /api/matches/[id] — hard-delete the match row (and its conversations
- *                          via FK cascade). Pass `?soft=1` to soft-archive
- *                          instead (sets status='archived').
+ * DELETE /api/matches/[id] — soft-archive by default (stage='archived',
+ *                          status='ghosted') so the user gets an undo
+ *                          window. Pass `?hard=1` to hard-delete the row
+ *                          (and the linked conversation by match_id).
  *
  * Both require an authenticated Supabase session and enforce ownership
  * via the `user_id` column on clapcheeks_matches.
@@ -180,11 +181,11 @@ export async function DELETE(
     return NextResponse.json({ error: 'match id required' }, { status: 400 })
   }
 
-  const soft = new URL(req.url).searchParams.get('soft') === '1'
+  const hard = new URL(req.url).searchParams.get('hard') === '1'
 
   const { data: existing, error: fetchErr } = await (supabase as any)
     .from('clapcheeks_matches')
-    .select('id, user_id, name, match_id, platform')
+    .select('id, user_id, name, match_id, platform, stage, status')
     .eq('id', id)
     .maybeSingle()
 
@@ -201,10 +202,14 @@ export async function DELETE(
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
-  if (soft) {
+  if (!hard) {
+    // Soft-delete: archive in place so /api/matches/[id]/restore can undo.
     const { data: updated, error: updateErr } = await (supabase as any)
       .from('clapcheeks_matches')
-      .update({ status: 'ghosted' })
+      .update({
+        stage: 'archived',
+        status: 'ghosted',
+      })
       .eq('id', id)
       .eq('user_id', user.id)
       .select('*')
@@ -215,7 +220,14 @@ export async function DELETE(
         { status: 500 },
       )
     }
-    return NextResponse.json({ ok: true, mode: 'soft', match: updated })
+    return NextResponse.json({
+      ok: true,
+      mode: 'soft',
+      removed: existing.name,
+      previousStage: existing.stage,
+      previousStatus: existing.status,
+      match: updated,
+    })
   }
 
   // Hard delete: also clean up the related conversation row(s) keyed by

@@ -26,12 +26,12 @@ function intelInterests(intel: unknown): string[] {
 export default async function MatchesPage() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/auth')
+  if (!user) redirect('/login')
 
   const { data: matches, error } = await supabase
     .from('clapcheeks_matches')
     .select(
-      'id, match_name, name, age, bio, platform, photos_jsonb, instagram_handle, zodiac, job, school, stage, health_score, julian_rank, match_intel, created_at'
+      'id, match_name, name, age, bio, platform, photos_jsonb, instagram_handle, zodiac, job, school, stage, health_score, julian_rank, match_intel, his_to_her_ratio, last_her_initiated_at, last_activity_at, created_at'
     )
     .eq('user_id', user.id)
     .order('julian_rank', { ascending: false, nullsFirst: false })
@@ -127,6 +127,29 @@ export default async function MatchesPage() {
                         #{m.julian_rank}
                       </span>
                     )}
+                    {(() => {
+                      const lhi = m.last_her_initiated_at
+                        ? Date.now() - new Date(m.last_her_initiated_at).getTime()
+                        : null
+                      const sheReached = lhi != null && lhi < 24 * 3600_000
+                      const overPursue =
+                        typeof m.his_to_her_ratio === 'number' &&
+                        m.his_to_her_ratio > 2.5
+                      return (
+                        <div className="absolute top-2 left-12 flex gap-1">
+                          {sheReached && (
+                            <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-emerald-500/90">
+                              💌 she replied
+                            </span>
+                          )}
+                          {overPursue && (
+                            <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-red-500/90">
+                              ⚠ over-pursuing
+                            </span>
+                          )}
+                        </div>
+                      )
+                    })()}
                     <div className="absolute inset-x-0 bottom-0 p-3 bg-gradient-to-t from-black/90 via-black/40 to-transparent">
                       <div className="font-semibold text-lg leading-tight">
                         {displayName}

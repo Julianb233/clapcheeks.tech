@@ -45,7 +45,7 @@ rules:
 export default async function AISettingsPage() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/auth')
+  if (!user) redirect('/login')
 
   const { data: rows } = await supabase
     .from('clapcheeks_user_settings')

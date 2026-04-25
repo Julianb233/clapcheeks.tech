@@ -2,6 +2,7 @@ import type { Metadata } from 'next'
 import { createClient } from '@/lib/supabase/server'
 import { redirect, notFound } from 'next/navigation'
 import MatchProfileView from './match-profile-view'
+import { ConversationPanel } from './ConversationPanel'
 
 export const metadata: Metadata = {
   title: 'Match Profile - Clapcheeks',
@@ -33,6 +34,13 @@ export default async function MatchDetailPage({
     <div className="min-h-screen bg-black text-white p-4 md:p-8">
       <div className="max-w-5xl mx-auto">
         <MatchProfileView match={match} />
+        <div className="mt-8">
+          <ConversationPanel
+            matchId={match.id as string}
+            matchName={(match.name || match.match_name || 'Match') as string}
+            platform={(match.platform || 'imessage') as string}
+          />
+        </div>
       </div>
     </div>
   )

@@ -11,7 +11,7 @@ export const metadata: Metadata = {
 export default async function AddMatchPage() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/auth')
+  if (!user) redirect('/login')
 
   return (
     <div className="min-h-screen bg-black text-white p-4 md:p-8">
