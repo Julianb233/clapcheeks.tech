@@ -7,6 +7,10 @@
     {
       "path": "/api/cron/restage",
       "schedule": "0 6 * * *"
+    },
+    {
+      "path": "/api/cron/refresh-voice-profile",
+      "schedule": "30 6 * * *"
     }
   ]
 }

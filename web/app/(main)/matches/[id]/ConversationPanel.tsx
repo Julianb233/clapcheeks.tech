@@ -18,6 +18,8 @@ export function ConversationPanel({
   const [drafting, setDrafting] = useState(false)
   const [suggestions, setSuggestions] = useState<string[]>([])
   const [err, setErr] = useState<string | null>(null)
+  const [briefing, setBriefing] = useState(false)
+  const [brief, setBrief] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -70,20 +72,51 @@ export function ConversationPanel({
     }
   }
 
+  async function generateBrief() {
+    setBriefing(true)
+    setErr(null)
+    setBrief(null)
+    try {
+      const res = await fetch(`/api/matches/${matchId}/pre-date-brief`, {
+        method: 'POST',
+      })
+      const j = (await res.json().catch(() => ({}))) as {
+        brief?: string
+        error?: string
+      }
+      if (!res.ok) throw new Error(j.error ?? `HTTP ${res.status}`)
+      setBrief(j.brief ?? '')
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Brief failed')
+    } finally {
+      setBriefing(false)
+    }
+  }
+
   return (
     <div className="p-5 rounded-xl border border-white/10 bg-white/5">
-      <div className="flex items-center justify-between mb-3">
+      <div className="flex items-center justify-between mb-3 gap-2 flex-wrap">
         <h3 className="text-sm font-semibold uppercase tracking-wide text-white/60">
           Conversation
         </h3>
-        <button
-          type="button"
-          onClick={() => void draft()}
-          disabled={drafting}
-          className="px-3 py-1.5 rounded-md bg-gradient-to-r from-pink-600 to-purple-600 hover:from-pink-500 hover:to-purple-500 text-xs font-medium disabled:opacity-50"
-        >
-          {drafting ? 'Drafting…' : '✨ Draft reply in your voice'}
-        </button>
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={() => void generateBrief()}
+            disabled={briefing}
+            className="px-3 py-1.5 rounded-md bg-white/10 hover:bg-white/20 text-xs font-medium disabled:opacity-50"
+          >
+            {briefing ? 'Briefing…' : '🧭 Pre-date brief'}
+          </button>
+          <button
+            type="button"
+            onClick={() => void draft()}
+            disabled={drafting}
+            className="px-3 py-1.5 rounded-md bg-gradient-to-r from-pink-600 to-purple-600 hover:from-pink-500 hover:to-purple-500 text-xs font-medium disabled:opacity-50"
+          >
+            {drafting ? 'Drafting…' : '✨ Draft reply in your voice'}
+          </button>
+        </div>
       </div>
 
       {loading ? (
@@ -125,6 +158,17 @@ export function ConversationPanel({
       )}
 
       {err && <div className="mt-3 text-xs text-red-400">{err}</div>}
+
+      {brief && (
+        <div className="mt-4 pt-4 border-t border-white/10">
+          <div className="text-[11px] text-white/60 font-semibold uppercase tracking-wide mb-2">
+            Pre-date brief
+          </div>
+          <div className="text-xs text-white/85 whitespace-pre-wrap leading-relaxed bg-black/30 rounded-lg p-3 border border-white/10">
+            {brief}
+          </div>
+        </div>
+      )}
 
       {suggestions.length > 0 && (
         <div className="mt-4 pt-4 border-t border-white/10">
