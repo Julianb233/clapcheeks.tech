@@ -118,11 +118,19 @@ def main() -> int:
         log(f"import HingeAPIClient failed: {e}")
         return 1
 
+    # Wire the Hinge prompt-commentary AI to the MacBook Pro Ollama tunnel
+    # (qwen2.5:7b / llama3.2:3b) so any AI calls inside HingeAPIClient run
+    # local + free instead of cloud.
+    ollama_base = (os.environ.get("OLLAMA_URL")
+                   or ENV.get("OLLAMA_URL")
+                   or "https://ollama-macbook.aiacrobatics.com").rstrip("/")
+    ai_service_url = f"{ollama_base}/api/chat"
     try:
-        client = HingeAPIClient(token=token)
+        client = HingeAPIClient(token=token, ai_service_url=ai_service_url)
     except HingeAuthError as e:
         log(f"hinge client init failed: {e}")
         return 1
+    log(f"hinge AI commentary → {ai_service_url}")
 
     try:
         matches = client.get_matches(count=30)
