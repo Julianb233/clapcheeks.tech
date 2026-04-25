@@ -40,11 +40,35 @@ export function ConversationPanel({
     }
   }, [matchId])
 
+  const [draftSource, setDraftSource] = useState<string | null>(null)
+
   async function draft() {
     setDrafting(true)
     setErr(null)
     setSuggestions([])
+    setDraftSource(null)
     try {
+      // Try the local-Ollama cache first (Mac Mini worker keeps these
+      // < 2 min fresh) — instant + zero API cost.
+      const cached = await fetch(`/api/matches/${matchId}/cached-replies`)
+      if (cached.ok) {
+        const cj = (await cached.json()) as {
+          suggestions?: Array<{ text: string; model?: string; generated_at?: string }>
+          generated_at?: string | null
+        }
+        const list = (cj.suggestions ?? []).map((s) => s.text).filter(Boolean)
+        if (list.length > 0) {
+          setSuggestions(list)
+          const model = cj.suggestions?.[0]?.model ?? 'local'
+          const gen = cj.generated_at ?? cj.suggestions?.[0]?.generated_at
+          const age = gen ? Math.round((Date.now() - new Date(gen).getTime()) / 1000 / 60) : null
+          setDraftSource(
+            age != null ? `${model} · ${age} min ago` : `${model} · cached`,
+          )
+          return
+        }
+      }
+      // Fallback: live API call (counts toward usage limit).
       const ctx = messages
         .slice(-10)
         .map((m) => `${m.from === 'him' ? 'You' : matchName}: ${m.text}`)
@@ -53,7 +77,8 @@ export function ConversationPanel({
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
-          conversationContext: ctx || `${matchName} hasn't replied yet — open the thread.`,
+          conversationContext:
+            ctx || `${matchName} hasn't replied yet — open the thread.`,
           matchName,
           platform,
         }),
@@ -70,6 +95,7 @@ export function ConversationPanel({
         .map((s) => (typeof s === 'string' ? s : s.text || s.reply || ''))
         .filter(Boolean)
       setSuggestions(list)
+      setDraftSource('Anthropic API · live')
     } catch (e) {
       setErr(e instanceof Error ? e.message : 'Failed')
     } finally {
@@ -184,8 +210,13 @@ export function ConversationPanel({
 
       {suggestions.length > 0 && (
         <div className="mt-4 pt-4 border-t border-white/10">
-          <div className="text-[11px] text-pink-400 font-semibold uppercase tracking-wide mb-2">
-            Suggested replies (your voice)
+          <div className="flex items-baseline justify-between mb-2">
+            <div className="text-[11px] text-pink-400 font-semibold uppercase tracking-wide">
+              Suggested replies (your voice)
+            </div>
+            {draftSource && (
+              <div className="text-[10px] text-white/40 font-mono">{draftSource}</div>
+            )}
           </div>
           <div className="space-y-2">
             {suggestions.map((s, i) => (
