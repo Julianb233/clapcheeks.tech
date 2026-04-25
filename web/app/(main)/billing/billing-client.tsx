@@ -117,8 +117,10 @@ export default function BillingClient({ plan, subscriptionStatus, hasStripeCusto
     return `$${(cents / 100).toFixed(2)}`
   }
 
-  // Not subscribed state
-  if (!hasStripeCustomer || subscriptionStatus === 'inactive') {
+  // Not subscribed state — only show CTA when we have no Stripe AND the profile
+  // doesn't already mark them as active. Beta users provisioned manually still
+  // get "active" on profiles.subscription_status without a Stripe row.
+  if (subscriptionStatus !== 'active' && (!hasStripeCustomer || subscriptionStatus === 'inactive')) {
     return (
       <div className="space-y-6">
         <div className="bg-white/5 border border-white/10 rounded-xl p-6 text-center">
