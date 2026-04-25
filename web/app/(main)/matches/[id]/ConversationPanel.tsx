@@ -95,7 +95,9 @@ export function ConversationPanel({
         .map((s) => (typeof s === 'string' ? s : s.text || s.reply || ''))
         .filter(Boolean)
       setSuggestions(list)
-      setDraftSource('Anthropic API · live')
+      // Live path now goes through Ollama on MacBook Pro (qwen2.5:7b)
+      // unless LLM_PROVIDER is overridden to anthropic.
+      setDraftSource('Ollama (live) · just now')
     } catch (e) {
       setErr(e instanceof Error ? e.message : 'Failed')
     } finally {

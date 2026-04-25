@@ -1,5 +1,5 @@
-import Anthropic from '@anthropic-ai/sdk'
 import { SupabaseClient } from '@supabase/supabase-js'
+import { chatComplete, extractJsonArray } from './llm-provider'
 
 interface ReplySuggestion {
   text: string
@@ -155,8 +155,6 @@ Style details: ${JSON.stringify(voiceProfile.profile_data || {})}`
   const platformTone = PLATFORM_TONE[platform] || ''
   const personaBlock = renderPersonaBlock(persona) // PHASE-E
 
-  const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
-
   const profileSection = profileContext
     ? `\nProfile context about the user: ${profileContext}`
     : ''
@@ -197,34 +195,26 @@ Style details: ${JSON.stringify(voiceProfile.profile_data || {})}`
     .filter(Boolean)
     .join('\n')
 
-  const message = await anthropic.messages.create({
-    model: 'claude-sonnet-4-6',
-    max_tokens: 768,
-    system: systemPrompt,
-    messages: [
-      {
-        role: 'user',
-        content: `Conversation on ${platform} with ${matchName}:
+  const userPrompt = `Conversation on ${platform} with ${matchName}:
 
 ${conversationContext}${profileSection}
 
 Generate 3 reply options.
-Return JSON: [{ "text": "reply", "tone": "witty|warm|direct", "reasoning": "why this works", "confidence": 0.0-1.0 }]`,
-      },
-    ],
+Return JSON: [{ "text": "reply", "tone": "witty|warm|direct", "reasoning": "why this works", "confidence": 0.0-1.0 }]`
+
+  const llm = await chatComplete({
+    systemPrompt,
+    userPrompt,
+    json: true,
+    maxTokens: 768,
+    temperature: 0.7,
   })
 
-  const responseText = message.content[0].type === 'text' ? message.content[0].text : ''
   let suggestions: ReplySuggestion[]
   try {
-    suggestions = JSON.parse(responseText)
-  } catch {
-    const match = responseText.match(/\[[\s\S]*\]/)
-    if (match) {
-      suggestions = JSON.parse(match[0])
-    } else {
-      throw new Error('Failed to parse reply suggestions from Claude response')
-    }
+    suggestions = extractJsonArray<ReplySuggestion>(llm.text)
+  } catch (err) {
+    throw new Error(`Failed to parse reply suggestions (${llm.provider}/${llm.model}): ${err instanceof Error ? err.message : err}`)
   }
 
   // PHASE-E — sanitize + validate. Drop suggestions that fail hard constraints.
