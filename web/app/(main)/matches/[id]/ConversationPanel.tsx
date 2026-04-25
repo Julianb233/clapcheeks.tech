@@ -7,7 +7,12 @@ import { PhotoUploadButton } from './PhotoUploadButton'
 import { RescheduleButton } from './RescheduleButton'
 import { FlakeButton } from './FlakeButton'
 
-type Msg = { ts?: string; from?: 'her' | 'him'; text: string }
+type Msg = {
+  ts?: string
+  from?: 'her' | 'him'
+  text: string
+  audio_url?: string
+}
 
 export function ConversationPanel({
   matchId,
@@ -248,7 +253,21 @@ export function ConversationPanel({
                       : 'bg-white/10 text-white/90 rounded-bl-sm'
                   }`}
                 >
-                  <div>{m.text}</div>
+                  {m.audio_url ? (
+                    <div className="space-y-1">
+                      <audio
+                        controls
+                        src={m.audio_url}
+                        preload="none"
+                        className="w-full max-w-[260px] h-8"
+                      />
+                      {m.text && m.text !== '🎤 audio note' && (
+                        <div className="text-[11px] opacity-70">{m.text}</div>
+                      )}
+                    </div>
+                  ) : (
+                    <div>{m.text}</div>
+                  )}
                   {m.ts && (
                     <div className="text-[9px] mt-0.5 opacity-60">
                       {new Date(m.ts).toLocaleString(undefined, {
