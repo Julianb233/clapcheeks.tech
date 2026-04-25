@@ -34,7 +34,7 @@ export default function PWAProvider() {
     window.addEventListener('appinstalled', onInstalled)
 
     // Hide if user dismissed this session
-    if (sessionStorage.getItem('cc_install_dismissed') === '1') {
+    if (localStorage.getItem('cc_install_dismissed') === '1') {
       setDismissed(true)
     }
 
@@ -51,14 +51,14 @@ export default function PWAProvider() {
     await deferred.prompt()
     const { outcome } = await deferred.userChoice
     if (outcome === 'dismissed') {
-      sessionStorage.setItem('cc_install_dismissed', '1')
+      localStorage.setItem('cc_install_dismissed', '1')
       setDismissed(true)
     }
     setDeferred(null)
   }
 
   function handleSkip() {
-    sessionStorage.setItem('cc_install_dismissed', '1')
+    localStorage.setItem('cc_install_dismissed', '1')
     setDismissed(true)
   }
 

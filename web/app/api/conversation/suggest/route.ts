@@ -57,8 +57,16 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ suggestions })
   } catch (error) {
     console.error('Conversation suggest error:', error)
+    const raw = error instanceof Error ? error.message : String(error)
+    // Surface Anthropic-side reason so the UI can show something actionable
+    // (insufficient credits, rate limit, model unavailable, etc.) instead
+    // of a generic "failed".
+    let userMessage = 'Failed to generate suggestion'
+    if (/credit balance/i.test(raw)) userMessage = 'AI service unavailable (credits low). Top up at console.anthropic.com.'
+    else if (/rate limit|429/i.test(raw)) userMessage = 'Rate limited by Claude API. Try again in a minute.'
+    else if (/invalid.*api.*key|unauthorized/i.test(raw)) userMessage = 'Claude API key invalid. Check ANTHROPIC_API_KEY env.'
     return NextResponse.json(
-      { error: 'Failed to generate suggestion' },
+      { error: 'suggest_failed', message: userMessage, detail: raw.slice(0, 300) },
       { status: 500 }
     )
   }

@@ -1,8 +1,6 @@
 import type { Metadata } from 'next'
 import { createClient } from '@/lib/supabase/server'
-import { logout } from '@/app/auth/actions'
 import { redirect } from 'next/navigation'
-import Link from 'next/link'
 import ManageBillingButton from '@/components/manage-billing-button'
 import PlanBadge from '@/components/plan-badge'
 import EliteOnly from '@/components/elite-only'
@@ -322,57 +320,7 @@ export default async function Dashboard() {
             {user?.email && (
               <span className="text-white/30 text-xs hidden sm:block">{user.email}</span>
             )}
-            <Link
-              href="/dashboard/matches"
-              className="text-white/70 hover:text-white text-xs bg-yellow-500/10 hover:bg-yellow-500/20 border border-yellow-500/30 px-3 py-1.5 rounded-lg transition-all font-semibold"
-            >
-              Matches
-            </Link>
-            <Link
-              href="/photos"
-              className="text-white/40 hover:text-white/70 text-xs bg-white/5 hover:bg-white/10 border border-white/10 px-3 py-1.5 rounded-lg transition-all"
-            >
-              Photos
-            </Link>
-            <Link
-              href="/analytics"
-              className="text-white/40 hover:text-white/70 text-xs bg-white/5 hover:bg-white/10 border border-white/10 px-3 py-1.5 rounded-lg transition-all"
-            >
-              Analytics
-            </Link>
-            <Link
-              href="/conversation"
-              className="text-white/40 hover:text-white/70 text-xs bg-white/5 hover:bg-white/10 border border-white/10 px-3 py-1.5 rounded-lg transition-all"
-            >
-              Conversation AI
-            </Link>
-            <Link
-              href="/intelligence"
-              className="text-white/40 hover:text-white/70 text-xs bg-white/5 hover:bg-white/10 border border-white/10 px-3 py-1.5 rounded-lg transition-all"
-            >
-              Intelligence
-            </Link>
-            <Link
-              href="/coaching"
-              className="text-white/40 hover:text-white/70 text-xs bg-white/5 hover:bg-white/10 border border-white/10 px-3 py-1.5 rounded-lg transition-all"
-            >
-              AI Coach
-            </Link>
-            <Link
-              href="/billing"
-              className="text-white/40 hover:text-white/70 text-xs bg-white/5 hover:bg-white/10 border border-white/10 px-3 py-1.5 rounded-lg transition-all"
-            >
-              Billing
-            </Link>
             {isSubscribed && <ManageBillingButton />}
-            <form action={logout}>
-              <button
-                type="submit"
-                className="text-white/40 hover:text-white/70 text-xs bg-white/5 hover:bg-white/10 border border-white/10 px-3 py-1.5 rounded-lg transition-all"
-              >
-                Sign out
-              </button>
-            </form>
           </div>
         </div>
 
