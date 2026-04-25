@@ -67,6 +67,31 @@ def generate_reply(
         if intel_block:
             system = f"{system}\n\n{intel_block}"
 
+        # Photo descriptions (if vision-analyzed)
+        photo_descs = match_profile.get("photo_descriptions") or (
+            (match_profile.get("subject") or {}).get("photo_descriptions")
+        )
+        if photo_descs:
+            photo_block = "=== HER PHOTOS ===\n" + "\n".join(
+                f"- {d}" for d in photo_descs[:5]
+            ) + "\n(Reference one if naturally relevant — never list them.)"
+            system = f"{system}\n\n{photo_block}"
+
+    # Personality from her recent messages — feed her conversational style
+    her_messages = [
+        m for m in conversation_history[-10:]
+        if m.get("role") == "user" or m.get("role") == "her" or m.get("from") == "her"
+    ]
+    if len(her_messages) >= 2:
+        try:
+            from clapcheeks.nlp.style_analyzer import analyze_messages
+            profile = analyze_messages(conversation_history[-10:], role="user")
+            personality_desc = profile.to_prompt_description()
+            if personality_desc:
+                system = f"{system}\n\n=== HER ENERGY ===\n{personality_desc}\nMatch her energy — don't out-pace or under-pace her."
+        except Exception as exc:
+            logger.debug("style_analyzer skipped: %s", exc)
+
     # Format conversation into a readable prompt
     convo_lines = []
     for msg in conversation_history[-10:]:
