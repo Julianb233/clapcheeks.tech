@@ -321,14 +321,32 @@ export default function MatchProfileView({ match: initial }: { match: MatchRow }
           )}
 
           {m.instagram_handle && (
-            <a
-              href={`https://instagram.com/${m.instagram_handle.replace(/^@/, '')}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-2 text-sm text-pink-400 hover:text-pink-300"
-            >
-              @{m.instagram_handle.replace(/^@/, '')}
-            </a>
+            <div className="inline-flex items-center gap-2">
+              <a
+                href={`https://instagram.com/${m.instagram_handle.replace(/^@/, '')}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-sm text-pink-400 hover:text-pink-300"
+              >
+                @{m.instagram_handle.replace(/^@/, '')}
+              </a>
+              {(() => {
+                const intel = (m.match_intel ?? {}) as Record<string, unknown>
+                const src = intel.instagram_handle_source as string | undefined
+                if (src === 'message_parser') {
+                  const conf = intel.instagram_handle_confidence as number | undefined
+                  return (
+                    <span
+                      className="text-[9px] px-1 py-0.5 rounded bg-pink-500/10 text-pink-300/70 border border-pink-500/20 font-mono uppercase tracking-wider"
+                      title={`Auto-extracted from her message${conf ? ` (${Math.round(conf * 100)}% confidence)` : ''}`}
+                    >
+                      auto
+                    </span>
+                  )
+                }
+                return null
+              })()}
+            </div>
           )}
 
           {(typeof m.julian_rank === 'number' ||

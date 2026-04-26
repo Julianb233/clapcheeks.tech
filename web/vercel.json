@@ -11,6 +11,26 @@
     {
       "path": "/api/cron/refresh-voice-profile",
       "schedule": "30 6 * * *"
+    },
+    {
+      "path": "/api/cron/hot-reply-notify",
+      "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/morning-brief",
+      "schedule": "0 15 * * *"
+    },
+    {
+      "path": "/api/cron/cron-health-check",
+      "schedule": "0 16,20,2 * * *"
+    },
+    {
+      "path": "/api/cron/extract-instagram-handles",
+      "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/cron/auto-nurture",
+      "schedule": "15 * * * *"
     }
   ]
 }

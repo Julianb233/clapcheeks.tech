@@ -4,19 +4,30 @@ import { useEffect, useState } from 'react'
 import { ScheduleDateButton } from './ScheduleDateButton'
 import { DateOutcomeButton } from './DateOutcomeButton'
 import { PhotoUploadButton } from './PhotoUploadButton'
+import { RescheduleButton } from './RescheduleButton'
+import { FlakeButton } from './FlakeButton'
 
-type Msg = { ts?: string; from?: 'her' | 'him'; text: string }
+type Msg = {
+  ts?: string
+  from?: 'her' | 'him'
+  text: string
+  audio_url?: string
+}
 
 export function ConversationPanel({
   matchId,
   matchName,
   platform,
   stage,
+  flakeCount = 0,
+  rescheduleCount = 0,
 }: {
   matchId: string
   matchName: string
   platform: string
   stage?: string | null
+  flakeCount?: number
+  rescheduleCount?: number
 }) {
   const [messages, setMessages] = useState<Msg[]>([])
   const [loading, setLoading] = useState(true)
@@ -28,19 +39,77 @@ export function ConversationPanel({
 
   useEffect(() => {
     let cancelled = false
-    fetch(`/api/matches/${matchId}/conversation`)
-      .then((r) => r.json())
-      .then((d) => {
+
+    async function load() {
+      try {
+        const r = await fetch(`/api/matches/${matchId}/conversation`, {
+          cache: 'no-store',
+        })
+        if (!r.ok) return
+        const d = (await r.json()) as { messages?: Msg[] }
         if (!cancelled) setMessages(d.messages ?? [])
-      })
-      .catch(() => {})
-      .finally(() => !cancelled && setLoading(false))
+      } catch {
+        // ignore — keep last good messages on transient errors
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+
+    void load()
+    // Poll every 20s while the panel is mounted so new her-messages
+    // appear without needing a page reload. The Mac chat.db sync runs
+    // every 15min on the VPS so worst-case latency to UI is ~15min, but
+    // poll is cheap (small JSON) and keeps the panel feeling live.
+    const id = window.setInterval(() => void load(), 20_000)
+
+    // Also refresh on tab focus so coming back from another window
+    // doesn't show stale state.
+    function onVisibility() {
+      if (!document.hidden) void load()
+    }
+    document.addEventListener('visibilitychange', onVisibility)
+
     return () => {
       cancelled = true
+      window.clearInterval(id)
+      document.removeEventListener('visibilitychange', onVisibility)
     }
   }, [matchId])
 
   const [draftSource, setDraftSource] = useState<string | null>(null)
+  const [sendingIdx, setSendingIdx] = useState<number | null>(null)
+  const [sentIdx, setSentIdx] = useState<number | null>(null)
+  const [composeText, setComposeText] = useState('')
+  const [scheduleAt, setScheduleAt] = useState('')
+  const [composing, setComposing] = useState(false)
+  const [composeStatus, setComposeStatus] = useState<string | null>(null)
+
+  async function sendDraft(idx: number, text: string) {
+    if (!confirm(`Send to ${matchName}:\n\n"${text}"`)) return
+    setSendingIdx(idx)
+    setErr(null)
+    try {
+      const res = await fetch(`/api/matches/${matchId}/send`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ text }),
+      })
+      const j = (await res.json().catch(() => ({}))) as { error?: string }
+      if (!res.ok) throw new Error(j.error ?? `HTTP ${res.status}`)
+      setSentIdx(idx)
+      // Optimistically add to local thread
+      setMessages((prev) => [
+        ...prev,
+        { ts: new Date().toISOString(), from: 'him', text },
+      ])
+      setSuggestions([])
+      setTimeout(() => setSentIdx(null), 2500)
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Send failed')
+    } finally {
+      setSendingIdx(null)
+    }
+  }
 
   async function draft() {
     setDrafting(true)
@@ -95,11 +164,95 @@ export function ConversationPanel({
         .map((s) => (typeof s === 'string' ? s : s.text || s.reply || ''))
         .filter(Boolean)
       setSuggestions(list)
-      setDraftSource('Anthropic API · live')
+      // Live path now goes through Ollama on MacBook Pro (qwen2.5:7b)
+      // unless LLM_PROVIDER is overridden to anthropic.
+      setDraftSource('Ollama (live) · just now')
     } catch (e) {
       setErr(e instanceof Error ? e.message : 'Failed')
     } finally {
       setDrafting(false)
+    }
+  }
+
+  async function scheduleLightTouch(kind: 'nudge' | 'follow_up' | 'ghost_reengage') {
+    setComposing(true)
+    setComposeStatus(null)
+    setErr(null)
+    try {
+      // Use the followup-sequences trigger to draft + schedule with config
+      // (quiet hours, optimal window, voice+her-style baked in via cron path).
+      const res = await fetch('/api/followup-sequences/trigger', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          match_name: matchName,
+          match_id: matchId,
+          platform,
+        }),
+      })
+      const j = (await res.json().catch(() => ({}))) as { error?: string; message?: { id: string; scheduled_at: string } }
+      if (!res.ok) throw new Error(j.error ?? `HTTP ${res.status}`)
+      const when = j.message?.scheduled_at
+        ? new Date(j.message.scheduled_at).toLocaleString()
+        : 'soon'
+      setComposeStatus(`💌 ${kind} drafted — fires ${when}. View on /scheduled.`)
+      setTimeout(() => setComposeStatus(null), 6000)
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Failed')
+    } finally {
+      setComposing(false)
+    }
+  }
+
+  async function sendCustom(scheduleForLater: boolean) {
+    const text = composeText.trim()
+    if (!text) return
+    if (scheduleForLater && !scheduleAt) {
+      setComposeStatus('Pick a time')
+      return
+    }
+    setComposing(true)
+    setComposeStatus(null)
+    setErr(null)
+    try {
+      if (scheduleForLater) {
+        const res = await fetch('/api/scheduled-messages', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            match_id: matchId,
+            match_name: matchName,
+            platform,
+            message_text: text,
+            scheduled_at: new Date(scheduleAt).toISOString(),
+            sequence_type: 'manual',
+          }),
+        })
+        const j = (await res.json().catch(() => ({}))) as { error?: string }
+        if (!res.ok) throw new Error(j.error ?? `HTTP ${res.status}`)
+        setComposeStatus(`Scheduled for ${new Date(scheduleAt).toLocaleString()}`)
+        setComposeText('')
+        setScheduleAt('')
+      } else {
+        const res = await fetch(`/api/matches/${matchId}/send`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ text }),
+        })
+        const j = (await res.json().catch(() => ({}))) as { error?: string }
+        if (!res.ok) throw new Error(j.error ?? `HTTP ${res.status}`)
+        setMessages((prev) => [
+          ...prev,
+          { ts: new Date().toISOString(), from: 'him', text },
+        ])
+        setComposeText('')
+        setComposeStatus('Queued — drainer fires within 60s')
+        setTimeout(() => setComposeStatus(null), 3000)
+      }
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Send failed')
+    } finally {
+      setComposing(false)
     }
   }
 
@@ -133,11 +286,20 @@ export function ConversationPanel({
         <div className="flex gap-2 flex-wrap">
           <PhotoUploadButton matchId={matchId} />
           <ScheduleDateButton matchId={matchId} matchName={matchName} />
+          <RescheduleButton matchId={matchId} matchName={matchName} />
+          <FlakeButton matchId={matchId} matchName={matchName} flakeCount={flakeCount} />
           <DateOutcomeButton
             matchId={matchId}
             matchName={matchName}
             stage={stage ?? null}
           />
+          {(flakeCount > 0 || rescheduleCount > 0) && (
+            <div className="text-[10px] text-white/40 font-mono px-2 self-center">
+              {rescheduleCount > 0 && <span>{rescheduleCount}× rescheduled</span>}
+              {rescheduleCount > 0 && flakeCount > 0 && <span className="mx-1">·</span>}
+              {flakeCount > 0 && <span className="text-rose-400/80">{flakeCount}× flaked</span>}
+            </div>
+          )}
           <button
             type="button"
             onClick={() => void generateBrief()}
@@ -153,6 +315,15 @@ export function ConversationPanel({
             className="px-3 py-1.5 rounded-md bg-gradient-to-r from-pink-600 to-purple-600 hover:from-pink-500 hover:to-purple-500 text-xs font-medium disabled:opacity-50"
           >
             {drafting ? 'Drafting…' : '✨ Draft reply in your voice'}
+          </button>
+          <button
+            type="button"
+            onClick={() => void scheduleLightTouch('nudge')}
+            disabled={composing}
+            className="px-3 py-1.5 rounded-md bg-white/10 hover:bg-white/20 text-xs font-medium disabled:opacity-50"
+            title="Drafts a low-pressure check-in and schedules it for her optimal window"
+          >
+            {composing ? '...' : '💌 Light touch'}
           </button>
         </div>
       </div>
@@ -177,7 +348,21 @@ export function ConversationPanel({
                       : 'bg-white/10 text-white/90 rounded-bl-sm'
                   }`}
                 >
-                  <div>{m.text}</div>
+                  {m.audio_url ? (
+                    <div className="space-y-1">
+                      <audio
+                        controls
+                        src={m.audio_url}
+                        preload="none"
+                        className="w-full max-w-[260px] h-8"
+                      />
+                      {m.text && m.text !== '🎤 audio note' && (
+                        <div className="text-[11px] opacity-70">{m.text}</div>
+                      )}
+                    </div>
+                  ) : (
+                    <div>{m.text}</div>
+                  )}
                   {m.ts && (
                     <div className="text-[9px] mt-0.5 opacity-60">
                       {new Date(m.ts).toLocaleString(undefined, {
@@ -220,24 +405,86 @@ export function ConversationPanel({
           </div>
           <div className="space-y-2">
             {suggestions.map((s, i) => (
-              <button
+              <div
                 key={i}
-                type="button"
-                onClick={() => {
-                  void navigator.clipboard.writeText(s)
-                }}
-                className="w-full text-left p-3 rounded-lg border border-white/10 hover:border-pink-500/40 hover:bg-white/[0.07] text-sm transition-colors"
-                title="Click to copy"
+                className="flex gap-2 items-stretch"
               >
-                {s}
-              </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    void navigator.clipboard.writeText(s)
+                  }}
+                  className="flex-1 text-left p-3 rounded-lg border border-white/10 hover:border-pink-500/40 hover:bg-white/[0.07] text-sm transition-colors"
+                  title="Click to copy"
+                >
+                  {s}
+                </button>
+                <button
+                  type="button"
+                  disabled={sendingIdx !== null}
+                  onClick={() => void sendDraft(i, s)}
+                  className={`px-3 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors ${
+                    sentIdx === i
+                      ? 'bg-emerald-600 text-white'
+                      : sendingIdx === i
+                        ? 'bg-pink-700 text-white/60'
+                        : 'bg-pink-600 hover:bg-pink-500 text-white'
+                  } disabled:opacity-50`}
+                  title={`Send to ${matchName}`}
+                >
+                  {sentIdx === i ? '✓ Sent' : sendingIdx === i ? '…' : 'Send →'}
+                </button>
+              </div>
             ))}
           </div>
           <div className="text-[10px] text-white/40 mt-2">
-            Click any suggestion to copy.
+            Tap text to copy · Tap Send to fire it through iMessage to {matchName}.
           </div>
         </div>
       )}
+
+      {/* Free-form composer: type custom message, send now or schedule */}
+      <div className="mt-4 pt-4 border-t border-white/10">
+        <div className="text-[11px] text-white/60 font-semibold uppercase tracking-wide mb-2">
+          Compose
+        </div>
+        <textarea
+          value={composeText}
+          onChange={(e) => setComposeText(e.target.value)}
+          placeholder={`Write to ${matchName}...`}
+          rows={2}
+          className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-white/30 focus:outline-none focus:border-pink-500/50 resize-none"
+        />
+        <div className="flex flex-wrap items-center gap-2 mt-2">
+          <input
+            type="datetime-local"
+            value={scheduleAt}
+            onChange={(e) => setScheduleAt(e.target.value)}
+            className="bg-white/5 border border-white/10 rounded-md px-2 py-1.5 text-xs text-white focus:outline-none focus:border-pink-500/50"
+          />
+          <button
+            type="button"
+            onClick={() => void sendCustom(false)}
+            disabled={composing || !composeText.trim()}
+            className="px-4 py-1.5 rounded-md bg-pink-600 hover:bg-pink-500 text-xs font-semibold disabled:opacity-40"
+            title="Send immediately"
+          >
+            {composing ? '...' : 'Send now'}
+          </button>
+          <button
+            type="button"
+            onClick={() => void sendCustom(true)}
+            disabled={composing || !composeText.trim() || !scheduleAt}
+            className="px-4 py-1.5 rounded-md bg-white/10 hover:bg-white/20 text-xs font-medium disabled:opacity-40"
+            title="Schedule for later — appears on /scheduled until it fires"
+          >
+            Schedule
+          </button>
+          {composeStatus && (
+            <span className="text-[11px] text-emerald-400 ml-1">{composeStatus}</span>
+          )}
+        </div>
+      </div>
     </div>
   )
 }

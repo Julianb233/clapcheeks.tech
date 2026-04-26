@@ -1,11 +1,9 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import Anthropic from '@anthropic-ai/sdk'
+import { chatComplete } from '@/lib/conversation-ai/llm-provider'
 
 export const runtime = 'nodejs'
 export const maxDuration = 60
-
-const MODEL = 'claude-sonnet-4-5'
 
 export async function POST(
   _req: Request,
@@ -48,40 +46,19 @@ export async function POST(
     )
     .join('\n')
 
-  const apiKey = process.env.ANTHROPIC_API_KEY
-  if (!apiKey) {
-    return NextResponse.json(
-      { error: 'ANTHROPIC_API_KEY not configured' },
-      { status: 500 },
-    )
-  }
-
-  const client = new Anthropic({ apiKey })
-
   const intel = (match.match_intel || {}) as Record<string, unknown>
   const stats = `messages: ${match.messages_total ?? 0} total, ${match.messages_7d ?? 0} last 7d, ratio his/her ${match.his_to_her_ratio ?? '?'}, avg reply ${match.avg_reply_hours ?? '?'}h, last activity ${match.last_activity_at ?? 'unknown'}`
 
-  const prompt = `You are an executive coach prepping Julian for a date with ${match.name}. Output a TIGHT pre-date brief in clean markdown — no preamble, no fluff. Sections (only include if you have content):
+  const systemPrompt =
+    'You are an executive coach prepping Julian for a date. Output a TIGHT pre-date brief in clean markdown — no preamble, no fluff. Use only the sections below if you actually have content for them. Sections:\n\n' +
+    '## Who she is — 1-2 sentences from bio + intel\n' +
+    "## What's worked so far — 3 bullets max, cite specific transcript moments\n" +
+    '## What to bring up — 3 concrete topics that move the relationship forward\n' +
+    '## What to avoid — 2 bullets on turn-offs or sensitivities\n' +
+    '## Conversation lines (use her energy) — 3 short lines Julian can actually say tonight, in his casual texting voice\n' +
+    '## Risks — 1-2 bullets on what could blow this up\n'
 
-## Who she is
-1-2 sentences. Pull from bio + intel.
-
-## What's worked so far
-3 bullets max. Cite specific moments from the transcript.
-
-## What to bring up
-3 bullets. Concrete topics that move the relationship forward.
-
-## What to avoid
-2 bullets. Anything she's flagged as a turn-off or sensitive.
-
-## Conversation lines (use her energy)
-3 short lines Julian can actually say tonight, in his casual texting voice.
-
-## Risks
-1-2 bullets. What could blow this up.
-
-INPUTS:
+  const userPrompt = `INPUTS:
 - Name: ${match.name}
 - Bio: ${match.bio || '(none)'}
 - Stage: ${match.stage}, julian_rank ${match.julian_rank}, health ${match.health_score}
@@ -92,18 +69,18 @@ LAST 30 MESSAGES:
 ${transcript || '(no thread yet)'}`
 
   try {
-    const res = await client.messages.create({
-      model: MODEL,
-      max_tokens: 1500,
-      messages: [{ role: 'user', content: prompt }],
+    const res = await chatComplete({
+      systemPrompt,
+      userPrompt,
+      maxTokens: 1500,
+      temperature: 0.4,
     })
-    const text = res.content
-      .filter((b) => b.type === 'text')
-      .map((b) => (b as { text: string }).text)
-      .join('\n')
-      .trim()
-
-    return NextResponse.json({ brief: text, model: MODEL })
+    return NextResponse.json({
+      brief: res.text,
+      model: res.model,
+      provider: res.provider,
+      duration_ms: res.durationMs,
+    })
   } catch (e) {
     return NextResponse.json(
       { error: e instanceof Error ? e.message : 'AI failed' },

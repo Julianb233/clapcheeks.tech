@@ -21,13 +21,21 @@ type PatchBody = {
   match_intel_patch?: unknown
 }
 
+// Must match the DB CHECK constraint on clapcheeks_matches.stage.
+// Origin: migration 20260420300000_match_profiles.sql + 20260421...phase_j_roster.sql.
 const ALLOWED_STAGES = new Set([
-  'new',
+  'new_match',
   'chatting',
-  'date_planned',
-  'dated',
-  'dormant',
+  'chatting_phone',
+  'date_proposed',
+  'date_booked',
+  'date_attended',
+  'hooked_up',
+  'recurring',
+  'faded',
+  'ghosted',
   'archived',
+  'archived_cluster_dupe',
 ])
 
 function isPlainObject(v: unknown): v is Record<string, unknown> {
@@ -83,9 +91,7 @@ export async function PATCH(
   const update: Record<string, unknown> = {}
 
   if (typeof body.stage === 'string') {
-    const s = body.stage.trim().toLowerCase()
-    // The column is freeform text; we only gently validate against the known
-    // vocabulary. Unknown stages are rejected so the UI can't stuff garbage in.
+    const s = body.stage.trim()
     if (!ALLOWED_STAGES.has(s)) {
       return NextResponse.json(
         {

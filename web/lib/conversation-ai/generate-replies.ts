@@ -1,5 +1,11 @@
-import Anthropic from '@anthropic-ai/sdk'
 import { SupabaseClient } from '@supabase/supabase-js'
+import { chatComplete, extractJsonArray } from './llm-provider'
+import {
+  analyzeConversation,
+  generateStrategy,
+  renderStrategyForPrompt,
+  type IncomingMessage,
+} from './analyzer'
 
 interface ReplySuggestion {
   text: string
@@ -118,6 +124,32 @@ function renderPersonaBlock(persona: Record<string, unknown> | null): string {
   return lines.join('\n')
 }
 
+/**
+ * Best-effort parser for plain-text conversation transcripts of the shape
+ *   "Them: hi"
+ *   "Me: hey"
+ * into the message dicts our analyzer expects. Returns [] on a free-form
+ * blob so we degrade gracefully (analysis stays generic, persona/voice
+ * still apply).
+ */
+function parseConversationContext(context: string): IncomingMessage[] {
+  if (!context) return []
+  const lines = context.split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
+  const out: IncomingMessage[] = []
+  for (const line of lines) {
+    const m = line.match(/^(Them|Her|You|Me|I|Match|User|Assistant)\s*[:\-]\s*(.+)$/i)
+    if (!m) continue
+    const speaker = m[1].toLowerCase()
+    const text = m[2].trim()
+    const role =
+      speaker === 'them' || speaker === 'her' || speaker === 'match' || speaker === 'user'
+        ? 'user'
+        : 'assistant'
+    out.push({ role, content: text })
+  }
+  return out
+}
+
 export async function generateReplies(
   supabase: SupabaseClient,
   userId: string,
@@ -155,11 +187,17 @@ Style details: ${JSON.stringify(voiceProfile.profile_data || {})}`
   const platformTone = PLATFORM_TONE[platform] || ''
   const personaBlock = renderPersonaBlock(persona) // PHASE-E
 
-  const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
-
   const profileSection = profileContext
     ? `\nProfile context about the user: ${profileContext}`
     : ''
+
+  // PHASE-41 (AI-8326) — analyze the conversation and inject a strategy
+  // block. Best-effort: if context isn't a Them:/Me: transcript, parsed[] is
+  // empty and the strategy is generic but still safe.
+  const parsedMessages = parseConversationContext(conversationContext)
+  const conversationAnalysis = analyzeConversation(parsedMessages)
+  const conversationStrategy = generateStrategy({}, parsedMessages, conversationAnalysis)
+  const strategyBlock = renderStrategyForPrompt(conversationStrategy)
 
   // PHASE-E — persona block leads, so voice + formatting rules set the floor
   // before any other instruction.
@@ -170,6 +208,8 @@ Style details: ${JSON.stringify(voiceProfile.profile_data || {})}`
     "Generate reply suggestions that match the user's natural voice.",
     '',
     voiceContext,
+    '',
+    strategyBlock, // PHASE-41 (AI-8326) — match-specific strategy + readiness score
     '',
     'Research-backed dating strategy:',
     '- Ask for a date after ~7 messages. Skip asking for phone number first (60% chance date never happens if you ask for number before date).',
@@ -197,34 +237,26 @@ Style details: ${JSON.stringify(voiceProfile.profile_data || {})}`
     .filter(Boolean)
     .join('\n')
 
-  const message = await anthropic.messages.create({
-    model: 'claude-sonnet-4-6',
-    max_tokens: 768,
-    system: systemPrompt,
-    messages: [
-      {
-        role: 'user',
-        content: `Conversation on ${platform} with ${matchName}:
+  const userPrompt = `Conversation on ${platform} with ${matchName}:
 
 ${conversationContext}${profileSection}
 
 Generate 3 reply options.
-Return JSON: [{ "text": "reply", "tone": "witty|warm|direct", "reasoning": "why this works", "confidence": 0.0-1.0 }]`,
-      },
-    ],
+Return JSON: [{ "text": "reply", "tone": "witty|warm|direct", "reasoning": "why this works", "confidence": 0.0-1.0 }]`
+
+  const llm = await chatComplete({
+    systemPrompt,
+    userPrompt,
+    json: true,
+    maxTokens: 768,
+    temperature: 0.7,
   })
 
-  const responseText = message.content[0].type === 'text' ? message.content[0].text : ''
   let suggestions: ReplySuggestion[]
   try {
-    suggestions = JSON.parse(responseText)
-  } catch {
-    const match = responseText.match(/\[[\s\S]*\]/)
-    if (match) {
-      suggestions = JSON.parse(match[0])
-    } else {
-      throw new Error('Failed to parse reply suggestions from Claude response')
-    }
+    suggestions = extractJsonArray<ReplySuggestion>(llm.text)
+  } catch (err) {
+    throw new Error(`Failed to parse reply suggestions (${llm.provider}/${llm.model}): ${err instanceof Error ? err.message : err}`)
   }
 
   // PHASE-E — sanitize + validate. Drop suggestions that fail hard constraints.
