@@ -32,16 +32,39 @@ export type GenerateFollowupInput = {
 
 const FALLBACK_VOICE = `casual, lowercase-friendly, short messages, no emojis unless one fits, no exclamation marks, no apologies, never desperate.`
 
+/** Self-intro patterns that pollute nurture drafts (he's a content creator;
+ * these phrases come from cold-opener templates, not warm follow-ups). */
+const SELF_INTRO_RE = /\b(this is julian|julianbradleytv|instagram\.com|@julianbradleytv|youtube|subscribe|my channel|content|brand)\b/i
+
+/** Emojis that read as content-creator promo, not warm dating texts. Banned
+ * outside of explicit channel-switching messages (app_to_text). */
+const PROMO_EMOJIS = ['📷', '🎥', '📹', '🎬', '🚀']
+
 function buildSystemPrompt(
   voice?: GenerateFollowupInput['voiceProfile'],
   herStylePrompt?: string,
+  kind?: FollowupKind,
 ): string {
-  const style = voice?.style_summary?.trim() || FALLBACK_VOICE
-  const samples = (voice?.sample_phrases ?? []).slice(0, 8)
+  const rawStyle = voice?.style_summary?.trim() || FALLBACK_VOICE
+  // Strip promo-emoji mentions from style summary (e.g. "Common emojis: 📷 😁 🎥")
+  const style = PROMO_EMOJIS.reduce((s, e) => s.split(e).join(''), rawStyle)
+    .replace(/\s+/g, ' ')
+    .trim()
+  // Filter sample_phrases that read as self-intros / brand plugs.
+  const samples = (voice?.sample_phrases ?? [])
+    .filter((s) => !SELF_INTRO_RE.test(s))
+    .filter((s) => !PROMO_EMOJIS.some((e) => s.includes(e)))
+    .slice(0, 8)
   const sampleBlock = samples.length
     ? `\n\nExamples of his actual texting voice (use as tone reference, do NOT copy verbatim):\n${samples.map((s) => `  - "${s}"`).join('\n')}`
     : ''
   const herBlock = herStylePrompt ? `\n\n${herStylePrompt}` : ''
+
+  // Channel-switching is the only kind where Instagram references make sense.
+  const promoRule = kind === 'app_to_text'
+    ? `- It's OK to reference channels (iMessage, IG, etc.) since this message is about moving platforms`
+    : `- Absolutely NO Instagram, social-media, or content-creator references. No 📷 🎥 📹 🎬 emoji. This is a personal warm message, not a brand plug. (His voice profile picks up self-intro patterns from his cold-open template — ignore those.)`
+
   return `You are Julian's dating ghostwriter. Write in his voice.
 
 His voice profile:
@@ -52,7 +75,8 @@ Hard rules:
 - Never invent shared memories. If you don't see it in conversation history, don't reference it
 - Match her energy from the conversation — never be more intense than she is
 - No corporate/generic phrases ("circle back", "touch base", "hope you're well")
-- No apologies for following up`
+- No apologies for following up
+${promoRule}`
 }
 
 const PROMPTS: Record<FollowupKind, (i: GenerateFollowupInput, ctx: string) => string> = {
@@ -133,7 +157,7 @@ export async function generateFollowupMessage(
   input: GenerateFollowupInput,
 ): Promise<string> {
   try {
-    const systemPrompt = buildSystemPrompt(input.voiceProfile, input.herStylePrompt)
+    const systemPrompt = buildSystemPrompt(input.voiceProfile, input.herStylePrompt, input.kind)
     const ctx = buildContextBlock(input)
     const userPrompt = PROMPTS[input.kind](input, ctx)
     const res = await chatComplete({
@@ -143,8 +167,18 @@ export async function generateFollowupMessage(
       temperature: 0.85,
       fast: true,
     })
-    const text = (res.text || '').trim().replace(/^["']+|["']+$/g, '')
+    let text = (res.text || '').trim().replace(/^["']+|["']+$/g, '')
     if (!text) return FALLBACKS[input.kind](input.matchName)
+    // Backstop: strip promo emoji + IG/social references from any kind
+    // except app_to_text (where channel mentions are intentional).
+    if (input.kind !== 'app_to_text') {
+      for (const e of PROMO_EMOJIS) text = text.split(e).join('')
+      text = text
+        .replace(/\binstagram\.com\/\S+/gi, '')
+        .replace(/\b(my\s+)?(ig|insta(?:gram)?)\b/gi, '')
+        .replace(/\s{2,}/g, ' ')
+        .trim()
+    }
     return text.slice(0, 280)
   } catch {
     return FALLBACKS[input.kind](input.matchName)
