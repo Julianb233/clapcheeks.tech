@@ -12,7 +12,7 @@ type ScheduledMessage = {
   message_text: string
   scheduled_at: string
   status: 'pending' | 'approved' | 'rejected' | 'sent' | 'failed'
-  sequence_type: 'follow_up' | 'manual' | 'app_to_text'
+  sequence_type: 'follow_up' | 'manual' | 'app_to_text' | 'pre_date_confirm' | 'post_date_thank' | 'ghost_reengage' | 'nudge'
   delay_hours: number | null
   rejection_reason: string | null
   sent_at: string | null
@@ -32,6 +32,10 @@ const SEQ_LABELS: Record<string, string> = {
   follow_up: 'Follow-up',
   manual: 'Manual',
   app_to_text: 'App → Text',
+  pre_date_confirm: 'Pre-date confirm',
+  post_date_thank: 'Post-date thanks',
+  ghost_reengage: 'Ghost re-engage',
+  nudge: 'Nudge',
 }
 
 export default function ScheduledPage() {

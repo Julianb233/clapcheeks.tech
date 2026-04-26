@@ -28,6 +28,7 @@ const PRIMARY: NavItem[] = [
   { href: '/photos', label: 'Photos', icon: <CameraIcon /> },
   { href: '/coaching', label: 'Coaching', icon: <RizzIcon /> },
   { href: '/ai-first-date', label: 'AI First Date', icon: <HeartIcon />, badge: 'new' },
+  { href: '/scheduled', label: 'Scheduled', icon: <BellIcon />, badge: 'new' },
 ]
 
 const SECONDARY: NavItem[] = [

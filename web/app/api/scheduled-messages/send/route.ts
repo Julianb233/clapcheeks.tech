@@ -1,23 +1,25 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { execFile } from 'child_process'
-import { promisify } from 'util'
 
-const execFileAsync = promisify(execFile)
-
-// Phones must be E.164-ish: optional leading + then 8-15 digits. Blocks shell
-// metachars from ever reaching god's argv.
-const PHONE_RE = /^\+?[0-9]{8,15}$/
-
-// POST /api/scheduled-messages/send — fire a god draft for an approved message.
+/**
+ * POST /api/scheduled-messages/send
+ *
+ * Approve a scheduled message for sending. The VPS drainer
+ * (scripts/outbound_sender.py) picks up rows where status IN
+ * ('pending','approved') AND scheduled_at <= NOW() and shells out to
+ * `god mac send` with the comms-gate bypass.
+ *
+ * This route used to execFile('god', ...) directly from Vercel — that
+ * path never worked because god doesn't exist in the Vercel runtime.
+ * The drainer is the single source of truth for actual delivery.
+ */
 export async function POST(request: NextRequest) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const body = await request.json()
-  const { id } = body
-
+  const body = await request.json().catch(() => ({}))
+  const { id, send_now } = body as { id?: string; send_now?: boolean }
   if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 })
 
   const { data: msg, error: fetchErr } = await supabase
@@ -26,76 +28,37 @@ export async function POST(request: NextRequest) {
     .eq('id', id)
     .eq('user_id', user.id)
     .single()
-
-  if (fetchErr || !msg) return NextResponse.json({ error: 'Not found' }, { status: 404 })
-
-  if (msg.status !== 'approved') {
+  if (fetchErr || !msg) {
+    return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  }
+  if (msg.status === 'sent' || msg.status === 'rejected') {
     return NextResponse.json(
-      { error: 'Message must be approved before sending' },
+      { error: `Cannot send: status is ${msg.status}` },
       { status: 400 },
     )
   }
 
-  if (!msg.phone || !PHONE_RE.test(String(msg.phone).trim())) {
-    return NextResponse.json(
-      { error: 'Valid E.164 phone number required for iMessage delivery' },
-      { status: 400 },
-    )
-  }
-
-  const scheduledAt = new Date(msg.scheduled_at)
-  const now = new Date()
-  const delayMinutes = Math.max(
-    0,
-    Math.round((scheduledAt.getTime() - now.getTime()) / 60000),
-  )
-
-  const phone = String(msg.phone).trim()
-  const messageText = String(msg.message_text)
-
-  let godDraftId: string | null = null
-  let godError: string | null = null
-
-  try {
-    // execFile: each argv is passed literally, no shell interpretation, so
-    // message body cannot inject commands regardless of contents.
-    const args = delayMinutes > 0
-      ? ['draft', phone, messageText, '--delay', String(delayMinutes)]
-      : ['mac', 'send', phone, messageText]
-    const { stdout, stderr } = await execFileAsync('god', args, { timeout: 30_000 })
-    godDraftId =
-      stdout.trim().match(/draft[_-]?id[:\s]+(\S+)/i)?.[1] ??
-      `sent-${Date.now()}`
-    if (stderr && !stdout) godError = stderr.trim()
-  } catch (err: unknown) {
-    godError = err instanceof Error ? err.message : String(err)
-  }
-
-  if (godError && !godDraftId) {
-    await supabase
-      .from('clapcheeks_scheduled_messages')
-      .update({ status: 'failed', rejection_reason: godError })
-      .eq('id', id)
-
-    return NextResponse.json({ error: godError }, { status: 500 })
+  const update: Record<string, unknown> = { status: 'approved' }
+  if (send_now) {
+    // Bring the scheduled_at forward so the next drainer tick picks it up.
+    update.scheduled_at = new Date().toISOString()
   }
 
   const { data: updated, error: updateErr } = await supabase
     .from('clapcheeks_scheduled_messages')
-    .update({
-      status: 'sent',
-      sent_at: delayMinutes === 0 ? new Date().toISOString() : null,
-      god_draft_id: godDraftId,
-    })
+    .update(update)
     .eq('id', id)
+    .eq('user_id', user.id)
     .select()
     .single()
-
-  if (updateErr) return NextResponse.json({ error: updateErr.message }, { status: 500 })
+  if (updateErr) {
+    return NextResponse.json({ error: updateErr.message }, { status: 500 })
+  }
 
   return NextResponse.json({
     message: updated,
-    god_draft_id: godDraftId,
-    delay_minutes: delayMinutes,
+    info: send_now
+      ? 'Marked as approved with scheduled_at=now; drainer will pick up within 60s.'
+      : 'Marked as approved; drainer will send at scheduled_at.',
   })
 }

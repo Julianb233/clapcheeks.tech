@@ -83,7 +83,8 @@ def god_send(phone: str, text: str) -> tuple[bool, str]:
         return False, str(e)[:300]
 
 
-def main() -> int:
+def drain_match_intel_queue() -> int:
+    """One-tap dashboard sends live in match_intel.outbound_queue. Drain those."""
     s, rows = call(
         "GET",
         f"/clapcheeks_matches?user_id=eq.{JULIAN}"
@@ -101,8 +102,6 @@ def main() -> int:
             continue
         changed = False
         for item in queue:
-            # Skip anything that isn't actively pending (sent, cancelled,
-            # failed all stay as-is).
             if item.get("status") != "pending":
                 continue
             phone = item.get("her_phone") or m.get("her_phone")
@@ -118,22 +117,67 @@ def main() -> int:
                 item["status"] = "sent"
                 item["sent_at"] = now
                 sent_count += 1
-                log(f"sent → {m['name']} ({phone}): {text[:60]!r}")
+                log(f"sent (queue) → {m['name']} ({phone}): {text[:60]!r}")
             else:
                 item["status"] = "failed"
                 item["failure_reason"] = err
                 item["failed_at"] = now
-                log(f"FAIL → {m['name']}: {err}")
+                log(f"FAIL (queue) → {m['name']}: {err}")
             changed = True
 
         if changed:
-            # Cap queue history at last 50 items per match
             intel["outbound_queue"] = queue[-50:]
             call("PATCH", f"/clapcheeks_matches?id=eq.{m['id']}",
                  {"match_intel": intel})
+    return sent_count
 
-    if sent_count:
-        log(f"done — {sent_count} sent")
+
+def drain_scheduled_messages() -> int:
+    """Scheduled / nurture sequences live in clapcheeks_scheduled_messages.
+    Drain rows where status IN (pending, approved) AND scheduled_at <= now.
+
+    Uses the clapcheeks_scheduled_messages_due view which already joins to
+    clapcheeks_matches for effective_phone.
+    """
+    s, rows = call(
+        "GET",
+        f"/clapcheeks_scheduled_messages_due?user_id=eq.{JULIAN}"
+        "&select=id,match_name,message_text,effective_phone,sequence_type",
+    )
+    if s != 200 or not rows:
+        return 0
+
+    sent = 0
+    for r in rows:
+        phone = r.get("effective_phone")
+        text = r.get("message_text", "")
+        if not phone or not text:
+            call("PATCH", f"/clapcheeks_scheduled_messages?id=eq.{r['id']}",
+                 {"status": "failed",
+                  "rejection_reason": "missing phone or text"})
+            continue
+
+        ok, err = god_send(phone, text)
+        now = datetime.now(timezone.utc).isoformat()
+        if ok:
+            call("PATCH", f"/clapcheeks_scheduled_messages?id=eq.{r['id']}",
+                 {"status": "sent", "sent_at": now,
+                  "god_draft_id": f"sent-{int(datetime.now().timestamp())}"})
+            sent += 1
+            log(f"sent ({r.get('sequence_type','manual')}) → "
+                f"{r.get('match_name','?')} ({phone}): {text[:60]!r}")
+        else:
+            call("PATCH", f"/clapcheeks_scheduled_messages?id=eq.{r['id']}",
+                 {"status": "failed", "rejection_reason": err[:300]})
+            log(f"FAIL (scheduled) → {r.get('match_name','?')}: {err}")
+    return sent
+
+
+def main() -> int:
+    a = drain_match_intel_queue()
+    b = drain_scheduled_messages()
+    if a or b:
+        log(f"done — {a} from queue, {b} from scheduled")
     return 0
 
 
