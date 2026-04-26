@@ -3,6 +3,7 @@ import { createClient as createAdminClient } from '@supabase/supabase-js'
 import { generateFollowupMessage, type FollowupKind } from '@/lib/followup/generate-content'
 import { pickOptimalSendTimeISO } from '@/lib/followup/optimal-timing'
 import { DEFAULT_FOLLOWUP_CONFIG } from '@/lib/followup/types'
+import { analyzeHerStyle, herStyleToPrompt } from '@/lib/followup/her-style'
 
 export const runtime = 'nodejs'
 export const maxDuration = 60
@@ -176,6 +177,28 @@ export async function GET(req: Request) {
     })
   }
 
+  // 3.5. Light/gentle touch nudge for warm-but-quiet matches:
+  // - stage IN ('date_attended','recurring','hooked_up') (already in rotation)
+  // - last_activity_at 5-10 days ago (long enough to not feel needy, short enough to stay warm)
+  const { data: nudgeable } = await (supabase as any)
+    .from('clapcheeks_matches')
+    .select('id, name, her_phone, last_activity_at')
+    .eq('user_id', julian)
+    .in('stage', ['date_attended', 'recurring', 'hooked_up', 'date_booked'])
+    .gte('last_activity_at', new Date(Date.now() - 10 * 86400_000).toISOString())
+    .lte('last_activity_at', new Date(Date.now() - 5 * 86400_000).toISOString())
+
+  for (const m of nudgeable ?? []) {
+    intents.push({
+      kind: 'nudge',
+      match_id: m.id,
+      match_name: m.name,
+      phone: m.her_phone,
+      delayHours: 0,
+      sequence_step: 0,
+    })
+  }
+
   // 4. Quiet chatting matches → follow_up
   const delays: number[] = Array.isArray(config.delays_hours)
     ? (config.delays_hours as number[])
@@ -228,8 +251,9 @@ export async function GET(req: Request) {
       .limit(1)
     if (Array.isArray(existing) && existing.length > 0) continue
 
-    // Pull last 10 messages from her conversation for grounded drafts.
+    // Pull last 10 messages + analyze her style for grounded, energy-matched drafts.
     let conversationHistory: Array<{ from?: string; text?: string }> = []
+    let herStylePrompt: string | undefined
     const { data: matchRow } = await (supabase as any)
       .from('clapcheeks_matches')
       .select('match_id')
@@ -243,13 +267,17 @@ export async function GET(req: Request) {
         .eq('match_id', matchRow.match_id)
         .maybeSingle()
       if (Array.isArray(conv?.messages)) {
-        conversationHistory = (conv.messages as Array<Record<string, unknown>>)
+        const allMessages = conv.messages as Array<Record<string, unknown>>
+        conversationHistory = allMessages
           .slice(-10)
           .map((m) => ({
             from: (m.from ?? m.sender) as string | undefined,
             text: (m.text ?? m.body ?? m.content) as string | undefined,
           }))
           .filter((m) => m.text)
+        // Style analysis uses up to last 50 of her messages, not just last 10.
+        const herStyle = analyzeHerStyle(allMessages)
+        herStylePrompt = herStyleToPrompt(herStyle, intent.match_name) ?? undefined
       }
     }
 
@@ -261,6 +289,7 @@ export async function GET(req: Request) {
       dateContext: intent.dateContext,
       conversationHistory,
       voiceProfile,
+      herStylePrompt,
     })
 
     const scheduledAt = pickOptimalSendTimeISO(intent.delayHours, {

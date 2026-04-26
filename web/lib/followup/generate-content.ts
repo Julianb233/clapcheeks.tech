@@ -26,25 +26,31 @@ export type GenerateFollowupInput = {
     sample_phrases?: string[]
     tone?: string
   }
+  /** Her per-match style snippet (rendered by herStyleToPrompt). Optional. */
+  herStylePrompt?: string
 }
 
 const FALLBACK_VOICE = `casual, lowercase-friendly, short messages, no emojis unless one fits, no exclamation marks, no apologies, never desperate.`
 
-function buildSystemPrompt(voice?: GenerateFollowupInput['voiceProfile']): string {
+function buildSystemPrompt(
+  voice?: GenerateFollowupInput['voiceProfile'],
+  herStylePrompt?: string,
+): string {
   const style = voice?.style_summary?.trim() || FALLBACK_VOICE
   const samples = (voice?.sample_phrases ?? []).slice(0, 8)
   const sampleBlock = samples.length
     ? `\n\nExamples of his actual texting voice (use as tone reference, do NOT copy verbatim):\n${samples.map((s) => `  - "${s}"`).join('\n')}`
     : ''
+  const herBlock = herStylePrompt ? `\n\n${herStylePrompt}` : ''
   return `You are Julian's dating ghostwriter. Write in his voice.
 
-Voice profile:
-${style}${sampleBlock}
+His voice profile:
+${style}${sampleBlock}${herBlock}
 
 Hard rules:
 - Output ONLY the message text — no preamble, no quotes, no signature
 - Never invent shared memories. If you don't see it in conversation history, don't reference it
-- Match her energy from the conversation
+- Match her energy from the conversation — never be more intense than she is
 - No corporate/generic phrases ("circle back", "touch base", "hope you're well")
 - No apologies for following up`
 }
@@ -127,7 +133,7 @@ export async function generateFollowupMessage(
   input: GenerateFollowupInput,
 ): Promise<string> {
   try {
-    const systemPrompt = buildSystemPrompt(input.voiceProfile)
+    const systemPrompt = buildSystemPrompt(input.voiceProfile, input.herStylePrompt)
     const ctx = buildContextBlock(input)
     const userPrompt = PROMPTS[input.kind](input, ctx)
     const res = await chatComplete({

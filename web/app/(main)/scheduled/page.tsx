@@ -43,6 +43,8 @@ export default function ScheduledPage() {
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState<string>('pending')
   const [actionLoading, setActionLoading] = useState<string | null>(null)
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editText, setEditText] = useState('')
   const [showCompose, setShowCompose] = useState(false)
   const [compose, setCompose] = useState<{
     match_name: string
@@ -109,6 +111,52 @@ export default function ScheduledPage() {
     })
     const data = await res.json()
     if (!res.ok) setError(data.error ?? 'Send failed')
+    await loadMessages()
+    setActionLoading(null)
+  }
+
+  function startEdit(msg: ScheduledMessage) {
+    setEditingId(msg.id)
+    setEditText(msg.message_text)
+  }
+
+  async function saveEdit(id: string) {
+    setActionLoading(id + '-edit')
+    const res = await fetch(`/api/scheduled-messages/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message_text: editText }),
+    })
+    if (!res.ok) {
+      const j = (await res.json().catch(() => ({}))) as { error?: string }
+      setError(j.error ?? 'Edit failed')
+    } else {
+      setEditingId(null)
+      await loadMessages()
+    }
+    setActionLoading(null)
+  }
+
+  async function regenerate(id: string) {
+    setActionLoading(id + '-regen')
+    const res = await fetch(`/api/scheduled-messages/${id}/regenerate`, { method: 'POST' })
+    const j = (await res.json().catch(() => ({}))) as { error?: string; her_style_used?: boolean }
+    if (!res.ok) setError(j.error ?? 'Regenerate failed')
+    else if (j.her_style_used === false) setError('Drafted with voice only — no her-style data yet')
+    await loadMessages()
+    setActionLoading(null)
+  }
+
+  async function reschedule(id: string) {
+    const when = prompt('Reschedule to (YYYY-MM-DDTHH:MM, local):')
+    if (!when) return
+    const iso = new Date(when).toISOString()
+    setActionLoading(id + '-resched')
+    await fetch(`/api/scheduled-messages/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ scheduled_at: iso }),
+    })
     await loadMessages()
     setActionLoading(null)
   }
@@ -332,8 +380,40 @@ export default function ScheduledPage() {
                         )}
                       </div>
 
-                      {/* Message */}
-                      <p className="text-white/80 text-sm mb-2 leading-relaxed">{msg.message_text}</p>
+                      {/* Message — inline edit when editingId matches */}
+                      {editingId === msg.id ? (
+                        <div className="mb-2">
+                          <textarea
+                            value={editText}
+                            onChange={(e) => setEditText(e.target.value)}
+                            rows={3}
+                            className="w-full bg-black/40 border border-white/20 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-pink-500/50 resize-none"
+                          />
+                          <div className="flex gap-2 mt-1">
+                            <button
+                              onClick={() => saveEdit(msg.id)}
+                              disabled={actionLoading === msg.id + '-edit'}
+                              className="px-3 py-1 rounded-md bg-emerald-600 hover:bg-emerald-500 text-xs font-semibold disabled:opacity-50"
+                            >
+                              {actionLoading === msg.id + '-edit' ? '...' : 'Save'}
+                            </button>
+                            <button
+                              onClick={() => setEditingId(null)}
+                              className="px-3 py-1 rounded-md bg-white/10 hover:bg-white/20 text-xs"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <p
+                          className="text-white/80 text-sm mb-2 leading-relaxed cursor-pointer hover:text-white"
+                          onClick={() => startEdit(msg)}
+                          title="Click to edit"
+                        >
+                          {msg.message_text}
+                        </p>
+                      )}
 
                       {/* Meta */}
                       <div className="flex items-center gap-3 text-xs text-white/40 flex-wrap">
@@ -355,6 +435,26 @@ export default function ScheduledPage() {
 
                     {/* Actions */}
                     <div className="flex flex-col gap-2 shrink-0">
+                      {msg.status !== 'sent' && msg.status !== 'rejected' && (
+                        <button
+                          onClick={() => regenerate(msg.id)}
+                          disabled={!!actionLoading}
+                          className="px-3 py-1.5 rounded-lg bg-purple-500/20 text-purple-300 border border-purple-500/30 text-xs font-medium hover:bg-purple-500/30 transition-all disabled:opacity-50"
+                          title="Re-draft using your voice + her style + recent conversation"
+                        >
+                          {actionLoading === msg.id + '-regen' ? '...' : '✨ Re-draft'}
+                        </button>
+                      )}
+                      {msg.status !== 'sent' && msg.status !== 'rejected' && (
+                        <button
+                          onClick={() => reschedule(msg.id)}
+                          disabled={!!actionLoading}
+                          className="px-3 py-1.5 rounded-lg bg-white/5 text-white/60 border border-white/10 text-xs hover:text-white hover:bg-white/10 transition-all disabled:opacity-50"
+                          title="Pick a new send time"
+                        >
+                          {actionLoading === msg.id + '-resched' ? '...' : '🕐 Reschedule'}
+                        </button>
+                      )}
                       {msg.status === 'pending' && (
                         <>
                           <button

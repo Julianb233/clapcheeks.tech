@@ -174,6 +174,36 @@ export function ConversationPanel({
     }
   }
 
+  async function scheduleLightTouch(kind: 'nudge' | 'follow_up' | 'ghost_reengage') {
+    setComposing(true)
+    setComposeStatus(null)
+    setErr(null)
+    try {
+      // Use the followup-sequences trigger to draft + schedule with config
+      // (quiet hours, optimal window, voice+her-style baked in via cron path).
+      const res = await fetch('/api/followup-sequences/trigger', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          match_name: matchName,
+          match_id: matchId,
+          platform,
+        }),
+      })
+      const j = (await res.json().catch(() => ({}))) as { error?: string; message?: { id: string; scheduled_at: string } }
+      if (!res.ok) throw new Error(j.error ?? `HTTP ${res.status}`)
+      const when = j.message?.scheduled_at
+        ? new Date(j.message.scheduled_at).toLocaleString()
+        : 'soon'
+      setComposeStatus(`💌 ${kind} drafted — fires ${when}. View on /scheduled.`)
+      setTimeout(() => setComposeStatus(null), 6000)
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Failed')
+    } finally {
+      setComposing(false)
+    }
+  }
+
   async function sendCustom(scheduleForLater: boolean) {
     const text = composeText.trim()
     if (!text) return
@@ -285,6 +315,15 @@ export function ConversationPanel({
             className="px-3 py-1.5 rounded-md bg-gradient-to-r from-pink-600 to-purple-600 hover:from-pink-500 hover:to-purple-500 text-xs font-medium disabled:opacity-50"
           >
             {drafting ? 'Drafting…' : '✨ Draft reply in your voice'}
+          </button>
+          <button
+            type="button"
+            onClick={() => void scheduleLightTouch('nudge')}
+            disabled={composing}
+            className="px-3 py-1.5 rounded-md bg-white/10 hover:bg-white/20 text-xs font-medium disabled:opacity-50"
+            title="Drafts a low-pressure check-in and schedules it for her optimal window"
+          >
+            {composing ? '...' : '💌 Light touch'}
           </button>
         </div>
       </div>
