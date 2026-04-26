@@ -132,17 +132,47 @@ def drain_match_intel_queue() -> int:
     return sent_count
 
 
+def append_to_conversation(match_id: str, text: str, source: str) -> None:
+    """Append a sent message to clapcheeks_conversations.messages so the
+    UI thread stays consistent. match_id here is the clapcheeks_matches.id
+    UUID, NOT the conversation channel match_id.
+    """
+    if not match_id:
+        return
+    s, m = call("GET", f"/clapcheeks_matches?id=eq.{match_id}&select=match_id")
+    if s != 200 or not m:
+        return
+    channel = m[0].get("match_id")
+    if not channel:
+        return
+    s, conv = call(
+        "GET",
+        f"/clapcheeks_conversations?user_id=eq.{JULIAN}&match_id=eq.{channel}"
+        "&select=messages&limit=1",
+    )
+    if s != 200 or not conv:
+        return
+    msgs = conv[0].get("messages") or []
+    if not isinstance(msgs, list):
+        msgs = []
+    now = datetime.now(timezone.utc).isoformat()
+    msgs = msgs + [{"ts": now, "from": "him", "text": text, "source": source}]
+    msgs = msgs[-200:]
+    call(
+        "PATCH",
+        f"/clapcheeks_conversations?user_id=eq.{JULIAN}&match_id=eq.{channel}",
+        {"messages": msgs, "last_message_at": now},
+    )
+
+
 def drain_scheduled_messages() -> int:
     """Scheduled / nurture sequences live in clapcheeks_scheduled_messages.
     Drain rows where status IN (pending, approved) AND scheduled_at <= now.
-
-    Uses the clapcheeks_scheduled_messages_due view which already joins to
-    clapcheeks_matches for effective_phone.
     """
     s, rows = call(
         "GET",
         f"/clapcheeks_scheduled_messages_due?user_id=eq.{JULIAN}"
-        "&select=id,match_name,message_text,effective_phone,sequence_type",
+        "&select=id,match_id,match_name,message_text,effective_phone,sequence_type",
     )
     if s != 200 or not rows:
         return 0
@@ -164,8 +194,12 @@ def drain_scheduled_messages() -> int:
                  {"status": "sent", "sent_at": now,
                   "god_draft_id": f"sent-{int(datetime.now().timestamp())}"})
             sent += 1
-            log(f"sent ({r.get('sequence_type','manual')}) → "
+            kind = r.get("sequence_type", "manual")
+            log(f"sent ({kind}) → "
                 f"{r.get('match_name','?')} ({phone}): {text[:60]!r}")
+            # Mirror to conversation thread for UI consistency
+            if r.get("match_id"):
+                append_to_conversation(r["match_id"], text, f"scheduled:{kind}")
         else:
             call("PATCH", f"/clapcheeks_scheduled_messages?id=eq.{r['id']}",
                  {"status": "failed", "rejection_reason": err[:300]})

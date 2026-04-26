@@ -79,6 +79,10 @@ export function ConversationPanel({
   const [draftSource, setDraftSource] = useState<string | null>(null)
   const [sendingIdx, setSendingIdx] = useState<number | null>(null)
   const [sentIdx, setSentIdx] = useState<number | null>(null)
+  const [composeText, setComposeText] = useState('')
+  const [scheduleAt, setScheduleAt] = useState('')
+  const [composing, setComposing] = useState(false)
+  const [composeStatus, setComposeStatus] = useState<string | null>(null)
 
   async function sendDraft(idx: number, text: string) {
     if (!confirm(`Send to ${matchName}:\n\n"${text}"`)) return
@@ -167,6 +171,58 @@ export function ConversationPanel({
       setErr(e instanceof Error ? e.message : 'Failed')
     } finally {
       setDrafting(false)
+    }
+  }
+
+  async function sendCustom(scheduleForLater: boolean) {
+    const text = composeText.trim()
+    if (!text) return
+    if (scheduleForLater && !scheduleAt) {
+      setComposeStatus('Pick a time')
+      return
+    }
+    setComposing(true)
+    setComposeStatus(null)
+    setErr(null)
+    try {
+      if (scheduleForLater) {
+        const res = await fetch('/api/scheduled-messages', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            match_id: matchId,
+            match_name: matchName,
+            platform,
+            message_text: text,
+            scheduled_at: new Date(scheduleAt).toISOString(),
+            sequence_type: 'manual',
+          }),
+        })
+        const j = (await res.json().catch(() => ({}))) as { error?: string }
+        if (!res.ok) throw new Error(j.error ?? `HTTP ${res.status}`)
+        setComposeStatus(`Scheduled for ${new Date(scheduleAt).toLocaleString()}`)
+        setComposeText('')
+        setScheduleAt('')
+      } else {
+        const res = await fetch(`/api/matches/${matchId}/send`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ text }),
+        })
+        const j = (await res.json().catch(() => ({}))) as { error?: string }
+        if (!res.ok) throw new Error(j.error ?? `HTTP ${res.status}`)
+        setMessages((prev) => [
+          ...prev,
+          { ts: new Date().toISOString(), from: 'him', text },
+        ])
+        setComposeText('')
+        setComposeStatus('Queued — drainer fires within 60s')
+        setTimeout(() => setComposeStatus(null), 3000)
+      }
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Send failed')
+    } finally {
+      setComposing(false)
     }
   }
 
@@ -347,6 +403,49 @@ export function ConversationPanel({
           </div>
         </div>
       )}
+
+      {/* Free-form composer: type custom message, send now or schedule */}
+      <div className="mt-4 pt-4 border-t border-white/10">
+        <div className="text-[11px] text-white/60 font-semibold uppercase tracking-wide mb-2">
+          Compose
+        </div>
+        <textarea
+          value={composeText}
+          onChange={(e) => setComposeText(e.target.value)}
+          placeholder={`Write to ${matchName}...`}
+          rows={2}
+          className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-white/30 focus:outline-none focus:border-pink-500/50 resize-none"
+        />
+        <div className="flex flex-wrap items-center gap-2 mt-2">
+          <input
+            type="datetime-local"
+            value={scheduleAt}
+            onChange={(e) => setScheduleAt(e.target.value)}
+            className="bg-white/5 border border-white/10 rounded-md px-2 py-1.5 text-xs text-white focus:outline-none focus:border-pink-500/50"
+          />
+          <button
+            type="button"
+            onClick={() => void sendCustom(false)}
+            disabled={composing || !composeText.trim()}
+            className="px-4 py-1.5 rounded-md bg-pink-600 hover:bg-pink-500 text-xs font-semibold disabled:opacity-40"
+            title="Send immediately"
+          >
+            {composing ? '...' : 'Send now'}
+          </button>
+          <button
+            type="button"
+            onClick={() => void sendCustom(true)}
+            disabled={composing || !composeText.trim() || !scheduleAt}
+            className="px-4 py-1.5 rounded-md bg-white/10 hover:bg-white/20 text-xs font-medium disabled:opacity-40"
+            title="Schedule for later — appears on /scheduled until it fires"
+          >
+            Schedule
+          </button>
+          {composeStatus && (
+            <span className="text-[11px] text-emerald-400 ml-1">{composeStatus}</span>
+          )}
+        </div>
+      </div>
     </div>
   )
 }

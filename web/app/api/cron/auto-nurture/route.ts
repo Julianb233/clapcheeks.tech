@@ -50,6 +50,37 @@ export async function GET(req: Request) {
     return NextResponse.json({ ok: true, skipped: 'sequences disabled' })
   }
 
+  // Pull voice profile once — every draft uses it for tone-matching.
+  const { data: voice } = await (supabase as any)
+    .from('clapcheeks_voice_profiles')
+    .select('style_summary, sample_phrases, tone')
+    .eq('user_id', julian)
+    .maybeSingle()
+  const voiceProfile = voice ?? undefined
+
+  // Per-match rate limit: skip any match that already has 3+ scheduled
+  // messages enqueued in the last 14 days (regardless of kind). Prevents
+  // over-nurturing when multiple state transitions stack up.
+  const RATE_LIMIT_DAYS = 14
+  const RATE_LIMIT_COUNT = 3
+  const rateLimitCutoff = new Date(Date.now() - RATE_LIMIT_DAYS * 86400_000).toISOString()
+  const rateLimitedMatches = new Set<string>()
+  const { data: recentScheduled } = await (supabase as any)
+    .from('clapcheeks_scheduled_messages')
+    .select('match_id')
+    .eq('user_id', julian)
+    .gte('created_at', rateLimitCutoff)
+    .not('match_id', 'is', null)
+  if (Array.isArray(recentScheduled)) {
+    const counts: Record<string, number> = {}
+    for (const r of recentScheduled) {
+      const id = r.match_id
+      if (!id) continue
+      counts[id] = (counts[id] ?? 0) + 1
+      if (counts[id] >= RATE_LIMIT_COUNT) rateLimitedMatches.add(id)
+    }
+  }
+
   type EnqueueIntent = {
     kind: FollowupKind
     match_id: string
@@ -178,8 +209,15 @@ export async function GET(req: Request) {
   }
 
   // De-dupe: skip if already a pending/approved row for this match+kind
+  // OR if rate-limited (>= 3 scheduled in last 14 days).
   const enqueued: Array<{ match_name: string; kind: FollowupKind; scheduled_at: string }> = []
+  const skippedRateLimit: string[] = []
   for (const intent of intents) {
+    if (rateLimitedMatches.has(intent.match_id)) {
+      skippedRateLimit.push(`${intent.match_name} (${intent.kind})`)
+      continue
+    }
+
     const { data: existing } = await (supabase as any)
       .from('clapcheeks_scheduled_messages')
       .select('id')
@@ -190,12 +228,39 @@ export async function GET(req: Request) {
       .limit(1)
     if (Array.isArray(existing) && existing.length > 0) continue
 
+    // Pull last 10 messages from her conversation for grounded drafts.
+    let conversationHistory: Array<{ from?: string; text?: string }> = []
+    const { data: matchRow } = await (supabase as any)
+      .from('clapcheeks_matches')
+      .select('match_id')
+      .eq('id', intent.match_id)
+      .maybeSingle()
+    if (matchRow?.match_id) {
+      const { data: conv } = await (supabase as any)
+        .from('clapcheeks_conversations')
+        .select('messages')
+        .eq('user_id', julian)
+        .eq('match_id', matchRow.match_id)
+        .maybeSingle()
+      if (Array.isArray(conv?.messages)) {
+        conversationHistory = (conv.messages as Array<Record<string, unknown>>)
+          .slice(-10)
+          .map((m) => ({
+            from: (m.from ?? m.sender) as string | undefined,
+            text: (m.text ?? m.body ?? m.content) as string | undefined,
+          }))
+          .filter((m) => m.text)
+      }
+    }
+
     const messageText = await generateFollowupMessage({
       kind: intent.kind,
       matchName: intent.match_name,
       platform: 'iMessage',
       sequenceStep: intent.sequence_step,
       dateContext: intent.dateContext,
+      conversationHistory,
+      voiceProfile,
     })
 
     const scheduledAt = pickOptimalSendTimeISO(intent.delayHours, {
@@ -246,6 +311,8 @@ export async function GET(req: Request) {
     ok: true,
     intents: intents.length,
     enqueued: enqueued.length,
+    rate_limited: skippedRateLimit.length,
     detail: enqueued,
+    rate_limited_detail: skippedRateLimit,
   })
 }
