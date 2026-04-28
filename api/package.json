@@ -4,7 +4,8 @@
   "type": "module",
   "scripts": {
     "dev": "node --watch server.js",
-    "start": "node server.js"
+    "start": "node server.js",
+    "test": "vitest run"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.44.2",
@@ -15,5 +16,9 @@
     "helmet": "^7.1.0",
     "jsonwebtoken": "^9.0.2",
     "stripe": "^20.4.1"
+  },
+  "devDependencies": {
+    "supertest": "^7.2.2",
+    "vitest": "^4.1.5"
   }
 }
