@@ -3,8 +3,12 @@
 -- 1. Adds ai_active / ai_paused_until / ai_paused_reason to clapcheeks_user_settings
 -- 2. Adds ai_active per-match override to clapcheeks_matches
 -- 3. Creates helper view clapcheeks_ai_effective_state (union of both signals)
--- 4. Enables Supabase Realtime on clapcheeks_match_messages (idempotent)
--- 5. Adds a pg_notify trigger for incoming messages (feeds AI-8772 push path)
+-- 4. Enables Supabase Realtime on clapcheeks_conversations (idempotent)
+--
+-- NOTE (AI-8812): clapcheeks_conversations stores messages as a JSONB array on a
+-- single row per match — NOT individual message rows. A per-row INSERT trigger with
+-- direction filtering is therefore not applicable.  The pg_notify fast path for
+-- AI-8772 push notifications is deferred to a follow-up issue.
 
 -- ── 1. User-level AI gate ─────────────────────────────────────────────────
 ALTER TABLE public.clapcheeks_user_settings
@@ -50,43 +54,15 @@ COMMENT ON VIEW public.clapcheeks_ai_effective_state
 -- restricts which rows they see).
 GRANT SELECT ON public.clapcheeks_ai_effective_state TO authenticated;
 
--- ── 4. Enable Supabase Realtime on match messages (idempotent) ────────────
+-- ── 4. Enable Supabase Realtime on clapcheeks_conversations (idempotent) ──
+-- clapcheeks_conversations stores messages as a JSONB array (messages jsonb)
+-- on a single row per match.  Clients subscribe to UPDATE events and diff the
+-- messages array to detect new entries (see web/lib/realtime/messages.ts).
 DO $rt$
 BEGIN
-  ALTER PUBLICATION supabase_realtime ADD TABLE public.clapcheeks_match_messages;
+  ALTER PUBLICATION supabase_realtime ADD TABLE public.clapcheeks_conversations;
 EXCEPTION
   WHEN OTHERS THEN
     -- Table already in publication or publication doesn't exist in dev — safe to ignore.
     NULL;
 END $rt$;
-
--- ── 5. pg_notify trigger for incoming messages ────────────────────────────
--- Fires AFTER INSERT on incoming rows.  The payload is "user_id,message_id"
--- which the AI-8772 push worker can consume via LISTEN 'new_her_message'.
-CREATE OR REPLACE FUNCTION public._clapcheeks_notify_new_her_message()
-RETURNS trigger
-LANGUAGE plpgsql
-SECURITY DEFINER
-AS $fn$
-BEGIN
-  IF NEW.direction = 'incoming' THEN
-    PERFORM pg_notify(
-      'new_her_message',
-      NEW.user_id || ',' || NEW.id::text
-    );
-  END IF;
-  RETURN NEW;
-END;
-$fn$;
-
-DROP TRIGGER IF EXISTS trg_clapcheeks_notify_new_her_message
-  ON public.clapcheeks_match_messages;
-
-CREATE TRIGGER trg_clapcheeks_notify_new_her_message
-  AFTER INSERT ON public.clapcheeks_match_messages
-  FOR EACH ROW
-  EXECUTE FUNCTION public._clapcheeks_notify_new_her_message();
-
-COMMENT ON TRIGGER trg_clapcheeks_notify_new_her_message
-  ON public.clapcheeks_match_messages
-  IS 'AI-8809: emits pg_notify(''new_her_message'', user_id||'','||message_id) for the AI-8772 push worker.';
