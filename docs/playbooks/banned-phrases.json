@@ -1,0 +1,143 @@
+{
+  "_meta": {
+    "version": "1.0.0",
+    "description": "Machine-readable banned phrases for re-engagement / reactivation outreach. Loadable by any domain sanitizer. Grouped by domain applicability and severity.",
+    "severity_levels": {
+      "critical": "Guaranteed to kill the re-engagement. Never use.",
+      "high": "Strongly signals mass outreach or desperation. Avoid in almost all cases.",
+      "medium": "Weakens the message. Acceptable only in specific documented contexts.",
+      "low": "Cliché but not fatal. Replace when possible."
+    },
+    "domains": ["dating", "sales", "networking", "lapsed_client", "friendship"],
+    "source": "docs/playbooks/reactivation-campaign.md",
+    "last_updated": "2026-04-27"
+  },
+  "banned_phrases": [
+    {
+      "phrase": "hey stranger",
+      "severity": "critical",
+      "domains": ["dating", "friendship", "networking"],
+      "rationale": "Ironic framing that immediately signals mass outreach. Nobody says 'hey stranger' to someone they genuinely thought of.",
+      "replacement_pattern": "Start with a specific reference to them or a genuine thought. 'just saw [thing related to their profile]' or jump straight to content."
+    },
+    {
+      "phrase": "long time no talk",
+      "severity": "critical",
+      "domains": ["dating", "friendship", "networking", "sales", "lapsed_client"],
+      "rationale": "Forces the recipient to acknowledge the gap. The gap is neutral — naming it makes it loaded. Triggers the 'why did I stop responding?' reflex.",
+      "replacement_pattern": "Skip the gap entirely. Reference something new or something real from the last conversation."
+    },
+    {
+      "phrase": "long time no see",
+      "severity": "critical",
+      "domains": ["dating", "friendship", "networking", "sales", "lapsed_client"],
+      "rationale": "Same as 'long time no talk' — gap-naming. Makes the receiver re-evaluate the silence.",
+      "replacement_pattern": "Jump over the gap. Start where you are now, not where you left off."
+    },
+    {
+      "phrase": "just checking in",
+      "severity": "critical",
+      "domains": ["sales", "networking", "lapsed_client", "dating", "friendship"],
+      "rationale": "Signals zero real reason to reach out. The phrase exists purely to fulfill an obligation, and the recipient knows it. Universally recognized as a cliché in every outreach context.",
+      "replacement_pattern": "Ask a real question, reference a real thing, or share something genuinely interesting. If you have nothing real to say, wait until you do."
+    },
+    {
+      "phrase": "circling back",
+      "severity": "critical",
+      "domains": ["sales", "networking", "lapsed_client"],
+      "rationale": "Pure sales-speak. Immediately tags the sender as operating from a script, not genuine interest.",
+      "replacement_pattern": "Name the actual topic. 're: the proposal from March' or 'I've been thinking about what you said about X.'"
+    },
+    {
+      "phrase": "touching base",
+      "severity": "critical",
+      "domains": ["sales", "networking", "lapsed_client", "friendship"],
+      "rationale": "Same as 'circling back' — corporate filler that signals the sender has nothing real to say.",
+      "replacement_pattern": "Same as above. Be specific."
+    },
+    {
+      "phrase": "bumping this",
+      "severity": "critical",
+      "domains": ["sales", "networking", "lapsed_client"],
+      "rationale": "Visible automation signal. Confirms to the recipient that this is the 4th follow-up in a sequence and they are on a list.",
+      "replacement_pattern": "If you need a follow-up, reframe it entirely. New subject line, new angle, new reason."
+    },
+    {
+      "phrase": "did i do something wrong",
+      "severity": "critical",
+      "domains": ["dating", "friendship"],
+      "rationale": "Guilt-induction. Forces the recipient to either defend their silence or lie. Creates emotional pressure that makes non-response feel unkind, which triggers avoidance.",
+      "replacement_pattern": "Never address why they went quiet. Reference something real. If you need to address tension, do it directly and once: 'if i said something off, totally understand.'"
+    },
+    {
+      "phrase": "miss me?",
+      "severity": "critical",
+      "domains": ["dating", "friendship"],
+      "rationale": "Presumptuous and clingy. Sets up a power dynamic that puts the sender in a position of seeking validation.",
+      "replacement_pattern": "Don't ask. Share something genuine. If she's going to miss you, make her realize it through what you're doing, not by asking."
+    },
+    {
+      "phrase": "remember me?",
+      "severity": "critical",
+      "domains": ["dating", "networking", "sales"],
+      "rationale": "Self-deprecating in a way that doesn't land. If they might not remember you, give them context naturally. If they definitely remember you, the question is redundant.",
+      "replacement_pattern": "Provide natural context: 'we talked at [event] about [topic]' — or just reference the last real thing you discussed."
+    },
+    {
+      "phrase": "i know it's been a while",
+      "severity": "high",
+      "domains": ["dating", "friendship", "networking", "sales", "lapsed_client"],
+      "rationale": "Gap-naming. Forces the receiver to sit with the gap before they can even read your message. Starting on the back foot.",
+      "replacement_pattern": "Jump straight to the content. The recipient knows how long it's been. You don't need to narrate it."
+    },
+    {
+      "phrase": "hope you're doing well",
+      "severity": "high",
+      "domains": ["sales", "networking", "lapsed_client", "dating", "friendship"],
+      "rationale": "Filler that precedes 100% of cold and form-letter outreach. The recipient pattern-matches it to 'this is a template' before they read the next line.",
+      "replacement_pattern": "Start with the real reason. Or skip formalities entirely: 'random thought' / 'quick one'."
+    },
+    {
+      "phrase": "hope all is well",
+      "severity": "high",
+      "domains": ["sales", "networking", "lapsed_client", "dating", "friendship"],
+      "rationale": "Same pattern as 'hope you're doing well.'",
+      "replacement_pattern": "Same: cut the filler, start with the substance."
+    },
+    {
+      "phrase": "sorry for the late reply",
+      "severity": "medium",
+      "domains": ["dating", "friendship", "networking"],
+      "rationale": "Draws attention to the gap and opens with an apology, which signals you've been thinking about this for a while. Undermines the casual tone.",
+      "replacement_pattern": "Skip the apology. Continue the conversation naturally. If you were genuinely in the wrong, address it directly once, not pre-emptively."
+    },
+    {
+      "phrase": "i've been meaning to reach out",
+      "severity": "medium",
+      "domains": ["friendship", "networking", "dating"],
+      "rationale": "Signals that you've been overthinking this for a while. The best re-engagements feel spontaneous, even when they're planned.",
+      "replacement_pattern": "Just reach out. Don't narrate the reaching out."
+    },
+    {
+      "phrase": "wanted to reconnect",
+      "severity": "medium",
+      "domains": ["networking", "sales", "lapsed_client"],
+      "rationale": "Process narration. You don't need to tell them what you're doing — just do it.",
+      "replacement_pattern": "Skip the meta-commentary. Give them a reason to engage, not a label for what you're attempting."
+    },
+    {
+      "phrase": "per my last email",
+      "severity": "critical",
+      "domains": ["sales", "lapsed_client", "networking"],
+      "rationale": "Passive-aggressive. Even if unintentional, the phrase is so associated with frustration that it immediately puts the recipient on defense.",
+      "replacement_pattern": "Restate the relevant point directly: 'to summarize the proposal: [X].' Leave out the passive reference to prior communication."
+    },
+    {
+      "phrase": "following up on my last message",
+      "severity": "high",
+      "domains": ["sales", "lapsed_client", "networking"],
+      "rationale": "Process narration that reminds them they already ignored you. Start with a fresh angle instead.",
+      "replacement_pattern": "New subject, new angle. Reference the same topic if needed, but frame it as new information: 'one more thought on [topic]...'"
+    }
+  ]
+}
