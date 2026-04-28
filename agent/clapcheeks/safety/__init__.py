@@ -12,6 +12,7 @@ from clapcheeks.safety.emergency_stop import emergency_stop as estop_singleton
 from clapcheeks.safety.human_delay import HumanDelayEngine
 from clapcheeks.safety.platform_limits import PlatformLimits, PLATFORM_SAFETY_LIMITS
 from clapcheeks.safety.ban_monitor import BanMonitor
+from clapcheeks.safety.presence import should_be_active
 
 __all__ = [
     "EmergencyStop",
@@ -20,4 +21,5 @@ __all__ = [
     "BanMonitor",
     "PlatformLimits",
     "PLATFORM_SAFETY_LIMITS",
+    "should_be_active",
 ]
