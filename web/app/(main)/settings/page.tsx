@@ -83,6 +83,22 @@ export default function SettingsPage() {
           <CalendarConnectCard nextPath="/settings" />
         </div>
 
+        {/* Notifications shortcut */}
+        <div className="mb-8">
+          <h2 className="text-white/60 font-semibold text-sm mb-4 uppercase tracking-wider">
+            Operator alerts
+          </h2>
+          <a
+            href="/settings/notifications"
+            className="block bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl p-5 transition-colors"
+          >
+            <div className="text-white font-semibold text-sm">Notifications</div>
+            <div className="text-white/60 text-xs mt-1">
+              Pick which channels reach you for each agent event - email, iMessage, push.
+            </div>
+          </a>
+        </div>
+
         {/* Weekly Reports Section */}
         <div className="bg-white/5 border border-white/10 rounded-xl p-5 mb-8">
           <h2 className="text-white font-semibold text-sm mb-4">
