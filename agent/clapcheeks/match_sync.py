@@ -567,10 +567,15 @@ def _decrypt_or_plain(row: dict, user_id: str, platform: str) -> str | None:
 
 
 def sync_matches(once: bool = False) -> dict:
-    """Sync matches for every user with a platform token via the
-    Chrome-extension job queue.
+    """Sync matches for every user with a platform token via the Chrome-extension job queue.
+
+    AI-8767 NOTE: This function legitimately uses service-role because it sweeps ALL
+    users' ``clapcheeks_user_settings`` rows to load their platform tokens, which no
+    single user JWT can do.  This function only runs on the VPS daemon; it must NOT
+    be invoked from operator Mac processes.  CLAPCHEEKS_ALLOW_SERVICE_ROLE must be
+    set in the VPS environment.  # NOQA: service-role-ok
     """
-    from supabase import create_client
+    from supabase import create_client  # NOQA: service-role-ok
 
     url, key = _load_supabase_env()
     if not url or not key:
