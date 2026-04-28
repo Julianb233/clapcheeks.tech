@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { VoiceInput, VoiceTextarea } from '@/components/voice'
 import { CalendarConnectCard } from '@/components/settings/calendar-connect-card'
+import DripRuleBuilder from '@/components/settings/drip-rule-builder'
 
 export type Persona = {
   first_name: string
@@ -228,14 +229,13 @@ export default function SettingsForm({
       {tab === 'drip' && (
         <section className="space-y-4">
           <p className="text-sm text-white/60">
-            Raw YAML. Each rule fires at most once per match. Comments start with <code>#</code>.
+            Build rules visually — each rule fires at most once per match. Use
+            &ldquo;Edit raw YAML&rdquo; below if you need to drop into the
+            underlying syntax.
           </p>
-          <VoiceTextarea
+          <DripRuleBuilder
             value={settings.dripRulesYaml}
             onChange={(v) => set('dripRulesYaml', v)}
-            rows={24}
-            className="w-full font-mono text-xs bg-white/[0.04] border border-white/10 rounded px-3 py-2"
-            spellCheck={false}
           />
           <Row label="Global tone / style (free-form)">
             <VoiceTextarea
