@@ -5,7 +5,11 @@ import { supabase } from '../server.js'
 export const router = Router()
 
 function getStripe() {
-  return new Stripe(process.env.STRIPE_SECRET_KEY || '')
+  // Pin apiVersion so api/ and web/ serialize identical request shapes.
+  // Must match web/lib/stripe.ts. Update both at the same time.
+  return new Stripe(process.env.STRIPE_SECRET_KEY || '', {
+    apiVersion: '2026-02-25.clover',
+  })
 }
 
 async function requireAuth(req, res, next) {

@@ -9,7 +9,11 @@ if (process.env.NODE_ENV === 'production' && process.env.STRIPE_SECRET_KEY?.star
   console.warn('[WARN] Using Stripe test keys in production. Set a live STRIPE_SECRET_KEY before accepting real payments.')
 }
 
-export const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!)
+// Pin apiVersion so web/ and api/ serialize identical webhook + request shapes.
+// Must match api/routes/stripe.js + api/routes/referral.js. Update all together.
+export const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
+  apiVersion: '2026-02-25.clover',
+})
 
 export function stripeLog(message: string) {
   console.log(`[Stripe] ${new Date().toISOString()} ${message}`)
