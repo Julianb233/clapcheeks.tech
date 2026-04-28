@@ -248,6 +248,16 @@ def evaluate_conversation_state(
     Returns:
         (state_label, DripAction)
     """
+    # AI-8809: respect the master AI gate before running any drip logic.
+    # The gate check is optional — callers that don't provide supabase skip it.
+    _supabase_gate = match.get("_supabase_gate")
+    if _supabase_gate is not None:
+        from clapcheeks.autonomy.gate import is_ai_active
+        _uid = match.get("user_id") or ""
+        _mid = match.get("id") or match.get("match_id") or ""
+        if not is_ai_active(_supabase_gate, _uid, _mid):
+            return STATE_NOOP, DripAction(kind="noop", reason="ai_paused")
+
     now = now or datetime.now(tz=timezone.utc)
     cadence = {**DEFAULT_CADENCE, **(persona_cadence or {})}
 
