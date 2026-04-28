@@ -6,14 +6,18 @@ Adds:
 - Fingerprint rotation triggers (when to switch proxy/device ID)
 - Notification integration (push ban alerts to dashboard)
 - Historical trend analysis (are bans becoming more frequent?)
+- Supabase persistence to `clapcheeks_ban_events` (AI-8764) so the
+  dashboard sticky connection bar and `/intel/health` page can render the
+  full timeline without scraping local logs.
 """
 from __future__ import annotations
 
+import base64
 import json
 import logging
 import time
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from clapcheeks.session.ban_detector import (
@@ -24,6 +28,38 @@ from clapcheeks.session.ban_detector import (
 from clapcheeks.safety.emergency_stop import emergency_stop
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Severity mapping (signal_type → severity stored in clapcheeks_ban_events)
+# ---------------------------------------------------------------------------
+# Anything not listed defaults to "info". 401/auth-token issues are "warn"
+# because the user can re-auth and recover. 403/451/hard-ban patterns are
+# "critical" because the account is gone or locked.
+_SEVERITY_BY_SIGNAL: dict[str, str] = {
+    # Hard bans / account dead
+    "http_403": "critical",
+    "http_451": "critical",
+    "json_pattern_hard": "critical",
+    "error_keyword": "critical",
+    "shadowban_suspected": "critical",
+    # Soft bans / temporary throttles
+    "http_429": "warn",
+    "json_pattern_soft": "warn",
+    "persistent_rate_limit": "warn",
+    "match_rate_drop": "warn",
+    "likes_you_freeze": "warn",
+    "send_failure": "warn",
+    "recaptcha": "warn",
+    # Token / auth issues
+    "http_401": "warn",
+    "token_expired": "warn",
+    # Anything else → info (recorded but not alarming)
+}
+
+
+def _severity_for(signal_type: str) -> str:
+    return _SEVERITY_BY_SIGNAL.get(signal_type, "info")
 
 # Severity ordering for BanStatus. Higher = worse. Used to take the max
 # severity across independent signals in a single API response without
@@ -145,11 +181,16 @@ class BanMonitor:
         monitor.handle_error(platform, error)
     """
 
-    def __init__(self) -> None:
+    def __init__(self, user_id: str | None = None) -> None:
         self._detector = BanDetector()
         self._hard_ban_count = 0
         self._recent_events: list[BanEvent] = []
         self._rate_limit_timestamps: dict[str, list[float]] = {}
+        # `user_id` is the auth.users uuid. When None, we resolve it lazily
+        # from the agent token (see `_resolve_user_id`). Tests can inject one.
+        self._user_id: str | None = user_id
+        # Cache the Supabase client so we don't re-auth on every signal.
+        self._supabase_client: Any = None
 
     @property
     def detector(self) -> BanDetector:
@@ -191,6 +232,19 @@ class BanMonitor:
             logger.warning("[%s] Auth error (401): %s", platform, reason)
             status = BanStatus.SUSPECTED
             http_already_flagged = True
+            # AI-8764: a 401 from the platform almost always means the token
+            # we have on file has been revoked or rolled. Write a token_expired
+            # event AND mark the corresponding *_token_expires_at column as
+            # "now" so the dashboard pill flips red immediately.
+            self._persist_ban_event(
+                platform,
+                "token_expired",
+                payload={
+                    "http_status": 401,
+                    "reason": reason or "401 Unauthorized — token revoked",
+                },
+            )
+            self._mark_token_expired(platform)
 
         # --- JSON body pattern matching ---
         if isinstance(body, dict):
@@ -255,6 +309,13 @@ class BanMonitor:
             if keyword in error_str:
                 logger.warning(
                     "[%s] Connection issue (possible IP ban): %s", platform, error
+                )
+                # Surface this in the dashboard timeline too — repeated
+                # connection failures are an early ban indicator.
+                self._persist_ban_event(
+                    platform,
+                    "send_failure",
+                    payload={"error": str(error)[:500]},
                 )
                 return BanStatus.SUSPECTED
 
@@ -330,6 +391,18 @@ class BanMonitor:
             detected_at=datetime.now().isoformat(),
             details=details,
         ))
+
+        # AI-8764: persist every signal to clapcheeks_ban_events so the web
+        # dashboard timeline + connection bar see real-time data instead of
+        # only what's in the local agent's RAM.
+        self._persist_ban_event(
+            platform,
+            signal_type,
+            payload={
+                "ban_status": status.value,
+                "details": details,
+            },
+        )
 
         if status == BanStatus.HARD_BAN:
             self._hard_ban_count += 1
@@ -436,3 +509,202 @@ class BanMonitor:
             emergency_stop.trigger(
                 f"Multiple platform bans detected ({self._hard_ban_count} hard bans)"
             )
+
+    # ---------------------------------------------------------------------
+    # Public ban-signal recorders for shadowban / health-check loops
+    # ---------------------------------------------------------------------
+    # These wrap _record_and_correlate so external callers (e.g. the
+    # daemon's nightly metrics check) can flag soft signals like a sudden
+    # match-rate drop without re-implementing the persistence path.
+
+    def record_match_rate_drop(self, platform: str, ratio: float, window_days: int = 7) -> BanStatus:
+        """Flag a >50% drop in match rate vs trailing window — shadowban tell."""
+        details = f"match_rate ratio={ratio:.2f} over {window_days}d window"
+        return self._record_and_correlate(platform, "match_rate_drop", details)
+
+    def record_likes_you_freeze(self, platform: str, frozen_for_hours: int) -> BanStatus:
+        """Flag a stale Likes You queue (no new likes for many hours)."""
+        details = f"likes_you queue stale for {frozen_for_hours}h"
+        return self._record_and_correlate(platform, "likes_you_freeze", details)
+
+    def record_recaptcha(self, platform: str, page: str = "") -> BanStatus:
+        """Flag a reCAPTCHA / challenge being shown to the agent."""
+        details = f"recaptcha shown on {page or 'unknown'} page"
+        return self._record_and_correlate(platform, "recaptcha", details)
+
+    def record_shadowban_suspected(self, platform: str, reason: str) -> BanStatus:
+        """Flag a suspected shadowban from heuristic rollup."""
+        return self._record_and_correlate(platform, "shadowban_suspected", reason)
+
+    # ---------------------------------------------------------------------
+    # Supabase persistence (AI-8764)
+    # ---------------------------------------------------------------------
+
+    def _resolve_user_id(self) -> str | None:
+        """Resolve the auth.users uuid for the current operator.
+
+        Order of precedence:
+          1. Constructor arg (`BanMonitor(user_id=...)`)
+          2. CLAPCHEEKS_USER_ID env (used by tests + dogfood scripts)
+          3. clapcheeks_agent_tokens lookup (production path)
+        """
+        if self._user_id:
+            return self._user_id
+
+        import os
+        env_user = os.environ.get("CLAPCHEEKS_USER_ID")
+        if env_user:
+            self._user_id = env_user
+            return env_user
+
+        # Production path — look up via the same helper sync.py uses.
+        try:
+            from clapcheeks.sync import _get_user_id_from_token  # type: ignore
+            uid = _get_user_id_from_token()
+        except Exception:
+            uid = None
+        if uid:
+            self._user_id = uid
+        return uid
+
+    def _get_supabase(self):
+        """Return a cached supabase-py client, or None if not configured."""
+        if self._supabase_client is not None:
+            return self._supabase_client
+        try:
+            from supabase import create_client
+            from clapcheeks.sync import _load_supabase_env
+        except Exception:
+            return None
+        url, key = _load_supabase_env()
+        if not url or not key:
+            return None
+        try:
+            self._supabase_client = create_client(url, key)
+        except Exception:
+            return None
+        return self._supabase_client
+
+    def _persist_ban_event(
+        self,
+        platform: str,
+        signal_type: str,
+        *,
+        severity: str | None = None,
+        payload: dict | None = None,
+    ) -> bool:
+        """Insert a row into clapcheeks_ban_events. Best-effort: never raises."""
+        try:
+            client = self._get_supabase()
+            if client is None:
+                # Offline / unconfigured — keep working but log so we know.
+                logger.debug(
+                    "[%s] Supabase unavailable; skipping ban event persist (%s)",
+                    platform, signal_type,
+                )
+                return False
+
+            user_id = self._resolve_user_id()
+            if not user_id:
+                logger.debug(
+                    "[%s] No user_id resolved; skipping ban event persist (%s)",
+                    platform, signal_type,
+                )
+                return False
+
+            row = {
+                "user_id": user_id,
+                "platform": platform,
+                "signal_type": signal_type,
+                "severity": severity or _severity_for(signal_type),
+                "payload": payload or {},
+                "detected_at": datetime.now(timezone.utc).isoformat(),
+            }
+            client.table("clapcheeks_ban_events").insert(row).execute()
+            return True
+        except Exception as exc:
+            # Persistence is non-blocking for the agent's main loop.
+            logger.warning(
+                "[%s] Failed to persist ban event (%s): %s",
+                platform, signal_type, exc,
+            )
+            return False
+
+    # ---------------------------------------------------------------------
+    # Token expiry tracking (AI-8764)
+    # ---------------------------------------------------------------------
+
+    def _mark_token_expired(self, platform: str) -> None:
+        """Set <platform>_token_expires_at = now() so the dashboard shows red."""
+        column = self._token_expiry_column(platform)
+        if not column:
+            return
+        try:
+            client = self._get_supabase()
+            user_id = self._resolve_user_id()
+            if client is None or not user_id:
+                return
+            client.table("clapcheeks_user_settings").update(
+                {column: datetime.now(timezone.utc).isoformat()}
+            ).eq("user_id", user_id).execute()
+        except Exception as exc:
+            logger.warning("[%s] Failed to mark token expired: %s", platform, exc)
+
+    def update_token_expiry(self, platform: str, token: str) -> str | None:
+        """Decode a JWT-style token and persist its `exp` claim.
+
+        Returns the ISO timestamp written, or None if the token is not a
+        decodable JWT (Bumble session cookies, for example, are opaque —
+        callers that know the expiry can call _set_token_expiry directly).
+        """
+        exp_iso = _extract_jwt_exp(token)
+        if not exp_iso:
+            return None
+        self._set_token_expiry(platform, exp_iso)
+        return exp_iso
+
+    def _set_token_expiry(self, platform: str, expires_at_iso: str) -> None:
+        column = self._token_expiry_column(platform)
+        if not column:
+            return
+        try:
+            client = self._get_supabase()
+            user_id = self._resolve_user_id()
+            if client is None or not user_id:
+                return
+            client.table("clapcheeks_user_settings").update(
+                {column: expires_at_iso}
+            ).eq("user_id", user_id).execute()
+        except Exception as exc:
+            logger.warning("[%s] Failed to set token expiry: %s", platform, exc)
+
+    @staticmethod
+    def _token_expiry_column(platform: str) -> str | None:
+        if platform == "tinder":
+            return "tinder_auth_token_expires_at"
+        if platform == "hinge":
+            return "hinge_auth_token_expires_at"
+        if platform == "bumble":
+            return "bumble_session_expires_at"
+        return None
+
+
+# ---------------------------------------------------------------------------
+# Module-level helper: parse the `exp` claim out of a JWT without verifying.
+# ---------------------------------------------------------------------------
+def _extract_jwt_exp(token: str) -> str | None:
+    """Return ISO-8601 UTC string of `exp` claim, or None if not a JWT."""
+    if not token or token.count(".") < 2:
+        return None
+    try:
+        payload_b64 = token.split(".")[1]
+        # JWT base64url is unpadded — re-pad before decoding.
+        padded = payload_b64 + "=" * (-len(payload_b64) % 4)
+        decoded = base64.urlsafe_b64decode(padded)
+        claims = json.loads(decoded)
+        exp = claims.get("exp")
+        if not isinstance(exp, (int, float)):
+            return None
+        return datetime.fromtimestamp(int(exp), tz=timezone.utc).isoformat()
+    except Exception:
+        return None
