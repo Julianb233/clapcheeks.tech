@@ -63,6 +63,8 @@ def run_pipeline(
     user_id: str | None = None,
     conversation_stage: str = "mid",
     on_discard: Callable[[str, list[str]], None] | None = None,
+    match_id: str | None = None,
+    supabase: Any | None = None,
 ) -> DraftResult:
     """Run sanitize -> validate -> split on a raw LLM output.
 
@@ -73,11 +75,21 @@ def run_pipeline(
         conversation_stage: "early" | "mid" | "late" — affects emoji policy.
         on_discard: Optional callback fired when validator rejects the draft.
                     Signature: (raw_text, errors_list) -> None
+        match_id: Match UUID — used for the AI-8809 gate check when supabase
+                  is also provided.
+        supabase: Supabase client — when provided together with user_id +
+                  match_id, the AI gate is checked before running the pipeline.
 
     Returns:
         DraftResult with ok=True + messages populated on success,
         ok=False + errors populated on failure.
     """
+    # AI-8809: gate check — bail early if AI is paused for this match.
+    if supabase is not None and user_id and match_id:
+        from clapcheeks.autonomy.gate import is_ai_active
+        if not is_ai_active(supabase, user_id, match_id):
+            return DraftResult(ok=False, raw_text=raw_text, errors=["ai_paused"])
+
     if persona is None:
         persona = load_persona(user_id)
 

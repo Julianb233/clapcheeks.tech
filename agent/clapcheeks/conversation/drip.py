@@ -241,9 +241,16 @@ def _send_via_client(
     message: str,
     platform_clients: dict,
     dry_run: bool = False,
+    supabase=None,
 ) -> bool:
     platform = conv.get("platform") or ""
     match_id = conv.get("match_id")
+    user_id  = conv.get("user_id") or ""
+    # AI-8809: check the AI gate before hitting any platform sender.
+    if supabase is not None and user_id and match_id:
+        from clapcheeks.autonomy.gate import is_ai_active
+        if not is_ai_active(supabase, user_id, match_id):
+            return False  # ai_paused — stay silent
     client = platform_clients.get(platform)
     if not client:
         logger.debug("No platform client for %s; skipping send.", platform)

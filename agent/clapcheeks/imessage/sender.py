@@ -140,12 +140,28 @@ def send_imessage(
     body: str,
     *,
     dry_run: bool = False,
+    user_id: str | None = None,
+    match_id: str | None = None,
+    supabase=None,
 ) -> SendResult:
     """Send `body` to `phone` via iMessage / SMS.
 
     Normalizes phone to E.164 first. On dry_run (or if no transport is
     available), returns a noop SendResult without raising.
+
+    AI-8809: when user_id + match_id + supabase are provided the AI gate is
+    checked first; if paused the send is refused and logged.
     """
+    # AI-8809: gate check — refuse silently when AI is paused.
+    if supabase is not None and user_id and match_id:
+        from clapcheeks.autonomy.gate import is_ai_active
+        if not is_ai_active(supabase, user_id, match_id):
+            logger.info(
+                "send_imessage: refused for user=%s match=%s — ai_paused",
+                user_id, match_id,
+            )
+            return SendResult(ok=False, channel="noop", error="ai_paused")
+
     e164 = to_e164_us(phone)
     if not e164:
         return SendResult(ok=False, channel="noop", error=f"bad phone: {phone!r}")
