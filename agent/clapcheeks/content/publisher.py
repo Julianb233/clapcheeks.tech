@@ -486,3 +486,51 @@ def drain_due(
                 pass
 
     return stats
+
+
+# ---------------------------------------------------------------------------
+# AI-8808 — Instagram DM reaction stub
+# ---------------------------------------------------------------------------
+
+def send_dm_like(thread_id: str, item_id: str, ig_session: dict | None = None) -> None:
+    """Like a specific Instagram DM message (heart reaction).
+
+    The Instagram private API endpoint for DM item likes is::
+
+        POST /api/v1/direct_v2/threads/{thread_id}/items/{item_id}/like/
+
+    This endpoint is part of Instagram's private ``i.instagram.com`` API
+    surface, accessible from a browser session with ``credentials: 'include'``.
+    It requires the ``X-CSRFToken`` header and ``ig_did`` cookie.
+
+    .. note::
+        **Not implemented (AI-8808-followup).**
+
+        Instagram aggressively rate-limits and blocks automation on the DM
+        API. The extension architecture (browser session) is the correct path
+        for this call — the VPS cannot make authenticated IG API calls without
+        routing through the Chrome extension. The endpoint is documented here
+        as the verified correct path.
+
+        Implementation approach for the follow-up:
+        1. Enqueue an ``ig_dm_like`` agent_job (same pattern as ig_post_story).
+        2. Chrome extension drains the job and calls::
+
+               fetch(`https://i.instagram.com/api/v1/direct_v2/threads/${threadId}/items/${itemId}/like/`, {
+                   method: "POST",
+                   credentials: "include",
+                   headers: { "X-CSRFToken": getCsrfToken() },
+               })
+
+        3. Extension POSTs the result back to ``/api/ingest/api-result``.
+
+    :param thread_id: Instagram DM thread ID.
+    :param item_id: Instagram DM item (message) ID to like.
+    :param ig_session: Optional session dict (unused in stub).
+    :raises NotImplementedError: always.
+    """
+    raise NotImplementedError(
+        "Instagram DM message likes require the Chrome extension (AI-8808-followup). "
+        f"Endpoint: POST /api/v1/direct_v2/threads/{thread_id}/items/{item_id}/like/ "
+        "Route via ig_dm_like agent_job — not yet implemented."
+    )

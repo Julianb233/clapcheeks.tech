@@ -456,6 +456,34 @@ class TinderAPIClient:
             logger.error("Tinder send_message failed: %s", exc)
             return False
 
+    def send_reaction(
+        self,
+        match_id: str,
+        target_message_id: str,
+        kind: str,
+    ) -> None:
+        """React to a Tinder message.
+
+        .. note::
+            **Not implemented (AI-8808-followup).**
+
+            Tinder's public API documentation does not expose a message
+            reaction endpoint. The native iOS app sends reactions via an
+            undocumented internal route not present in the captured web API
+            surface (api.gotinder.com). Implementing this would require
+            reverse-engineering the iOS binary with Frida, which is out of
+            scope for AI-8808.
+
+            This stub is here so callers can be wired up now and the
+            implementation added later without changing call sites.
+
+        :raises NotImplementedError: always.
+        """
+        raise NotImplementedError(
+            "Tinder message reactions are not available via the public API "
+            "(AI-8808-followup: reverse-engineer iOS private endpoint)"
+        )
+
     def get_matches(self, count: int = 20) -> list[dict]:
         try:
             if self.wire == "protobuf":

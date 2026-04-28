@@ -437,3 +437,30 @@ class BumbleClient:
             "Sent %d openers out of %d actionable matches.", sent, len(matches),
         )
         return sent
+
+    # ------------------------------------------------------------------
+    # AI-8808 — Reaction stub
+    # ------------------------------------------------------------------
+
+    def send_reaction(
+        self,
+        match_id: str,
+        target_message_id: str,
+        kind: str,
+    ) -> None:
+        """React to a Bumble message.
+
+        Bumble does not expose a message reaction API in its public or
+        semi-public web/mobile surface. This is a no-op stub (logs + returns)
+        rather than a ``NotImplementedError`` because Bumble is a lower-
+        priority platform and callers should degrade gracefully.
+
+        Tagged AI-8808-followup for investigation when Bumble's private API
+        is better mapped.
+        """
+        logger.warning(
+            "send_reaction: Bumble message reactions are not implemented "
+            "(match_id=%s target_message_id=%s kind=%s). "
+            "Reaction silently dropped — AI-8808-followup.",
+            match_id, target_message_id, kind,
+        )
