@@ -2,6 +2,16 @@
 
 Only integer counts and dollar totals leave the device.
 No messages, names, photos, or match details are ever transmitted.
+
+Security (AI-8767)
+------------------
+``push_metrics_supabase`` now uses a user-scoped JWT via
+``clapcheeks.supabase_client.get_user_client()`` so that Row-Level Security
+is respected.  The service-role key is no longer needed on operator Macs.
+
+``_load_supabase_env`` is kept as a compatibility shim for server-side callers
+(``job_queue``, ``match_sync``) that legitimately need the service-role key
+on the VPS.  Those callers must set ``CLAPCHEEKS_ALLOW_SERVICE_ROLE=1``.
 """
 from __future__ import annotations
 
@@ -51,13 +61,22 @@ def collect_daily_metrics() -> list[dict]:
 
 
 def _load_supabase_env() -> tuple[str | None, str | None]:
-    """Load SUPABASE_URL and SUPABASE_SERVICE_KEY from env or ~/.clapcheeks/.env."""
+    """Load SUPABASE_URL and service key from env or ~/.clapcheeks/.env.
+
+    COMPATIBILITY SHIM — for server-side callers only (job_queue, match_sync).
+    Those callers run on the VPS with CLAPCHEEKS_ALLOW_SERVICE_ROLE=1 set.
+
+    Mac-side code MUST use ``clapcheeks.supabase_client.get_user_client()``
+    instead of calling this function.  The service-role key (SUPABASE_SERVICE_KEY)
+    must not appear in ~/.clapcheeks/.env after the AI-8767 upgrade.
+    """
+    env_file = Path.home() / ".clapcheeks" / ".env"
     url = os.environ.get("SUPABASE_URL")
     key = os.environ.get("SUPABASE_SERVICE_KEY")
+
     if url and key:
         return url, key
 
-    env_file = Path.home() / ".clapcheeks" / ".env"
     if env_file.exists():
         try:
             for line in env_file.read_text().splitlines():
@@ -78,15 +97,24 @@ def _load_supabase_env() -> tuple[str | None, str | None]:
 
 
 def push_metrics_supabase(rows: list[dict]) -> int:
-    """Upsert rows into clapcheeks_analytics_daily via supabase-py. Returns count upserted."""
-    from supabase import create_client
+    """Upsert rows into clapcheeks_analytics_daily via user-scoped JWT.
 
-    url, key = _load_supabase_env()
-    if not url or not key:
-        raise RuntimeError("SUPABASE_URL or SUPABASE_SERVICE_KEY not set")
+    AI-8767: Uses ``get_user_client()`` so writes are scoped to the operator's
+    own ``user_id`` under Row-Level Security.  The service-role key is no
+    longer required on the Mac.
+    """
+    from clapcheeks.supabase_client import get_user_client, refresh_user_client
 
-    client = create_client(url, key)
-    result = client.table("clapcheeks_analytics_daily").upsert(rows).execute()
+    client = get_user_client()
+    try:
+        result = client.table("clapcheeks_analytics_daily").upsert(rows).execute()
+    except Exception as exc:
+        # Attempt one token refresh on failure (handles JWT expiry)
+        if "401" in str(exc) or "JWT" in str(exc) or "expired" in str(exc).lower():
+            client = refresh_user_client()
+            result = client.table("clapcheeks_analytics_daily").upsert(rows).execute()
+        else:
+            raise
     return len(result.data) if result.data else 0
 
 

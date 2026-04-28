@@ -272,25 +272,15 @@ def recompute_all(
     Returns {scanned, updated, errors}. Skips archived/ghosted stages.
     Designed to be called from daemon.py's roster worker.
     """
-    import os
     import requests
 
-    # Use same env resolution as scoring.py to avoid drift.
-    try:
-        from clapcheeks.scoring import _supabase_creds  # type: ignore
-    except Exception:
-        def _supabase_creds():
-            url = os.environ.get("SUPABASE_URL") or os.environ.get("NEXT_PUBLIC_SUPABASE_URL")
-            key = os.environ.get("SUPABASE_SERVICE_KEY") or os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
-            if not url or not key:
-                raise RuntimeError("Supabase creds missing")
-            return url, key
+    # AI-8767: Use user-scoped JWT via scoring._supabase_creds() which prefers
+    # SUPABASE_USER_ACCESS_TOKEN over service-role key on operator Macs.
+    from clapcheeks.scoring import _supabase_creds, _supabase_headers  # type: ignore
 
     url, key = _supabase_creds()
     headers = {
-        "apikey": key,
-        "Authorization": f"Bearer {key}",
-        "Content-Type": "application/json",
+        **_supabase_headers(key),
         "Prefer": "return=minimal",
     }
 
@@ -307,7 +297,7 @@ def recompute_all(
             ),
             "limit": str(limit),
         },
-        headers={"apikey": key, "Authorization": f"Bearer {key}"},
+        headers=_supabase_headers(key),
         timeout=30,
     )
     resp.raise_for_status()

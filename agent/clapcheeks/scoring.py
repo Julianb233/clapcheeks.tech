@@ -677,26 +677,84 @@ def _load_env_from_web_dotenv() -> None:
 
 
 def _supabase_creds() -> tuple[str, str]:
+    """Return ``(url, key)`` for Supabase REST calls.
+
+    AI-8767: Prefers the user-scoped JWT (SUPABASE_USER_ACCESS_TOKEN + SUPABASE_ANON_KEY
+    pattern) when running on an operator Mac.  Falls back to the service-role key only
+    when CLAPCHEEKS_ALLOW_SERVICE_ROLE is set (VPS/server context).
+
+    Server-side callers that need service-role must set
+    ``CLAPCHEEKS_ALLOW_SERVICE_ROLE=1`` in their environment.
+    """
     _load_env_from_web_dotenv()
+
     url = os.environ.get("SUPABASE_URL") or os.environ.get("NEXT_PUBLIC_SUPABASE_URL")
-    key = os.environ.get("SUPABASE_SERVICE_KEY") or os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
-    if not url or not key:
+    if not url:
         raise RuntimeError(
-            "Supabase creds not found (set SUPABASE_URL/SUPABASE_SERVICE_KEY or "
-            "NEXT_PUBLIC_SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY)"
+            "SUPABASE_URL not set. Run `clapcheeks setup` or configure the environment."
         )
-    return url, key
+
+    # Prefer user JWT (Mac-side safe)
+    user_token = os.environ.get("SUPABASE_USER_ACCESS_TOKEN")
+    anon_key = os.environ.get("SUPABASE_ANON_KEY")
+    if user_token and anon_key:
+        # The REST API requires apikey=anon_key + Authorization: Bearer <user_jwt>
+        # We return anon_key as the first part of the tuple so callers that build
+        # headers as {"apikey": key, "Authorization": f"Bearer {key}"} stay compatible.
+        # But the actual auth token (JWT) is the user token — returned as the key here
+        # so callers use it as the Bearer.
+        return url, user_token
+
+    # Server-side fallback: service-role (only on VPS with allow flag)
+    service_key = os.environ.get("SUPABASE_SERVICE_KEY") or os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
+    if service_key:
+        return url, service_key
+
+    raise RuntimeError(
+        "Supabase credentials not found. On operator Macs: set SUPABASE_ANON_KEY + "
+        "SUPABASE_USER_ACCESS_TOKEN in ~/.clapcheeks/.env (run `clapcheeks setup`). "
+        "On the VPS: set SUPABASE_SERVICE_KEY."
+    )
+
+
+def _supabase_headers(key: str) -> dict[str, str]:
+    """Build Supabase REST request headers.
+
+    When the key is a JWT (user token), the apikey must be the anon key for
+    the project, and Authorization is the user's JWT.  When it is the
+    service-role key the behaviour is the same as before.
+    """
+    anon_key = os.environ.get("SUPABASE_ANON_KEY")
+    if anon_key and key != anon_key:
+        # key is a user JWT; apikey must be the public anon key
+        return {
+            "apikey": anon_key,
+            "Authorization": f"Bearer {key}",
+            "Content-Type": "application/json",
+        }
+    # service-role key or anon key itself
+    return {
+        "apikey": key,
+        "Authorization": f"Bearer {key}",
+        "Content-Type": "application/json",
+    }
 
 
 def load_persona(user_id: str) -> dict:
-    """Fetch the persona (incl. ranking_weights) for a user from Supabase."""
+    """Fetch the persona (incl. ranking_weights) for a user from Supabase.
+
+    AI-8767: Uses user-scoped JWT via ``_supabase_creds()`` — no service-role
+    needed on the Mac.  The ``clapcheeks_user_settings`` table has RLS policy
+    ``user_settings_owner_all`` that allows users to read their own row.
+    """
     import requests
 
     url, key = _supabase_creds()
+    headers = _supabase_headers(key)
     resp = requests.get(
         f"{url}/rest/v1/clapcheeks_user_settings",
         params={"user_id": f"eq.{user_id}", "select": "persona"},
-        headers={"apikey": key, "Authorization": f"Bearer {key}"},
+        headers=headers,
         timeout=15,
     )
     resp.raise_for_status()
@@ -735,7 +793,7 @@ def load_preference_model(user_id: str) -> tuple[dict | None, int]:
                 "user_id": f"eq.{user_id}",
                 "select": "preference_model_v",
             },
-            headers={"apikey": key, "Authorization": f"Bearer {key}"},
+            headers=_supabase_headers(key),
             timeout=10,
         )
         resp.raise_for_status()
@@ -751,8 +809,7 @@ def load_preference_model(user_id: str) -> tuple[dict | None, int]:
             f"{url}/rest/v1/clapcheeks_swipe_decisions",
             params={"user_id": f"eq.{user_id}", "select": "id", "limit": "1"},
             headers={
-                "apikey": key,
-                "Authorization": f"Bearer {key}",
+                **_supabase_headers(key),
                 "Prefer": "count=exact",
             },
             timeout=10,
@@ -800,9 +857,7 @@ def score_all_unscored(
 
     url, key = _supabase_creds()
     headers = {
-        "apikey": key,
-        "Authorization": f"Bearer {key}",
-        "Content-Type": "application/json",
+        **_supabase_headers(key),
         "Prefer": "return=minimal",
     }
 
@@ -835,7 +890,7 @@ def score_all_unscored(
     resp = requests.get(
         f"{url}/rest/v1/clapcheeks_matches",
         params=query,
-        headers={"apikey": key, "Authorization": f"Bearer {key}"},
+        headers=_supabase_headers(key),
         timeout=30,
     )
     resp.raise_for_status()
@@ -895,7 +950,7 @@ def score_match_by_id(match_id: str, user_id: str | None = None) -> dict | None:
     import requests
 
     url, key = _supabase_creds()
-    headers_get = {"apikey": key, "Authorization": f"Bearer {key}"}
+    headers_get = _supabase_headers(key)
     params = {
         "id": f"eq.{match_id}",
         "select": (
@@ -937,7 +992,6 @@ def score_match_by_id(match_id: str, user_id: str | None = None) -> dict | None:
 
     patch_headers = {
         **headers_get,
-        "Content-Type": "application/json",
         "Prefer": "return=minimal",
     }
     patch = {

@@ -98,18 +98,16 @@ def push_agent_status(
     affected_platform: str | None = None,
     reason: str | None = None,
 ) -> None:
-    """Push agent status to Supabase for dashboard visibility."""
-    from clapcheeks.sync import _load_supabase_env
+    """Push agent status to Supabase for dashboard visibility.
 
+    AI-8767: Uses user-scoped JWT (get_user_client) instead of service-role.
+    ``clapcheeks_agent_tokens`` has per-user RLS (agent_tokens_update_own)
+    so the user JWT can update the operator's own row without service-role.
+    """
     try:
-        from supabase import create_client
+        from clapcheeks.supabase_client import get_user_client, refresh_user_client
 
-        url, key = _load_supabase_env()
-        if not url or not key:
-            log.warning("Cannot push agent status — SUPABASE_URL/KEY not set")
-            return
-
-        client = create_client(url, key)
+        client = get_user_client()
         payload: dict = {
             "status": status,
         }
@@ -120,9 +118,18 @@ def push_agent_status(
             )
 
         device_id = os.environ.get("DEVICE_ID", "default")
-        client.table("clapcheeks_agent_tokens").update(payload).eq(
-            "device_id", device_id
-        ).execute()
+        try:
+            client.table("clapcheeks_agent_tokens").update(payload).eq(
+                "device_id", device_id
+            ).execute()
+        except Exception as exc:
+            if "401" in str(exc) or "JWT" in str(exc) or "expired" in str(exc).lower():
+                client = refresh_user_client()
+                client.table("clapcheeks_agent_tokens").update(payload).eq(
+                    "device_id", device_id
+                ).execute()
+            else:
+                raise
         log.info("Agent status pushed: %s", status)
     except Exception as exc:
         log.error("Failed to push agent status: %s", exc)
@@ -157,7 +164,11 @@ _last_reengagement: dict[str, float] = {}
 
 REQUIRED_ENV_VARS = [
     "SUPABASE_URL",
-    "SUPABASE_SERVICE_KEY",
+    # AI-8767: service-role key removed from Mac env; user-scoped JWT used instead.
+    # Operators must have SUPABASE_ANON_KEY + SUPABASE_USER_ACCESS_TOKEN +
+    # SUPABASE_USER_REFRESH_TOKEN configured via `clapcheeks setup`.
+    "SUPABASE_ANON_KEY",
+    "SUPABASE_USER_ACCESS_TOKEN",
     "DEVICE_ID",
 ]
 

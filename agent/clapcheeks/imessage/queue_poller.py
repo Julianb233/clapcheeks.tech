@@ -5,7 +5,6 @@ import logging
 import time
 
 from clapcheeks.imessage.watcher import _send_imessage
-from clapcheeks.sync import _load_supabase_env
 
 logger = logging.getLogger(__name__)
 
@@ -13,16 +12,14 @@ _DEFAULT_POLL_INTERVAL = 30
 
 
 def _get_supabase_client():
-    """Create a Supabase client using the shared env-loading pattern."""
-    from supabase import create_client
+    """Return a user-scoped Supabase client (AI-8767).
 
-    url, key = _load_supabase_env()
-    if not url or not key:
-        raise RuntimeError(
-            "SUPABASE_URL or SUPABASE_SERVICE_KEY not set. "
-            "Set them in env or ~/.clapcheeks/.env"
-        )
-    return create_client(url, key)
+    Uses the operator's JWT so ``clapcheeks_queued_replies`` rows are
+    filtered by RLS to the operator's own ``user_id``.  No service-role key
+    is required on the Mac.
+    """
+    from clapcheeks.supabase_client import get_user_client
+    return get_user_client()
 
 
 def poll_and_send(client, *, dry_run: bool = False) -> int:
