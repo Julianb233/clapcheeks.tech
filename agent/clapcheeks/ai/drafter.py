@@ -65,6 +65,7 @@ def run_pipeline(
     on_discard: Callable[[str, list[str]], None] | None = None,
     match_id: str | None = None,
     supabase: Any | None = None,
+    match_attributes: dict[str, Any] | None = None,
 ) -> DraftResult:
     """Run sanitize -> validate -> split on a raw LLM output.
 
@@ -79,6 +80,9 @@ def run_pipeline(
                   is also provided.
         supabase: Supabase client — when provided together with user_id +
                   match_id, the AI gate is checked before running the pipeline.
+        match_attributes: AI-8814 attributes JSONB from clapcheeks_matches.
+            If provided, the sanitizer will block attribute-conflicting drafts
+            (e.g., suggesting bourbon to a sober match).
 
     Returns:
         DraftResult with ok=True + messages populated on success,
@@ -93,7 +97,12 @@ def run_pipeline(
     if persona is None:
         persona = load_persona(user_id)
 
-    ok, cleaned, errors = sanitize_and_validate(raw_text, persona, conversation_stage)
+    ok, cleaned, errors = sanitize_and_validate(
+        raw_text,
+        persona,
+        conversation_stage,
+        match_attributes=match_attributes,
+    )
 
     result = DraftResult(
         ok=ok,

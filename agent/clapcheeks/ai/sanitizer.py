@@ -217,8 +217,32 @@ def sanitize_and_validate(
     text: str,
     persona: dict[str, Any] | None = None,
     conversation_stage: str = "mid",
+    match_attributes: dict[str, Any] | None = None,
 ) -> tuple[bool, str, list[str]]:
-    """Run sanitize then validate. Returns (ok, cleaned_text, errors)."""
+    """Run sanitize then validate. Returns (ok, cleaned_text, errors).
+
+    Args:
+        text: Raw LLM draft to sanitize and validate.
+        persona: User's persona dict (for banned_words, formatting rules).
+        conversation_stage: "early" | "mid" | "late" (affects emoji rules).
+        match_attributes: AI-8814 attributes JSONB from clapcheeks_matches.
+            If provided, an additional attribute-conflict check is run
+            (e.g., suggesting bourbon when the match is sober is blocked).
+    """
     cleaned = sanitize_draft(text)
     ok, errors = validate_draft(cleaned, persona, conversation_stage)
+
+    # AI-8814: Attribute-conflict check (runs even if validate already failed,
+    # so all errors are collected at once).
+    if match_attributes:
+        try:
+            from clapcheeks.intel.attributes import check_draft_attribute_conflicts
+            attr_ok, attr_conflicts = check_draft_attribute_conflicts(cleaned, match_attributes)
+            if not attr_ok:
+                for conflict in attr_conflicts:
+                    errors.append(f"attribute_conflict: {conflict}")
+                ok = False
+        except Exception as exc:
+            logger.debug("attribute conflict check failed (non-blocking): %s", exc)
+
     return ok, cleaned, errors
