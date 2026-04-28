@@ -1,4 +1,4 @@
-"""BlueBubbles Server adapter — iMessage tapbacks and screen effects (AI-8808).
+"""BlueBubbles Server adapter — iMessage tapbacks, screen effects, and presence (AI-8808, AI-8876).
 
 BlueBubbles Server (https://bluebubbles.app) exposes a REST API and a
 Socket.IO WebSocket that can drive the Messages.app Private API on macOS to:
@@ -7,6 +7,10 @@ Socket.IO WebSocket that can drive the Messages.app Private API on macOS to:
     via POST /api/v1/message/react
   * Send iMessage screen effects (slam, loud, gentle, …)
     via POST /api/v1/message/text with the ``effectId`` field
+  * Send typing indicators (AI-8876 Y7)
+    via POST /api/v1/chat/:guid/typing
+  * Mark chats as read (AI-8876 Y7)
+    via POST /api/v1/chat/:guid/read
 
 AppleScript / osascript CANNOT do either of these things — the Messages.app
 scripting dictionary has no tapback or effectId support. BlueBubbles is the
@@ -265,6 +269,78 @@ class BlueBubblesClient:
                 "send_tapback failed guid=%s kind=%s: %s",
                 target_message_guid, kind.name, exc,
             )
+            return SendResult(ok=False, error=str(exc))
+
+    # ------------------------------------------------------------------
+    # AI-8876 (Y7) — Typing indicators and read receipts
+    # ------------------------------------------------------------------
+
+    def start_typing(self, chat_guid: str) -> SendResult:
+        """Send a typing-started indicator to the given chat.
+
+        Parameters
+        ----------
+        chat_guid:
+            BlueBubbles chat GUID, e.g. ``iMessage;-;+14155550100`` or a
+            group chat GUID from the ``/api/v1/chat/query`` endpoint.
+
+        Notes
+        -----
+        Requires the BlueBubbles Private API Helper plugin.  Without it
+        the server returns HTTP 400 "Private API disabled".
+        """
+        logger.debug("BlueBubbles start_typing chat_guid=%s", chat_guid)
+        try:
+            data = self._post(
+                f"/api/v1/chat/{chat_guid}/typing",
+                {"typing": True},
+            )
+            return SendResult(ok=True, raw=data)
+        except BlueBubblesError as exc:
+            logger.warning("start_typing failed guid=%s: %s", chat_guid, exc)
+            return SendResult(ok=False, error=str(exc))
+
+    def stop_typing(self, chat_guid: str) -> SendResult:
+        """Send a typing-stopped indicator to the given chat.
+
+        Parameters
+        ----------
+        chat_guid:
+            BlueBubbles chat GUID.
+        """
+        logger.debug("BlueBubbles stop_typing chat_guid=%s", chat_guid)
+        try:
+            data = self._post(
+                f"/api/v1/chat/{chat_guid}/typing",
+                {"typing": False},
+            )
+            return SendResult(ok=True, raw=data)
+        except BlueBubblesError as exc:
+            logger.warning("stop_typing failed guid=%s: %s", chat_guid, exc)
+            return SendResult(ok=False, error=str(exc))
+
+    def mark_read(self, chat_guid: str) -> SendResult:
+        """Mark all messages in the given chat as read.
+
+        Parameters
+        ----------
+        chat_guid:
+            BlueBubbles chat GUID.
+
+        Notes
+        -----
+        This sends a read receipt to the remote party via the Private API.
+        Requires the BlueBubbles Private API Helper plugin.
+        """
+        logger.debug("BlueBubbles mark_read chat_guid=%s", chat_guid)
+        try:
+            data = self._post(
+                f"/api/v1/chat/{chat_guid}/read",
+                {},
+            )
+            return SendResult(ok=True, raw=data)
+        except BlueBubblesError as exc:
+            logger.warning("mark_read failed guid=%s: %s", chat_guid, exc)
             return SendResult(ok=False, error=str(exc))
 
     # ------------------------------------------------------------------

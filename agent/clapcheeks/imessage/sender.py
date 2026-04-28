@@ -16,7 +16,12 @@ Patches:
 - AI-8808: BlueBubbles adapter for tapbacks and screen effects. When
   ``BLUEBUBBLES_URL`` + ``BLUEBUBBLES_PASSWORD`` are set (or passed
   explicitly), ``send_tapback`` and ``send_with_effect`` route through
-  the BlueBubbles REST API. ``send_imessage`` is unchanged.
+  the BlueBubbles REST API.
+- AI-8876 (Y1): ``send_imessage`` now tries BlueBubbles *first* when
+  ``BLUEBUBBLES_URL`` + ``BLUEBUBBLES_PASSWORD`` are set, then falls
+  through to god-mac, then osascript. This gives Private-API delivery
+  (read receipts, typing indicators, effects) as the default path while
+  preserving full backwards compatibility.
 """
 from __future__ import annotations
 
@@ -179,6 +184,26 @@ def send_imessage(
             e164,
         )
         return SendResult(ok=False, channel="noop", error="double_text_aborted")
+
+    # AI-8876 (Y1): BlueBubbles-first — try BB when configured, fall through
+    # to god-mac then osascript if BB is unavailable or errors.
+    bb = _bluebubbles_client()
+    if bb is not None:
+        try:
+            from clapcheeks.imessage.bluebubbles import SendResult as BBResult
+            bb_result: BBResult = bb.send_text(e164, body)
+            if bb_result.ok:
+                logger.debug("send_imessage: delivered via BlueBubbles to %s", e164)
+                return SendResult(ok=True, channel="bluebubbles")
+            logger.warning(
+                "send_imessage: BlueBubbles failed for %s (%s) — falling through to god-mac",
+                e164, bb_result.error,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "send_imessage: BlueBubbles exception for %s: %s — falling through to god-mac",
+                e164, exc,
+            )
 
     god = _which_god()
     if god:

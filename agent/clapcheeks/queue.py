@@ -144,10 +144,11 @@ def _push_dropped_messages_warning(count: int) -> None:
             return
 
         client = create_client(url, key)
+        # AI-8876: column is device_name (not device_id — see clapcheeks_agent_tokens schema)
         client.table("clapcheeks_agent_tokens").update({
             "status": "degraded",
             "degraded_reason": f"Message queue dropped {count} item(s) — persistent send failures",
-        }).eq("device_id", os.environ.get("DEVICE_ID", "default")).execute()
+        }).eq("device_name", os.environ.get("DEVICE_ID", "julian-mac-mini-prod")).execute()
     except Exception:
         pass  # Don't let notification failure cascade
 
