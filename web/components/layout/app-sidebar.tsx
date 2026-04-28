@@ -32,6 +32,7 @@ const PRIMARY: NavItem[] = [
   { href: '/analytics', label: 'Analytics', icon: <ChartIcon /> },
   { href: '/photos', label: 'Photos', icon: <CameraIcon /> },
   { href: '/coaching', label: 'Coaching', icon: <RizzIcon /> },
+  { href: '/studio/voice', label: 'Voice Studio', icon: <SparkIcon />, badge: 'new' },
 ]
 
 const SECONDARY: NavItem[] = [

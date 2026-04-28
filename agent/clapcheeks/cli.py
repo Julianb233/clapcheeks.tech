@@ -1435,6 +1435,148 @@ def ban_history(platform: str) -> None:
     console.print(table)
 
 
+@main.group()
+def voice() -> None:
+    """Voice cloning — train Ollama on your past iMessage style.
+
+    AI-8763: scans your local chat.db (read-only, FDA required) and
+    builds a style digest used as few-shot examples for every reply
+    suggestion. Raw messages stay on this device — only the digest
+    syncs to Supabase.
+    """
+    pass
+
+
+@voice.command(name="scan")
+@click.option(
+    "--limit",
+    default=5000,
+    show_default=True,
+    help="Max past outbound messages to analyse.",
+)
+@click.option(
+    "--no-upload",
+    is_flag=True,
+    default=False,
+    help="Skip pushing the digest to Supabase (local save only).",
+)
+@click.option(
+    "--user-id",
+    default=None,
+    help=(
+        "Supabase auth.users.id to attach the digest to. Defaults to "
+        "$CLAPCHEEKS_USER_ID."
+    ),
+)
+def voice_scan(limit: int, no_upload: bool, user_id: str | None) -> None:
+    """Scan chat.db, compute the style digest, save locally + push to Supabase."""
+    from clapcheeks.imessage.permissions import (
+        check_full_disk_access,
+        prompt_fda_instructions,
+    )
+    from clapcheeks.voice.clone import (
+        DIGEST_PATH,
+        compute_style_digest,
+        push_digest_to_supabase,
+        save_digest,
+        scan_operator_sends,
+    )
+
+    if not check_full_disk_access():
+        prompt_fda_instructions()
+        raise SystemExit(1)
+
+    with console.status(
+        f"[bold green]Scanning last {limit} outbound iMessages...[/bold green]"
+    ):
+        msgs = scan_operator_sends(limit=limit)
+
+    if not msgs:
+        console.print(
+            "[yellow]No outbound messages found in chat.db.[/yellow]\n"
+            "[dim]If you've sent iMessages on this Mac, double-check Full Disk "
+            "Access for the Python binary in System Settings.[/dim]"
+        )
+        raise SystemExit(1)
+
+    with console.status("[bold green]Computing style digest...[/bold green]"):
+        digest = compute_style_digest(msgs)
+        save_digest(digest)
+
+    console.print(
+        Panel(
+            f"[bold]Messages analysed:[/bold] {digest['message_count']}\n"
+            f"[bold]Avg length:[/bold] {digest['avg_length_chars']} chars "
+            f"(median {digest['median_length_chars']})\n"
+            f"[bold]Emoji ratio:[/bold] {digest['emoji_per_message']:.0%}\n"
+            f"[bold]Top openers:[/bold] "
+            f"{', '.join(digest['most_common_openers'][:5]) or '(none)'}\n"
+            f"[bold]Sample size for few-shot:[/bold] "
+            f"{len(digest['sample_messages'])}",
+            title="[magenta]Voice digest[/magenta]",
+            border_style="magenta",
+        )
+    )
+    console.print(f"[dim]Saved to {DIGEST_PATH}[/dim]")
+
+    if no_upload:
+        console.print(
+            "[yellow]Skipping Supabase upload (--no-upload). Local digest "
+            "is wired into [cyan]clapcheeks watch[/cyan] automatically.[/yellow]"
+        )
+        return
+
+    with console.status("[bold green]Pushing digest to Supabase...[/bold green]"):
+        status_code, body = push_digest_to_supabase(digest, user_id=user_id)
+
+    if 200 <= status_code < 300:
+        console.print(
+            f"[bold green]OK[/bold green] Digest pushed to Supabase "
+            f"(HTTP {status_code})."
+        )
+    else:
+        console.print(
+            f"[yellow]Supabase upload returned HTTP {status_code}.[/yellow] "
+            f"[dim]{body[:200]}[/dim]"
+        )
+        console.print(
+            "[dim]Local digest is still saved — the agent will use it on "
+            "the next [cyan]clapcheeks watch[/cyan] run.[/dim]"
+        )
+
+
+@voice.command(name="show")
+def voice_show() -> None:
+    """Print the current style digest summary."""
+    from clapcheeks.voice.clone import DIGEST_PATH, load_digest
+
+    digest = load_digest()
+    if not digest:
+        console.print(
+            "[yellow]No voice digest found.[/yellow] "
+            "Run [cyan]clapcheeks voice scan[/cyan] first."
+        )
+        raise SystemExit(1)
+
+    console.print(
+        Panel(
+            f"[bold]Computed:[/bold] {digest.get('computed_at', '?')}\n"
+            f"[bold]Messages:[/bold] {digest.get('message_count', 0)}\n"
+            f"[bold]Avg length:[/bold] {digest.get('avg_length_chars', 0)} "
+            f"chars (median {digest.get('median_length_chars', 0)})\n"
+            f"[bold]Emoji ratio:[/bold] {digest.get('emoji_per_message', 0):.0%}\n"
+            f"[bold]Openers:[/bold] "
+            f"{', '.join(digest.get('most_common_openers', [])[:8])}\n"
+            f"[bold]Slang:[/bold] "
+            f"{', '.join(digest.get('slang_dictionary', []))}\n"
+            f"[bold]Common phrases:[/bold]\n  "
+            + "\n  ".join(f"- {p}" for p in digest.get('common_phrases', [])[:6]),
+            title=f"[magenta]Voice digest @ {DIGEST_PATH}[/magenta]",
+            border_style="magenta",
+        )
+    )
+
+
 class _nullctx:
     """No-op context manager for drivers that don't support 'with'."""
     def __init__(self, val): self.val = val
