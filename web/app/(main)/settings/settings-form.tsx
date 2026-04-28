@@ -1,8 +1,9 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { VoiceInput, VoiceTextarea } from '@/components/voice'
+import { CalendarConnectCard } from '@/components/settings/calendar-connect-card'
 
 export type Persona = {
   first_name: string
@@ -37,16 +38,25 @@ export type UserSettings = {
   approveBookings: boolean
 }
 
+// Tabs ordered per sidebar-audit Fix D recommended IA:
+//   Persona / Drip / Reports / Calendar / Approval Gates
 const TABS = [
-  { key: 'persona', label: 'Persona (rizz)' },
-  { key: 'drip', label: 'Drip rules' },
-  { key: 'dates', label: 'Dates & calendar' },
-  { key: 'approval', label: 'Approval gates' },
+  { key: 'persona', label: 'Persona' },
+  { key: 'drip', label: 'Drip' },
+  { key: 'reports', label: 'Reports' },
+  { key: 'calendar', label: 'Calendar' },
+  { key: 'approval', label: 'Approval Gates' },
 ] as const
 
 type TabKey = (typeof TABS)[number]['key']
 
-export default function AISettingsForm({
+const REPORT_DAYS = [
+  { value: 'monday', label: 'Monday' },
+  { value: 'friday', label: 'Friday' },
+  { value: 'sunday', label: 'Sunday' },
+] as const
+
+export default function SettingsForm({
   initial,
   userId,
 }: {
@@ -57,6 +67,37 @@ export default function AISettingsForm({
   const [settings, setSettings] = useState<UserSettings>(initial)
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState('')
+
+  // ── Reports tab state (lives on a different table via a different API) ──
+  const [reportsLoaded, setReportsLoaded] = useState(false)
+  const [reportsEmailEnabled, setReportsEmailEnabled] = useState(true)
+  const [reportsSendDay, setReportsSendDay] = useState('monday')
+  const [reportsSaving, setReportsSaving] = useState(false)
+  const [reportsMessage, setReportsMessage] = useState('')
+
+  useEffect(() => {
+    let cancelled = false
+    async function loadReports() {
+      try {
+        const res = await fetch('/api/reports/preferences')
+        if (!res.ok) return
+        const data = await res.json()
+        if (cancelled) return
+        if (typeof data.email_enabled === 'boolean') {
+          setReportsEmailEnabled(data.email_enabled)
+        }
+        if (data.send_day) {
+          setReportsSendDay(data.send_day)
+        }
+      } finally {
+        if (!cancelled) setReportsLoaded(true)
+      }
+    }
+    loadReports()
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   function set<K extends keyof UserSettings>(key: K, value: UserSettings[K]) {
     setSettings((s) => ({ ...s, [key]: value }))
@@ -92,9 +133,32 @@ export default function AISettingsForm({
     if (!error) setTimeout(() => setMessage(''), 3000)
   }
 
+  async function saveReports() {
+    setReportsSaving(true)
+    setReportsMessage('')
+    try {
+      const res = await fetch('/api/reports/preferences', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email_enabled: reportsEmailEnabled,
+          send_day: reportsSendDay,
+        }),
+      })
+      if (res.ok) {
+        setReportsMessage('Preferences saved')
+        setTimeout(() => setReportsMessage(''), 3000)
+      } else {
+        setReportsMessage('Could not save')
+      }
+    } finally {
+      setReportsSaving(false)
+    }
+  }
+
   return (
     <div>
-      <div className="flex gap-2 mb-6 border-b border-white/10">
+      <div className="flex flex-wrap gap-2 mb-6 border-b border-white/10">
         {TABS.map((t) => (
           <button
             key={t.key}
@@ -184,28 +248,90 @@ export default function AISettingsForm({
         </section>
       )}
 
-      {tab === 'dates' && (
+      {tab === 'reports' && (
         <section className="space-y-4">
-          <Row label="Calendar to book on (email)" hint="The Google calendar that receives date events.">
-            <TextInput value={settings.dateCalendarEmail} onChange={(v) => set('dateCalendarEmail', v)} placeholder="julian@aiacrobatics.com" />
-          </Row>
-          <Row label="Date slot times (one per line, HH:MM)" hint="Up to N slots per day — default 3.">
-            <ListInput value={settings.dateSlots} onChange={(v) => set('dateSlots', v)} rows={4} placeholder="18:00&#10;20:00&#10;21:30" />
-          </Row>
-          <Row label="Days ahead to offer">
-            <NumberInput value={settings.dateSlotDaysAhead} onChange={(v) => set('dateSlotDaysAhead', v)} />
-          </Row>
-          <Row label="Event duration (hours)">
-            <NumberInput value={settings.dateSlotDurationHours} onChange={(v) => set('dateSlotDurationHours', v)} step={0.5} />
-          </Row>
-          <Row label="Timezone (IANA)">
-            <TextInput value={settings.dateTimezone} onChange={(v) => set('dateTimezone', v)} placeholder="America/Los_Angeles" />
-          </Row>
-          <p className="text-xs text-white/50">
-            These map directly to the agent's <code>DATE_CALENDAR_EMAIL</code>, <code>DATE_SLOTS</code>,
-            <code> DATE_SLOT_DAYS_AHEAD</code>, <code>DATE_SLOT_DURATION_HOURS</code>, and
-            <code> DATE_TIMEZONE</code> env vars. The daemon reads them on next tick.
+          <p className="text-sm text-white/60">
+            Get a weekly recap of your dating funnel — swipes, matches, dates, top patterns.
           </p>
+          {!reportsLoaded ? (
+            <div className="bg-white/5 border border-white/10 rounded-xl p-5 animate-pulse h-32" />
+          ) : (
+            <div className="bg-white/5 border border-white/10 rounded-xl p-5">
+              <h3 className="text-white font-semibold text-sm mb-4">Weekly Reports</h3>
+              <div className="space-y-4">
+                <label className="flex items-center gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={reportsEmailEnabled}
+                    onChange={(e) => setReportsEmailEnabled(e.target.checked)}
+                    className="rounded border-white/20 bg-white/5 w-4 h-4 accent-fuchsia-600"
+                  />
+                  <span className="text-white/60 text-sm">Email weekly reports</span>
+                </label>
+
+                <div>
+                  <label className="text-white/40 text-xs block mb-1">Report day</label>
+                  <select
+                    value={reportsSendDay}
+                    onChange={(e) => setReportsSendDay(e.target.value)}
+                    className="w-full max-w-xs bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white text-sm focus:outline-none appearance-none"
+                  >
+                    {REPORT_DAYS.map((d) => (
+                      <option key={d.value} value={d.value} className="bg-black">
+                        {d.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={saveReports}
+                    disabled={reportsSaving}
+                    className="bg-brand-600 hover:bg-brand-500 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors disabled:opacity-50"
+                  >
+                    {reportsSaving ? 'Saving...' : 'Save report preferences'}
+                  </button>
+                  {reportsMessage && (
+                    <span className="text-emerald-400 text-sm">{reportsMessage}</span>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+        </section>
+      )}
+
+      {tab === 'calendar' && (
+        <section className="space-y-6">
+          <p className="text-sm text-white/60">
+            Connect Google Calendar so the AI can read your availability and book dates without you.
+          </p>
+          <CalendarConnectCard nextPath="/settings" />
+
+          <div className="border-t border-white/10 pt-6 space-y-4">
+            <h3 className="text-white font-semibold text-sm">Date booking defaults</h3>
+            <Row label="Calendar to book on (email)" hint="The Google calendar that receives date events.">
+              <TextInput value={settings.dateCalendarEmail} onChange={(v) => set('dateCalendarEmail', v)} placeholder="julian@aiacrobatics.com" />
+            </Row>
+            <Row label="Date slot times (one per line, HH:MM)" hint="Up to N slots per day — default 3.">
+              <ListInput value={settings.dateSlots} onChange={(v) => set('dateSlots', v)} rows={4} placeholder="18:00&#10;20:00&#10;21:30" />
+            </Row>
+            <Row label="Days ahead to offer">
+              <NumberInput value={settings.dateSlotDaysAhead} onChange={(v) => set('dateSlotDaysAhead', v)} />
+            </Row>
+            <Row label="Event duration (hours)">
+              <NumberInput value={settings.dateSlotDurationHours} onChange={(v) => set('dateSlotDurationHours', v)} step={0.5} />
+            </Row>
+            <Row label="Timezone (IANA)">
+              <TextInput value={settings.dateTimezone} onChange={(v) => set('dateTimezone', v)} placeholder="America/Los_Angeles" />
+            </Row>
+            <p className="text-xs text-white/50">
+              These map directly to the agent&apos;s <code>DATE_CALENDAR_EMAIL</code>, <code>DATE_SLOTS</code>,
+              <code> DATE_SLOT_DAYS_AHEAD</code>, <code>DATE_SLOT_DURATION_HOURS</code>, and
+              <code> DATE_TIMEZONE</code> env vars. The daemon reads them on next tick.
+            </p>
+          </div>
         </section>
       )}
 
@@ -229,16 +355,20 @@ export default function AISettingsForm({
         </section>
       )}
 
-      <div className="mt-8 flex items-center gap-3">
-        <button
-          onClick={save}
-          disabled={saving}
-          className="bg-white text-black font-medium px-5 py-2 rounded disabled:opacity-50"
-        >
-          {saving ? 'Saving…' : 'Save'}
-        </button>
-        {message && <span className={message.startsWith('Error') ? 'text-red-400 text-sm' : 'text-emerald-400 text-sm'}>{message}</span>}
-      </div>
+      {/* The Reports tab has its own save button (different table); every other
+          tab persists via the shared "Save" CTA below. */}
+      {tab !== 'reports' && (
+        <div className="mt-8 flex items-center gap-3">
+          <button
+            onClick={save}
+            disabled={saving}
+            className="bg-white text-black font-medium px-5 py-2 rounded disabled:opacity-50"
+          >
+            {saving ? 'Saving…' : 'Save'}
+          </button>
+          {message && <span className={message.startsWith('Error') ? 'text-red-400 text-sm' : 'text-emerald-400 text-sm'}>{message}</span>}
+        </div>
+      )}
     </div>
   )
 }

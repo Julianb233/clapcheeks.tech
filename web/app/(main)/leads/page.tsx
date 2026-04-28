@@ -2,10 +2,13 @@ import type { Metadata } from 'next'
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import LeadsBoard, { type Lead } from './leads-board'
+import RosterStatsBar from '@/components/roster/RosterStatsBar'
+import DailyTopThree from '@/components/roster/DailyTopThree'
+import { ClapcheeksMatchRow } from '@/lib/matches/types'
 
 export const metadata: Metadata = {
-  title: 'Leads — Clapcheeks',
-  description: 'Kanban view of every match and where it sits in your funnel.',
+  title: 'Pipeline — Clapcheeks',
+  description: 'Every lead, every stage, every next action — kanban + roster intelligence in one view.',
 }
 
 const STAGES = [
@@ -19,12 +22,13 @@ const STAGES = [
   { key: 'dead',           label: 'Archived',       hint: 'Dormant or rejected' },
 ] as const
 
-export default async function LeadsPage() {
+export default async function PipelinePage() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/auth')
 
-  const { data, error } = await supabase
+  // Fetch the leads kanban data.
+  const { data: leadsData, error: leadsError } = await supabase
     .from('clapcheeks_leads')
     .select(`
       id, platform, match_id, name, age, stage, stage_entered_at,
@@ -37,7 +41,7 @@ export default async function LeadsPage() {
     .order('last_message_at', { ascending: false, nullsFirst: false })
     .limit(500)
 
-  const leads: Lead[] = (data ?? []).map((row) => ({
+  const leads: Lead[] = (leadsData ?? []).map((row) => ({
     id: row.id,
     platform: row.platform,
     match_id: row.match_id,
@@ -61,19 +65,47 @@ export default async function LeadsPage() {
     dripFired: (row.drip_fired as Record<string, number> | null) ?? {},
   }))
 
+  // Fetch matches for the Roster intelligence header strip (stats bar + daily top 3).
+  // Defensive try/catch — if `clapcheeks_matches` is unreachable for any
+  // reason (RLS, schema cache, etc.) we still want the kanban to render.
+  let matches: ClapcheeksMatchRow[] = []
+  try {
+    const { data, error } = await (supabase as any)
+      .from('clapcheeks_matches')
+      .select('*')
+      .eq('user_id', user.id)
+      .order('close_probability', { ascending: false, nullsFirst: false })
+      .order('final_score', { ascending: false, nullsFirst: false })
+      .order('last_activity_at', { ascending: false, nullsFirst: false })
+      .range(0, 199)
+    if (!error && data) {
+      matches = data as ClapcheeksMatchRow[]
+    }
+  } catch {
+    // Non-fatal — header strip just renders empty / hidden states.
+  }
+
   return (
     <div className="min-h-screen bg-black text-white p-6">
       <header className="max-w-[1600px] mx-auto mb-6">
-        <h1 className="text-3xl font-semibold">Leads</h1>
+        <h1 className="text-3xl font-semibold">Pipeline</h1>
         <p className="text-sm text-white/60 mt-1">
-          Every match, every stage, every next action — one view.
+          Every lead, every stage, every next action — kanban + roster intelligence in one view.
         </p>
-        {error && (
+        {leadsError && (
           <div className="mt-3 text-sm text-red-400">
-            Could not load leads: {error.message}
+            Could not load leads: {leadsError.message}
           </div>
         )}
       </header>
+
+      {/* Roster intelligence header strip — promoted from /dashboard/roster
+          (sidebar-audit Fix C). Stats bar shows pipeline health, Daily Top 3
+          surfaces the highest close-probability matches that need outreach. */}
+      <div className="max-w-[1600px] mx-auto grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_320px] gap-4 mb-6">
+        <RosterStatsBar matches={matches} />
+        <DailyTopThree matches={matches} />
+      </div>
 
       <LeadsBoard stages={STAGES as unknown as { key: string; label: string; hint: string }[]} initialLeads={leads} />
     </div>

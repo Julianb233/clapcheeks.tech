@@ -47,7 +47,7 @@ export default function RosterCard({ match, lastMessage, onDragStart, draggable 
       }}
       className="group bg-white/[0.04] border border-white/10 rounded-lg overflow-hidden hover:border-yellow-500/40 hover:bg-white/[0.06] transition-all cursor-grab active:cursor-grabbing"
     >
-      <Link href={`/dashboard/matches/${match.id}`} className="block">
+      <Link href={`/matches/${match.id}`} className="block">
         <div className="relative aspect-[4/3] w-full bg-gradient-to-br from-zinc-800 to-zinc-900 overflow-hidden">
           {primaryPhoto ? (
             // eslint-disable-next-line @next/next/no-img-element

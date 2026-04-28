@@ -19,28 +19,36 @@ type NavItem = {
   countKey?: 'approvals'
 }
 
+// Sidebar IA per sidebar-audit (2026-04-27) — Fixes C+D+E.
+// Net: 19 → 15 items. Removed:
+//   /dashboard/matches (consolidated into /matches)
+//   /dashboard/roster  (consolidated into /leads)
+//   /settings/ai       (merged into /settings as tabs)
+//   /device            (moved to a CTA card on /billing)
+// Renamed:
+//   "Match Brief"   → "Matches"          (matches page H1)
+//   "Leads"         → "Pipeline"         (canonical pipeline surface)
+//   "Conversations" → "Conversation AI"  (matches page H1)
+//   "Coaching"      → "AI Coach"         (matches page H1)
+//   "Weekly Reports"→ "Settings"         (page is the general Settings surface)
 const PRIMARY: NavItem[] = [
   { href: '/dashboard', label: 'Dashboard', icon: <HomeIcon /> },
   { href: '/ai-first-date', label: 'AI First Date', icon: <HeartIcon />, badge: 'new' },
-  { href: '/dashboard/matches', label: 'Matches', icon: <HeartIcon /> },
-  { href: '/dashboard/roster', label: 'Roster', icon: <RosterIcon />, badge: 'new' },
-  { href: '/dashboard/content-library', label: 'Content Library', icon: <CameraIcon />, badge: 'new' },
-  { href: '/leads', label: 'Leads', icon: <PipelineIcon /> },
-  { href: '/matches', label: 'Match Brief', icon: <ProfileIcon />, badge: 'new' },
-  { href: '/conversation', label: 'Conversations', icon: <ChatIcon /> },
+  { href: '/matches', label: 'Matches', icon: <HeartIcon /> },
+  { href: '/leads', label: 'Pipeline', icon: <PipelineIcon /> },
+  { href: '/conversation', label: 'Conversation AI', icon: <ChatIcon /> },
   { href: '/intelligence', label: 'Intelligence', icon: <SparkIcon /> },
-  { href: '/analytics', label: 'Analytics', icon: <ChartIcon /> },
+  { href: '/analytics', label: 'Insights', icon: <ChartIcon /> },
   { href: '/photos', label: 'Photos', icon: <CameraIcon /> },
-  { href: '/coaching', label: 'Coaching', icon: <RizzIcon /> },
+  { href: '/coaching', label: 'AI Coach', icon: <RizzIcon /> },
+  { href: '/dashboard/content-library', label: 'Content Library', icon: <CameraIcon />, badge: 'new' },
+  { href: '/autonomy', label: 'Autonomy', icon: <SparkIcon />, countKey: 'approvals' },
 ]
 
 const SECONDARY: NavItem[] = [
-  { href: '/autonomy', label: 'Autonomy', icon: <SparkIcon />, countKey: 'approvals' },
-  { href: '/referrals', label: 'Referrals', icon: <GiftIcon />, badge: 'new' },
-  { href: '/settings/ai', label: 'AI Settings', icon: <GearIcon />, badge: 'new' },
-  { href: '/settings', label: 'Weekly Reports', icon: <BellIcon /> },
+  { href: '/settings', label: 'Settings', icon: <GearIcon /> },
   { href: '/billing', label: 'Billing', icon: <CardIcon /> },
-  { href: '/device', label: 'Device', icon: <LaptopIcon /> },
+  { href: '/referrals', label: 'Referrals', icon: <GiftIcon />, badge: 'new' },
   { href: '/support', label: 'Support', icon: <HelpIcon /> },
 ]
 

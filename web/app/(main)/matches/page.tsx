@@ -2,10 +2,11 @@ import type { Metadata } from 'next'
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
+import OfflineContactForm from '@/components/matches/OfflineContactForm'
 
 export const metadata: Metadata = {
-  title: 'Match Intel - Clapcheeks',
-  description: 'Enriched profiles for every match — photos, bios, interests, and conversation strategy.',
+  title: 'Matches - Clapcheeks',
+  description: 'Every match across every platform, ranked and ready to action — photos, bios, interests, and conversation strategy.',
 }
 
 type PhotoJson = { url: string; supabase_path?: string | null; width?: number; height?: number }
@@ -48,21 +49,24 @@ export default async function MatchesPage() {
               <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-pink-500 to-purple-600 flex items-center justify-center text-sm">
                 🔮
               </div>
-              <h1 className="text-2xl md:text-3xl font-semibold">Match Intel</h1>
+              <h1 className="text-2xl md:text-3xl font-semibold">Matches</h1>
               <span className="text-xs text-white/40 bg-white/5 px-2 py-0.5 rounded-full font-mono">
                 {items.length}
               </span>
             </div>
             <p className="text-sm text-white/50 ml-11">
-              Photos, bios, interests, and conversation strategy for every match.
+              Every match across every platform, ranked by score and recency. Click a card to drill in.
             </p>
           </div>
-          <Link
-            href="/matches/add"
-            className="px-4 py-2 rounded-lg bg-gradient-to-r from-pink-600 to-purple-600 hover:from-pink-500 hover:to-purple-500 text-sm font-medium transition-all"
-          >
-            + Add Match
-          </Link>
+          <div className="flex items-center gap-2">
+            <OfflineContactForm />
+            <Link
+              href="/matches/add"
+              className="px-4 py-2 rounded-lg bg-gradient-to-r from-pink-600 to-purple-600 hover:from-pink-500 hover:to-purple-500 text-sm font-medium transition-all"
+            >
+              + Add Match
+            </Link>
+          </div>
         </div>
 
         {error && (
