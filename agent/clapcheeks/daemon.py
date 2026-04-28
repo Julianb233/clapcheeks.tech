@@ -4,6 +4,7 @@ Manages per-platform swipe sessions, conversation loops, metric sync,
 and heartbeat on independent threads with configurable intervals and
 active-hours gating.
 """
+import fcntl
 import logging
 import logging.handlers
 import os
@@ -34,8 +35,32 @@ from clapcheeks.events import EventEmitter
 from clapcheeks.session.ban_detector import BanDetector
 
 LOG_FILE = CONFIG_DIR / "daemon.log"
+LOCK_FILE = "/tmp/clapcheeks-daemon.lock"
 
 log = logging.getLogger("clapcheeks.daemon")
+
+# Module-level lock file handle — must remain open for the lifetime of the
+# process so the fcntl lock is held. Closing or GC'ing this releases the lock.
+_lock_fp = None
+
+
+def _acquire_singleton_lock() -> None:
+    """Acquire fcntl exclusive lock so only one daemon can run at a time.
+
+    Exits process with code 1 if another instance already holds the lock.
+    """
+    global _lock_fp
+    _lock_fp = open(LOCK_FILE, "w")
+    try:
+        fcntl.flock(_lock_fp, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except (IOError, OSError):
+        print(
+            "FATAL: another clapcheeks daemon is already running. Exiting.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    _lock_fp.write(str(os.getpid()))
+    _lock_fp.flush()
 
 # ---------------------------------------------------------------------------
 # Crash tracking for degraded status detection (AGENT-01)
@@ -348,11 +373,23 @@ def _platform_worker(
     log.info("Platform thread started: %s (every %dh, active %s)",
              platform, daemon_cfg["swipe_interval_hours"], active_hours)
 
+    from clapcheeks.safety.presence import should_be_active
+
     while not _shutdown.is_set():
         # Gate on active hours
         if not _in_active_hours(active_hours):
             log.info("[%s] Outside active hours %s, sleeping 15m", platform, active_hours)
             _shutdown.wait(900)
+            continue
+
+        # --- Presence gate (P5) ---
+        # Only run swipe / API loop when operator is home + iPhone present
+        # so the dating apps don't fingerprint auto-replies as off-network.
+        # iMessage replies are NOT gated by this — they're not fingerprinted.
+        active, reason = should_be_active()
+        if not active:
+            log.info("[%s] Presence gate blocked: %s — sleeping 5m", platform, reason)
+            _shutdown.wait(300)
             continue
 
         # --- Ban check ---
@@ -426,6 +463,7 @@ def _platform_worker(
 
 def run_daemon() -> None:
     """Main daemon entry point — launches all scheduling threads."""
+    _acquire_singleton_lock()
     _setup_logging()
     signal.signal(signal.SIGTERM, _handle_sigterm)
     signal.signal(signal.SIGINT, _handle_sigterm)

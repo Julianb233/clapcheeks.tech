@@ -6,9 +6,13 @@ primary_region = "lax"
 [http_service]
   internal_port = 8000
   force_https = true
+  # Keep at least one warm machine — the live message reply loop hits this
+  # service on every inbound iMessage and cold-starts (~3-5s) hurt latency.
+  # auto_stop_machines stays true so excess scaled-out machines still recycle;
+  # min_machines_running=1 forces one always-warm baseline.
   auto_stop_machines = true
   auto_start_machines = true
-  min_machines_running = 0
+  min_machines_running = 1
 
 [[vm]]
   memory = "512mb"
