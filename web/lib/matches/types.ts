@@ -136,6 +136,17 @@ export type MatchListFilters = {
   platform: 'all' | MatchPlatform
   status: 'all' | 'new' | 'conversing' | 'date_proposed' | 'date_booked' | 'dated' | 'stalled' | 'ghosted'
   minScore: number
+  // AI-8814 attribute tags. Each entry is `${category}:${value}` (e.g. "dietary:vegan").
+  // AND-match: a match must carry ALL selected tags to pass.
+  attributeValues: string[]
+}
+
+// AI-8814 attribute filter option — feeds the FilterBar's chip multi-select.
+// `count` lets the UI sort most-common-first and surface "(N)" beside each chip.
+export type AttributeFilterOption = {
+  category: 'allergy' | 'dietary' | 'schedule' | 'lifestyle' | 'logistics' | 'comms'
+  value: string
+  count: number
 }
 
 // Unified channel type — includes specific platform names (AI-8807)

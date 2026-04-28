@@ -5,14 +5,18 @@ import { createClient } from '@/lib/supabase/client'
 import MatchCard from './MatchCard'
 import FilterBar from './FilterBar'
 import {
-  ClapcheeksMatchRow,
   MatchListFilters,
 } from '@/lib/matches/types'
+import {
+  aggregateAttributes,
+  matchHasAllAttributes,
+  type MatchWithAttributes,
+} from '@/lib/matches/attribute-filter'
 
 type LastMessageMap = Record<string, string | null>
 
 type Props = {
-  initialMatches: ClapcheeksMatchRow[]
+  initialMatches: MatchWithAttributes[]
   initialHasMore: boolean
   initialLastMessages: LastMessageMap
   pageSize: number
@@ -22,6 +26,7 @@ const DEFAULT_FILTERS: MatchListFilters = {
   platform: 'all',
   status: 'all',
   minScore: 0,
+  attributeValues: [],
 }
 
 export default function MatchGrid({
@@ -30,7 +35,7 @@ export default function MatchGrid({
   initialLastMessages,
   pageSize,
 }: Props) {
-  const [matches, setMatches] = useState<ClapcheeksMatchRow[]>(initialMatches)
+  const [matches, setMatches] = useState<MatchWithAttributes[]>(initialMatches)
   const [lastMessages] = useState<LastMessageMap>(initialLastMessages)
   const [hasMore, setHasMore] = useState(initialHasMore)
   const [loading, setLoading] = useState(false)
@@ -38,6 +43,8 @@ export default function MatchGrid({
   const [syncing, setSyncing] = useState(false)
   const [syncMsg, setSyncMsg] = useState<string | null>(null)
   const sentinelRef = useRef<HTMLDivElement | null>(null)
+
+  const attributeOptions = useMemo(() => aggregateAttributes(matches), [matches])
 
   const filtered = useMemo(() => {
     return matches.filter((m) => {
@@ -47,6 +54,7 @@ export default function MatchGrid({
         const s = typeof m.final_score === 'number' ? m.final_score : 0
         if (s < filters.minScore) return false
       }
+      if (!matchHasAllAttributes(m, filters.attributeValues)) return false
       return true
     })
   }, [matches, filters])
@@ -68,7 +76,7 @@ export default function MatchGrid({
         console.warn('[MatchGrid] fetchMore error:', error.message)
         setHasMore(false)
       } else if (data && data.length > 0) {
-        setMatches((prev) => [...prev, ...(data as unknown as ClapcheeksMatchRow[])])
+        setMatches((prev) => [...prev, ...(data as unknown as MatchWithAttributes[])])
         if (data.length < pageSize) setHasMore(false)
       } else {
         setHasMore(false)
@@ -155,11 +163,12 @@ export default function MatchGrid({
         onChange={setFilters}
         total={matches.length}
         filteredCount={filtered.length}
+        attributeOptions={attributeOptions}
       />
       {filtered.length === 0 ? (
         <div className="bg-white/[0.03] border border-white/10 rounded-xl p-10 text-center">
           <p className="text-white/50 text-sm">
-            No matches match these filters. Adjust the platform, status, or score slider.
+            No matches match these filters. Adjust the platform, status, score, or attribute tags.
           </p>
         </div>
       ) : (
