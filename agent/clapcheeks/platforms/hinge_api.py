@@ -406,6 +406,64 @@ class HingeAPIClient:
             logger.error("send_message failed: %s", exc)
             return False
 
+    def send_reaction(
+        self,
+        match_id: str,
+        target_message_id: str,
+        kind: str,
+    ) -> None:
+        """React to a Hinge message.
+
+        .. note::
+            **Not implemented (AI-8808-followup).**
+
+            Hinge's API surface (prod-api.hingeaws.net) does not expose a
+            documented message reaction endpoint. The prompt-like endpoint
+            ``POST /prompts/{promptId}/like`` exists for liking opener
+            prompts, but per-message reactions within an active conversation
+            are not available via the captured token API.
+
+            This stub is here so callers can be wired up now and the
+            implementation added later without changing call sites.
+
+        :raises NotImplementedError: always.
+        """
+        raise NotImplementedError(
+            "Hinge per-message reactions are not available via the captured API "
+            "(AI-8808-followup: investigate /message/v1/react or equivalent)"
+        )
+
+    def like_prompt(self, subject_id: str, prompt_id: str, comment: str = "") -> bool:
+        """Like a Hinge prospect's prompt (opener reaction before matching).
+
+        This is Hinge's *prompt-like* reaction — it sends a like accompanied
+        by an optional comment to a specific prompt on a profile card. This is
+        NOT the same as reacting to a message in an existing conversation.
+
+        Parameters
+        ----------
+        subject_id:
+            Hinge's ``subject_id`` (prospect identifier) from the
+            ``/recs/v1`` recommendations payload.
+        prompt_id:
+            Hinge's ``content_id`` from the prompt object inside the
+            recommendation card.
+        comment:
+            Optional comment text to attach to the prompt like.
+        """
+        try:
+            payload: dict = {
+                "subjectId": subject_id,
+                "contentId": prompt_id,
+            }
+            if comment:
+                payload["comment"] = comment
+            self._request("POST", "/interactions/v1/prompt-like", json=payload)
+            return True
+        except Exception as exc:
+            logger.error("like_prompt failed subject=%s prompt=%s: %s", subject_id, prompt_id, exc)
+            return False
+
     def get_matches(self, count: int = 20) -> list[dict]:
         try:
             data = self._request("GET", f"/match/v1?limit={count}")

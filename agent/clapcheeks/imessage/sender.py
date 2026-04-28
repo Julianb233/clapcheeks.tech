@@ -13,6 +13,10 @@ Patches:
 - P4 (AI-8738): explicit AppleScript account-index routing for the
   osascript fallback so SMS handles route via the SMS account
   (Continuity / Messages in iCloud) instead of the iMessage account.
+- AI-8808: BlueBubbles adapter for tapbacks and screen effects. When
+  ``BLUEBUBBLES_URL`` + ``BLUEBUBBLES_PASSWORD`` are set (or passed
+  explicitly), ``send_tapback`` and ``send_with_effect`` route through
+  the BlueBubbles REST API. ``send_imessage`` is unchanged.
 """
 from __future__ import annotations
 
@@ -203,3 +207,150 @@ def send_imessage(
             return SendResult(ok=False, channel="osascript", error=str(exc))
 
     return SendResult(ok=False, channel="noop", error="no iMessage transport available")
+
+
+# ---------------------------------------------------------------------------
+# AI-8808 — BlueBubbles-routed tapback + effect API
+# ---------------------------------------------------------------------------
+
+def _bluebubbles_client(
+    url: str | None = None,
+    password: str | None = None,
+):
+    """Return a ``BlueBubblesClient`` or ``None`` if BlueBubbles is not configured.
+
+    Prefers explicit ``url`` / ``password`` arguments; falls back to the
+    ``BLUEBUBBLES_URL`` / ``BLUEBUBBLES_PASSWORD`` environment variables.
+    Returns ``None`` (silently) if neither source provides a URL.
+    """
+    import os as _os
+
+    _url = url or _os.environ.get("BLUEBUBBLES_URL", "")
+    _pw = password or _os.environ.get("BLUEBUBBLES_PASSWORD", "")
+    if not _url:
+        return None
+
+    try:
+        from clapcheeks.imessage.bluebubbles import BlueBubblesClient
+        return BlueBubblesClient(_url, _pw)
+    except ImportError as exc:
+        logger.warning(
+            "BlueBubblesClient import failed — check that requests is installed: %s", exc
+        )
+        return None
+
+
+def send_tapback(
+    phone: str,
+    target_msg_guid: str,
+    kind,  # TapbackKind
+    *,
+    bluebubbles_url: str | None = None,
+    bluebubbles_password: str | None = None,
+) -> SendResult:
+    """Send a tapback (react) on a specific iMessage GUID.
+
+    Routes through BlueBubbles Server if ``bluebubbles_url`` is provided (or
+    the ``BLUEBUBBLES_URL`` env var is set). If neither is configured, logs a
+    warning and returns a noop result — the text conversation is unaffected.
+
+    Parameters
+    ----------
+    phone:
+        Recipient handle in E.164 format. Used only for logging; the actual
+        tapback target is ``target_msg_guid``.
+    target_msg_guid:
+        iMessage GUID of the message to react to (e.g. ``p:0/<uuid>``).
+    kind:
+        ``TapbackKind`` enum value (LOVE, LIKE, DISLIKE, LAUGH,
+        EMPHASIZE, QUESTION, or the REMOVE_* variants).
+    bluebubbles_url, bluebubbles_password:
+        Override the env-var defaults for per-user credential lookup.
+    """
+    e164 = to_e164_us(phone) or phone  # best-effort normalize; guid is the real key
+
+    bb = _bluebubbles_client(bluebubbles_url, bluebubbles_password)
+    if bb is None:
+        logger.warning(
+            "send_tapback: BlueBubbles not configured for %s — "
+            "tapback dropped (BLUEBUBBLES_URL not set). "
+            "Set BLUEBUBBLES_URL + BLUEBUBBLES_PASSWORD to enable.",
+            e164,
+        )
+        return SendResult(
+            ok=False,
+            channel="noop",
+            error="BlueBubbles not configured — tapback not supported via osascript/god-mac",
+        )
+
+    from clapcheeks.imessage.bluebubbles import SendResult as BBResult
+
+    bb_result: BBResult = bb.send_tapback(target_msg_guid, kind)
+    return SendResult(
+        ok=bb_result.ok,
+        channel="bluebubbles",
+        error=bb_result.error,
+    )
+
+
+def send_with_effect(
+    phone: str,
+    body: str,
+    effect_id: str,
+    *,
+    dry_run: bool = False,
+    bluebubbles_url: str | None = None,
+    bluebubbles_password: str | None = None,
+) -> SendResult:
+    """Send ``body`` to ``phone`` with an iMessage screen effect.
+
+    Routes through BlueBubbles Server when configured. Falls back to a plain
+    ``send_imessage`` call (which drops the effect) if BlueBubbles is not
+    configured — the body is still delivered.
+
+    Parameters
+    ----------
+    phone:
+        Recipient phone in E.164 format.
+    body:
+        Message text.
+    effect_id:
+        BlueBubbles / iMessage effect ID, e.g.
+        ``"com.apple.MobileSMS.expressivesend.impact"`` (slam) or one of
+        the values from ``clapcheeks.imessage.bluebubbles.EFFECT_IDS``.
+    dry_run:
+        When True, short-circuit and return a noop result.
+    bluebubbles_url, bluebubbles_password:
+        Override the env-var defaults for per-user credential lookup.
+    """
+    e164 = to_e164_us(phone)
+    if not e164:
+        return SendResult(ok=False, channel="noop", error=f"bad phone: {phone!r}")
+    if not body or not body.strip():
+        return SendResult(ok=False, channel="noop", error="empty body")
+
+    if dry_run:
+        logger.info(
+            "[dry_run] would send iMessage to %s with effect %s: %s",
+            e164, effect_id, body[:80],
+        )
+        return SendResult(ok=True, channel="noop")
+
+    bb = _bluebubbles_client(bluebubbles_url, bluebubbles_password)
+    if bb is None:
+        logger.warning(
+            "send_with_effect: BlueBubbles not configured — "
+            "sending %s without effect %s via standard path",
+            e164, effect_id,
+        )
+        # Fall back to plain send (body delivered, effect silently dropped).
+        return send_imessage(e164, body)
+
+    from clapcheeks.imessage.bluebubbles import SendResult as BBResult
+
+    bb_result: BBResult = bb.send_text(e164, body, effect_id=effect_id)
+    return SendResult(
+        ok=bb_result.ok,
+        channel="bluebubbles",
+        error=bb_result.error,
+    )
