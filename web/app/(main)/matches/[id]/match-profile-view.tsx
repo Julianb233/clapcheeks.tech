@@ -8,6 +8,7 @@ import { VoiceInput, VoiceTextarea } from '@/components/voice'
 import ConversationThread, { type ChatMessage } from './conversation-thread'
 import MemoViewer from './memo-viewer'
 import AttributeChips, { type MatchAttributes } from '@/components/matches/AttributeChips'
+import ConversationComposer from './conversation-composer'
 
 type TabKey = 'profile' | 'conversation' | 'memo' | 'intel'
 
@@ -101,11 +102,17 @@ type PatchBody = {
 export default function MatchProfileView({
   match: initial,
   conversation = [],
+  conversationMatchId = null,
+  conversationReactions = null,
   memoHandle = null,
   memoInitial = null,
 }: {
   match: MatchRow
   conversation?: ChatMessage[]
+  /** match_id for realtime subscription (AI-8876) */
+  conversationMatchId?: string | null
+  /** reactions JSONB from conversation row (AI-8876) */
+  conversationReactions?: Array<{ msg_guid?: string; kind?: string; actor?: string; ts?: string }> | null
   memoHandle?: string | null
   memoInitial?: { content: string; updated_at: string | null } | null
 }) {
@@ -292,8 +299,17 @@ export default function MatchProfileView({
       </div>
 
       {tab === 'conversation' && (
-        <div className="mb-6">
-          <ConversationThread messages={conversation} />
+        <div className="mb-6 space-y-3">
+          <ConversationThread
+            messages={conversation}
+            matchId={conversationMatchId}
+            reactions={conversationReactions}
+          />
+          {/* AI-8876: attachment send + outbound typing composer */}
+          <ConversationComposer
+            matchId={m.id}
+            handle={memoHandle ?? undefined}
+          />
         </div>
       )}
 

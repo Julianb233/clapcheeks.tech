@@ -41,6 +41,14 @@ export default async function MatchDetailPage({
   if (herPhone) memoHandle = herPhone
   else if (externalId) memoHandle = platform ? `${platform}:${externalId}` : externalId
 
+  // AI-8876: canonical match_id for realtime subscription
+  const conversationMatchId =
+    externalId
+      ? platform && !externalId.includes(':')
+        ? `${platform}:${externalId}`
+        : externalId
+      : null
+
   // Unified cross-channel conversation fetch (AI-8807)
   const unifiedMessages = await getMatchConversationUnified(
     supabase as any,
@@ -58,6 +66,25 @@ export default async function MatchDetailPage({
     is_auto_sent: m.is_auto_sent,
     channel: m.channel,
   }))
+
+  // AI-8876: fetch reactions JSONB from the conversation row (best-effort)
+  type ReactionEntry = { msg_guid?: string; kind?: string; actor?: string; ts?: string }
+  let conversationReactions: ReactionEntry[] | null = null
+  if (conversationMatchId) {
+    try {
+      const { data: convRow } = await (supabase as any)
+        .from('clapcheeks_conversations')
+        .select('reactions')
+        .eq('user_id', user.id)
+        .eq('match_id', conversationMatchId)
+        .maybeSingle()
+      if (convRow?.reactions && Array.isArray(convRow.reactions)) {
+        conversationReactions = convRow.reactions as ReactionEntry[]
+      }
+    } catch {
+      // non-fatal — reactions are optional
+    }
+  }
 
   // Server-side initial memo fetch (best-effort; client refetches if needed).
   let memoInitial: { content: string; updated_at: string | null } | null = null
@@ -86,6 +113,8 @@ export default async function MatchDetailPage({
         <MatchProfileView
           match={match}
           conversation={conversation}
+          conversationMatchId={conversationMatchId}
+          conversationReactions={conversationReactions}
           memoHandle={memoHandle}
           memoInitial={memoInitial}
         />

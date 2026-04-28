@@ -1,18 +1,26 @@
 'use client'
 
-import { useMemo, useRef, useState, useEffect } from 'react'
+import { useMemo, useRef, useState, useEffect, useCallback } from 'react'
 import type { MessageChannel } from '@/lib/matches/conversation'
+import { useMatchMessages } from '@/lib/realtime/messages'
+import type { ConversationRowEvent } from '@/lib/realtime/messages'
+import type { ConversationMessage } from '@/lib/matches/types'
 
 /**
- * Unified cross-channel conversation thread (AI-8807)
+ * Unified cross-channel conversation thread (AI-8807, AI-8876)
  *
  * Shows messages from all platforms — Tinder, Hinge, Bumble, Instagram,
  * iMessage — merged chronologically with channel badges and handoff markers.
  *
- * Reads from clapcheeks_conversations via server-side loadConversationMessages.
- * Handles two storage shapes:
- *   1. Single row per (user_id, match_id, platform) with a `messages` JSONB array.
- *   2. Many rows, one per message, with body/direction/sent_at/channel.
+ * AI-8876 additions:
+ *  - Typing bubble: shown when an inbound typing-indicator event lands for
+ *    this match (auto-clears after 3 s).
+ *  - Read receipt: shows "Read" + timestamp when chat-read-status-changed
+ *    fires on the realtime channel.
+ *  - Inbound reactions/tapbacks: rendered on individual message bubbles from
+ *    clapcheeks_conversations.reactions JSONB, mapped to emoji.
+ *  - Live message append: new messages from realtime are appended without
+ *    a page reload.
  */
 
 export type ChatMessage = {
@@ -22,17 +30,50 @@ export type ChatMessage = {
   sent_at: string | null
   is_auto_sent?: boolean
   channel?: MessageChannel | string | null
+  /** Reactions/tapbacks on this individual message */
+  reactions?: ReactionEntry[]
+}
+
+/** Shape stored in clapcheeks_conversations.reactions JSONB array */
+type ReactionEntry = {
+  msg_guid?: string
+  kind?: string
+  actor?: string
+  ts?: string
+}
+
+// ── Tapback emoji map ─────────────────────────────────────────────────────────
+
+const TAPBACK_EMOJI: Record<string, string> = {
+  love:        '❤️',
+  like:        '👍',
+  dislike:     '👎',
+  laugh:       '😂',
+  emphasize:   '‼️',
+  question:    '❓',
+  heart:       '❤️',
+  thumbsup:    '👍',
+  thumbsdown:  '👎',
+  ha:          '😂',
+  '0':         '❤️',   // BB numeric variant
+  '1':         '👍',
+  '2':         '👎',
+  '3':         '😂',
+  '4':         '‼️',
+  '5':         '❓',
+}
+
+function tapbackEmoji(kind: string | undefined): string {
+  if (!kind) return '👍'
+  return TAPBACK_EMOJI[kind.toLowerCase()] ?? kind
 }
 
 // ── Channel badge config ──────────────────────────────────────────────────────
 
 type BadgeConfig = {
   label: string
-  // Tailwind classes for badge bg + text
   badgeClass: string
-  // Tailwind classes for the outgoing bubble
   bubbleClass: string
-  // Filter chip class
   chipActiveClass: string
   chipClass: string
 }
@@ -122,39 +163,159 @@ function dayKey(d: Date): string {
   return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`
 }
 
+// ── Helper: ConversationMessage → ChatMessage ─────────────────────────────────
+
+function realtimeMsgToChatMessage(
+  entry: ConversationMessage,
+  idx: number,
+): ChatMessage {
+  return {
+    id: entry.id ?? `rt-${Date.now()}-${idx}`,
+    text: entry.body,
+    is_from_me: entry.direction === 'outgoing',
+    sent_at: entry.sent_at,
+    channel: entry.channel ?? entry.platform ?? 'imessage',
+  }
+}
+
 // ── Types ────────────────────────────────────────────────────────────────────
 
 type FilterChannel = 'all' | string
 
 type Props = {
   messages: ChatMessage[]
+  /** match_id from clapcheeks_conversations for realtime subscription */
+  matchId?: string | null
+  /** reactions JSONB from the conversation row */
+  reactions?: ReactionEntry[] | null
   emptyHint?: string
 }
 
 // ── Main component ───────────────────────────────────────────────────────────
 
-export default function ConversationThread({ messages, emptyHint }: Props) {
+export default function ConversationThread({
+  messages,
+  matchId,
+  reactions,
+  emptyHint,
+}: Props) {
   const bottomRef = useRef<HTMLDivElement | null>(null)
+  const typingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [autoScroll, setAutoScroll] = useState(true)
   const [activeFilter, setActiveFilter] = useState<FilterChannel>('all')
+
+  // Live messages appended from realtime
+  const [liveMessages, setLiveMessages] = useState<ChatMessage[]>([])
+  // Typing indicator (true = their side is typing)
+  const [peerTyping, setPeerTyping] = useState(false)
+  // Read receipt timestamp (null = no read event yet)
+  const [readAt, setReadAt] = useState<Date | null>(null)
+  // Live reactions updates
+  const [liveReactions, setLiveReactions] = useState<ReactionEntry[]>(
+    reactions ?? [],
+  )
+
+  // Merge server-provided reactions on prop change
+  useEffect(() => {
+    setLiveReactions(reactions ?? [])
+  }, [reactions])
+
+  // ── Realtime subscription ───────────────────────────────────────────────────
+
+  const handleRealtimeEvent = useCallback((event: ConversationRowEvent) => {
+    const newRow = event.new
+
+    // New messages
+    if (event.newEntries.length > 0) {
+      const newMsgs = event.newEntries.map((e, i) =>
+        realtimeMsgToChatMessage(e, i),
+      )
+      setLiveMessages((prev) => {
+        // Deduplicate by id
+        const existingIds = new Set(prev.map((m) => m.id))
+        const fresh = newMsgs.filter((m) => !existingIds.has(m.id))
+        return fresh.length > 0 ? [...prev, ...fresh] : prev
+      })
+    }
+
+    // Typing indicator: read from conversation row metadata if available.
+    // BlueBubbles emits a `typing` boolean / `typing_started_at` field on rows
+    // or fires a separate synthetic UPDATE with typing metadata.
+    const rowAny = newRow as Record<string, unknown>
+    if (rowAny.typing === true || rowAny.peer_typing === true) {
+      setPeerTyping(true)
+      if (typingTimerRef.current) clearTimeout(typingTimerRef.current)
+      typingTimerRef.current = setTimeout(() => setPeerTyping(false), 3000)
+    }
+
+    // Read receipt: `read_at` column or `chat_read_at` on the row
+    const rawReadAt =
+      (rowAny.read_at as string | null | undefined) ??
+      (rowAny.chat_read_at as string | null | undefined) ??
+      null
+    if (rawReadAt) {
+      setReadAt(new Date(rawReadAt))
+    }
+
+    // Reactions update
+    const rawReactions = rowAny.reactions
+    if (Array.isArray(rawReactions) && rawReactions.length > 0) {
+      setLiveReactions(rawReactions as ReactionEntry[])
+    }
+  }, [])
+
+  useMatchMessages(matchId ?? null, handleRealtimeEvent)
+
+  // Cleanup typing timer on unmount
+  useEffect(() => {
+    return () => {
+      if (typingTimerRef.current) clearTimeout(typingTimerRef.current)
+    }
+  }, [])
+
+  // ── Merged message list ─────────────────────────────────────────────────────
+
+  const allMessages = useMemo(() => {
+    const combined = [...messages, ...liveMessages]
+    // Deduplicate by id (live messages can duplicate server-rendered ones after hydration)
+    const seen = new Set<string>()
+    return combined.filter((m) => {
+      if (seen.has(m.id)) return false
+      seen.add(m.id)
+      return true
+    })
+  }, [messages, liveMessages])
+
+  // Inject per-message reactions from the conversation row reactions JSONB
+  const messagesWithReactions = useMemo<ChatMessage[]>(() => {
+    if (!liveReactions.length) return allMessages
+    return allMessages.map((m) => {
+      const msgReactions = liveReactions.filter(
+        (r) => r.msg_guid && m.id.includes(r.msg_guid),
+      )
+      return msgReactions.length > 0
+        ? { ...m, reactions: msgReactions }
+        : m
+    })
+  }, [allMessages, liveReactions])
 
   // Collect unique channels present in the conversation
   const channelsPresent = useMemo(() => {
     const seen = new Set<string>()
-    for (const m of messages) {
+    for (const m of messagesWithReactions) {
       if (m.channel) seen.add(m.channel.toLowerCase())
     }
     return Array.from(seen).sort()
-  }, [messages])
+  }, [messagesWithReactions])
 
   // Sorted full list
   const sorted = useMemo(() => {
-    return [...messages].sort((a, b) => {
+    return [...messagesWithReactions].sort((a, b) => {
       const aT = a.sent_at ? new Date(a.sent_at).getTime() : 0
       const bT = b.sent_at ? new Date(b.sent_at).getTime() : 0
       return aT - bT
     })
-  }, [messages])
+  }, [messagesWithReactions])
 
   // Filtered list (for display)
   const filtered = useMemo(() => {
@@ -177,8 +338,8 @@ export default function ConversationThread({ messages, emptyHint }: Props) {
 
   useEffect(() => {
     if (!autoScroll) return
-    bottomRef.current?.scrollIntoView({ behavior: 'auto', block: 'end' })
-  }, [filtered.length, autoScroll])
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
+  }, [filtered.length, peerTyping, autoScroll])
 
   if (sorted.length === 0) {
     return (
@@ -214,6 +375,11 @@ export default function ConversationThread({ messages, emptyHint }: Props) {
             <span>
               Latest:{' '}
               <span className="text-white/80">{formatTimeStamp(summary.last)}</span>
+            </span>
+          )}
+          {readAt && (
+            <span className="text-blue-300/80">
+              Read {formatTimeStamp(readAt)}
             </span>
           )}
           <label className="ml-auto inline-flex items-center gap-1.5 cursor-pointer select-none text-white/50">
@@ -291,6 +457,15 @@ export default function ConversationThread({ messages, emptyHint }: Props) {
             />
           )
         })}
+
+        {/* Peer typing bubble (AI-8876) */}
+        {peerTyping && <TypingBubble />}
+
+        {/* Read receipt (AI-8876) */}
+        {readAt && !peerTyping && (
+          <ReadReceipt readAt={readAt} />
+        )}
+
         <div ref={bottomRef} />
       </div>
     </div>
@@ -350,7 +525,7 @@ function buildRenderItems(msgs: ChatMessage[]): RenderItem[] {
       })
     }
 
-    // 60s direction grouping: suppress badge/avatar if same direction within 60s
+    // 60s direction grouping: suppress badge if same direction within 60s
     const thisTime = d ? d.getTime() : null
     const groupedWithPrev =
       prevIsMe === m.is_from_me &&
@@ -417,6 +592,39 @@ function HandoffMarker({
   )
 }
 
+/** AI-8876: Animated three-dot typing indicator (peer is typing) */
+function TypingBubble() {
+  return (
+    <div className="flex justify-start mt-1.5" aria-label="Typing indicator">
+      <div className="px-3.5 py-2.5 rounded-2xl rounded-bl-md bg-white/10 flex items-center gap-1">
+        <span
+          className="w-1.5 h-1.5 rounded-full bg-white/60 animate-bounce"
+          style={{ animationDelay: '0ms', animationDuration: '800ms' }}
+        />
+        <span
+          className="w-1.5 h-1.5 rounded-full bg-white/60 animate-bounce"
+          style={{ animationDelay: '150ms', animationDuration: '800ms' }}
+        />
+        <span
+          className="w-1.5 h-1.5 rounded-full bg-white/60 animate-bounce"
+          style={{ animationDelay: '300ms', animationDuration: '800ms' }}
+        />
+      </div>
+    </div>
+  )
+}
+
+/** AI-8876: "Read" receipt indicator below the last outgoing message */
+function ReadReceipt({ readAt }: { readAt: Date }) {
+  return (
+    <div className="flex justify-end pr-1">
+      <span className="text-[10px] text-blue-400/80 tracking-wide">
+        Read {formatTimeStamp(readAt)}
+      </span>
+    </div>
+  )
+}
+
 function Bubble({
   msg,
   showBadge,
@@ -434,9 +642,20 @@ function Bubble({
     ? `${formatTimeStamp(stamp)}${msg.channel ? ` · ${cfg.label}` : ''}`
     : msg.channel ?? ''
 
+  // Aggregate reactions by emoji
+  const reactionGroups = useMemo<Array<{ emoji: string; count: number }>>(() => {
+    if (!msg.reactions?.length) return []
+    const counts: Record<string, number> = {}
+    for (const r of msg.reactions) {
+      const emoji = tapbackEmoji(r.kind)
+      counts[emoji] = (counts[emoji] ?? 0) + 1
+    }
+    return Object.entries(counts).map(([emoji, count]) => ({ emoji, count }))
+  }, [msg.reactions])
+
   return (
     <div
-      className={`flex ${isMe ? 'justify-end' : 'justify-start'} group ${groupedWithPrev ? 'mt-0.5' : 'mt-1.5'}`}
+      className={`flex flex-col ${isMe ? 'items-end' : 'items-start'} group ${groupedWithPrev ? 'mt-0.5' : 'mt-1.5'}`}
     >
       <div
         className={`max-w-[78%] px-3.5 py-2 rounded-2xl text-sm leading-snug whitespace-pre-wrap break-words shadow-sm ${
@@ -473,6 +692,27 @@ function Bubble({
           {stamp ? formatTimeStamp(stamp) : ''}
         </div>
       </div>
+
+      {/* AI-8876: Inbound tapback/reaction bubbles */}
+      {reactionGroups.length > 0 && (
+        <div
+          className={`flex gap-0.5 mt-0.5 ${isMe ? 'justify-end' : 'justify-start'}`}
+          aria-label="Message reactions"
+        >
+          {reactionGroups.map(({ emoji, count }) => (
+            <span
+              key={emoji}
+              className="inline-flex items-center gap-0.5 text-[13px] px-1.5 py-0.5 rounded-full bg-white/10 border border-white/10"
+              title={`${count} reaction${count > 1 ? 's' : ''}`}
+            >
+              {emoji}
+              {count > 1 && (
+                <span className="text-[10px] text-white/60">{count}</span>
+              )}
+            </span>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

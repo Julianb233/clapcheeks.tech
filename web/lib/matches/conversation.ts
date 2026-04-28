@@ -119,11 +119,27 @@ export async function getMatchConversationUnified(
 ): Promise<UnifiedMessage[]> {
   if (!externalId) return []
 
+  // AI-8876: After PR #72 all writers emit canonical `<platform>:<external_id>`
+  // match_ids.  Support a brief migration-window overlap where some rows may
+  // still have the bare externalId.  Query for both forms via PostgREST OR filter.
+  const canonicalId =
+    matchPlatform && !externalId.includes(':')
+      ? `${matchPlatform}:${externalId}`
+      : externalId
+
+  // Build the filter: try canonical form first.  If it differs from the raw
+  // externalId, also include the legacy bare form so rows written before the
+  // migration are still visible.
+  const matchIdFilter =
+    canonicalId !== externalId
+      ? `match_id.eq.${canonicalId},match_id.eq.${externalId}`
+      : `match_id.eq.${canonicalId}`
+
   const { data, error } = await supabase
     .from('clapcheeks_conversations')
     .select('*')
     .eq('user_id', userId)
-    .eq('match_id', externalId)
+    .or(matchIdFilter)
     .order('last_message_at', { ascending: true, nullsFirst: true })
 
   if (error || !Array.isArray(data)) return []
