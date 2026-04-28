@@ -90,6 +90,21 @@ def generate_opener(
     if intel_block:
         system = f"{system}\n\n{intel_block}"
 
+    # Research-backed opener formula (AI-research-quickwins).
+    # Hinge 500k-conversation analysis: observation+question gets 67% higher
+    # reply rate; prompt comments beat photo comments by 47%; two-truths-and-
+    # a-lie is Hinge's #1 opener. Emit a formula-specific addendum so the
+    # LLM is biased toward a known-winning structure.
+    try:
+        from clapcheeks.openers import OpenerService
+
+        formula_addendum = OpenerService().build_for(profile_data)
+        if formula_addendum:
+            system = f"{system}\n\n{formula_addendum}"
+    except Exception as exc:
+        # Non-fatal — opener generation must always succeed.
+        logger.debug("OpenerService addendum failed: %s", exc)
+
     # Build user message (persona + intel already live in system — keep this tight)
     user_msg = f"Write an opener for {match_name}."
     if intel.get("prompt_themes"):

@@ -27,6 +27,11 @@ class TinderClient:
     def __init__(self, driver) -> None:
         self.driver = driver
         self._page = None
+        # Selectivity gate (research quick-win): keep right-swipe ratio
+        # under 30% per session to protect Tinder Dynamic Desirability Score.
+        from clapcheeks.safety import SelectivityGate
+
+        self._selectivity = SelectivityGate()
 
     def _get_page(self):
         """Resolve the Playwright Page from the driver."""
@@ -148,11 +153,24 @@ class TinderClient:
                     # Decide swipe direction
                     do_like = self._should_like(profile_data, like_ratio)
 
+                    # Selectivity gate: enforce <30% right-swipe ratio to
+                    # protect Tinder/Hinge Trust / Desirability Score. If
+                    # the gate says we can't like, force a pass instead.
+                    if do_like:
+                        allowed, reason = self._selectivity.can_like()
+                        if not allowed:
+                            logger.info(
+                                "selectivity gate flipped like->pass: %s", reason,
+                            )
+                            do_like = False
+
                     if do_like:
                         await page.locator(SELECTORS["like"]).first.click()
+                        self._selectivity.record_like()
                         liked += 1
                     else:
                         await page.locator(SELECTORS["nope"]).first.click()
+                        self._selectivity.record_pass()
                         passed += 1
 
                     # Check for match modal

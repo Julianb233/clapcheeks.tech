@@ -342,3 +342,68 @@ class PlatformLimits:
         """Record the end of a session."""
         import time as _time
         self._last_session_end[platform] = _time.time()
+
+
+class SelectivityGate:
+    """Enforce <30% right-swipe rate per session to protect Tinder/Hinge
+    Elo / Desirability Score.
+
+    Source: Tinder 2026 "Dynamic Desirability Score" research + Hovalo Elo
+    guide. High-volume right-swiping tanks the score and degrades match
+    quality + match rate within 24-72hr.
+
+    Usage::
+
+        gate = SelectivityGate()
+        ok, reason = gate.can_like()
+        if ok:
+            page.click("Like")
+            gate.record_like()
+        else:
+            page.click("Pass")
+            gate.record_pass()
+    """
+
+    MAX_RIGHT_SWIPE_RATIO = 0.30
+
+    def __init__(self) -> None:
+        self._session_likes = 0
+        self._session_passes = 0
+
+    def record_like(self) -> None:
+        self._session_likes += 1
+
+    def record_pass(self) -> None:
+        self._session_passes += 1
+
+    def can_like(self) -> tuple[bool, str]:
+        """Return (allowed, reason). False means the caller MUST pass to
+        rebalance the ratio. The first 10 swipes are a warm-up and never
+        blocked so we don't trap brand-new sessions."""
+        total = self._session_likes + self._session_passes
+        if total < 10:
+            return True, "warming up (under 10 swipes)"
+        ratio = self._session_likes / total
+        if ratio < self.MAX_RIGHT_SWIPE_RATIO:
+            return True, f"ratio {ratio:.0%} ok"
+        return False, (
+            f"ratio {ratio:.0%} exceeds {self.MAX_RIGHT_SWIPE_RATIO:.0%} cap "
+            "- must pass to rebalance"
+        )
+
+    def reset_session(self) -> None:
+        self._session_likes = 0
+        self._session_passes = 0
+
+    @property
+    def likes(self) -> int:
+        return self._session_likes
+
+    @property
+    def passes(self) -> int:
+        return self._session_passes
+
+    @property
+    def ratio(self) -> float:
+        total = self._session_likes + self._session_passes
+        return self._session_likes / total if total else 0.0
