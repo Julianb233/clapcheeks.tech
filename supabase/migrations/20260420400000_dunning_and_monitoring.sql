@@ -79,25 +79,39 @@ CREATE INDEX IF NOT EXISTS idx_security_audit_severity
   ON security_audit_log(severity, created_at DESC);
 
 -- RLS policies for dunning_events (admin only)
+-- AI-8769 fix: CREATE POLICY IF NOT EXISTS is not valid Postgres syntax. Wrapped in DO blocks
+-- so the migration applies cleanly to a fresh DB (was previously blocked at supabase db reset).
 ALTER TABLE dunning_events ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY IF NOT EXISTS "Service role can manage dunning events"
-  ON dunning_events
-  FOR ALL
-  USING (auth.role() = 'service_role');
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'dunning_events' AND policyname = 'Service role can manage dunning events') THEN
+        CREATE POLICY "Service role can manage dunning events"
+            ON dunning_events
+            FOR ALL
+            USING (auth.role() = 'service_role');
+    END IF;
+END $$;
 
 -- RLS for security audit log (admin only)
 ALTER TABLE security_audit_log ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY IF NOT EXISTS "Service role can manage security log"
-  ON security_audit_log
-  FOR ALL
-  USING (auth.role() = 'service_role');
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'security_audit_log' AND policyname = 'Service role can manage security log') THEN
+        CREATE POLICY "Service role can manage security log"
+            ON security_audit_log
+            FOR ALL
+            USING (auth.role() = 'service_role');
+    END IF;
+END $$;
 
 -- RLS for health checks (admin only)
 ALTER TABLE api_health_checks ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY IF NOT EXISTS "Service role can manage health checks"
-  ON api_health_checks
-  FOR ALL
-  USING (auth.role() = 'service_role');
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'api_health_checks' AND policyname = 'Service role can manage health checks') THEN
+        CREATE POLICY "Service role can manage health checks"
+            ON api_health_checks
+            FOR ALL
+            USING (auth.role() = 'service_role');
+    END IF;
+END $$;
