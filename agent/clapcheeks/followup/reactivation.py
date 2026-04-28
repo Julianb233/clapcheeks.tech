@@ -1,5 +1,15 @@
 """Ghost-recovery reactivation prompt builder — Phase G2, AI-8804.
 
+**Playbook reference:** docs/playbooks/reactivation-campaign.md
+  The full teachable methodology behind this module — timing ladder,
+  banned phrases, cross-domain adaptations, operator guide, and research
+  bibliography — lives there. If you're extending this module or tuning
+  templates, read Part 2 (Clapcheeks Implementation) and Part 1
+  (Universal Strategy) first.
+
+  Machine-readable banned phrases: docs/playbooks/banned-phrases.json
+  Decision tree and tracker templates: docs/playbooks/templates/
+
 This is a **pure function** module — no Supabase calls, no LLM calls.
 It takes the context of a ghosted match and returns a fully-formed
 system prompt to feed into the existing Phase E pipeline
