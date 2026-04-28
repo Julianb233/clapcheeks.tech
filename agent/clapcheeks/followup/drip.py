@@ -53,6 +53,12 @@ DEFAULT_CADENCE: dict[str, float] = {
 
     # Cap on how many bumps can fire per match.
     "max_bumps": 1,
+
+    # Ghost-recovery / reactivation campaign (AI-8804).
+    "reactivation_first_attempt_days": 14.0,   # days after ghosted -> first reactivation
+    "reactivation_followup_days": 45.0,         # days between reactivation attempts
+    "reactivation_max_attempts": 2,             # hard cap; beyond this -> burned
+    "reactivation_quiet_window_days": 60.0,     # do not re-attempt within N days of last
 }
 
 
@@ -71,6 +77,11 @@ STATE_DATE_PROPOSED_NO_CONFIRM  = "date_proposed_no_confirm_24h"
 STATE_DATE_BOOKED_PENDING       = "date_booked"
 STATE_DATE_PASSED_NO_OUTCOME    = "date_passed_no_outcome"
 STATE_NOOP                      = "noop"
+
+# Ghost-recovery states (AI-8804).
+STATE_GHOSTED_REACTIVATABLE     = "ghosted_reactivatable"    # eligible, attempt queued
+STATE_REACTIVATED_WAITING       = "reactivated_waiting"      # sent, awaiting reply
+STATE_REACTIVATION_BURNED       = "reactivation_burned"      # max attempts hit
 
 
 # ---------------------------------------------------------------------------
@@ -406,6 +417,110 @@ def evaluate_conversation_state(
             kind="noop", reason="date ask pending"
         )
 
+    # ---- Ghost-recovery / reactivation campaign (AI-8804) -----------------
+    if status == "ghosted":
+        # Hard opt-out — user or operator disabled reactivation for this match.
+        if match.get("reactivation_disabled"):
+            return STATE_NOOP, DripAction(
+                kind="noop",
+                reason="reactivation_disabled=true, skipping",
+            )
+
+        # Already burned (max attempts exhausted) or terminal outcome recorded.
+        reactivation_outcome = match.get("reactivation_outcome")
+        if reactivation_outcome in ("burned", "ignored", "opted_out"):
+            return STATE_REACTIVATION_BURNED, DripAction(
+                kind="noop",
+                reason=f"reactivation terminal outcome={reactivation_outcome!r}",
+            )
+
+        reactivation_count = int(match.get("reactivation_count") or 0)
+        max_attempts = int(cadence.get("reactivation_max_attempts", 2))
+
+        # Exceeded attempt cap — mark burned.
+        if reactivation_count >= max_attempts:
+            return STATE_REACTIVATION_BURNED, DripAction(
+                kind="mark_reactivation_burned",
+                new_status="ghosted",              # status stays ghosted
+                reason=f"reactivation_count={reactivation_count} >= max={max_attempts}",
+                context={"reactivation_count": reactivation_count, "name": her},
+            )
+
+        # When was she ghosted?  Use last_activity_at or last_drip_at as proxy.
+        ghosted_at = _parse_ts(
+            match.get("ghosted_at")
+            or match.get("last_activity_at")
+            or match.get("last_drip_at")
+        )
+        if ghosted_at is None:
+            return STATE_NOOP, DripAction(
+                kind="noop",
+                reason="ghosted but no timestamp to determine reactivation window",
+            )
+
+        hours_since_ghosted = _hours_since(ghosted_at, now)
+
+        # Determine the threshold for the next attempt.
+        if reactivation_count == 0:
+            threshold_days = float(cadence.get("reactivation_first_attempt_days", 14.0))
+        else:
+            threshold_days = float(cadence.get("reactivation_followup_days", 45.0))
+
+        threshold_hours = threshold_days * 24.0
+
+        # Quiet window: don't fire again within N days of the last reactivation.
+        last_react = _parse_ts(match.get("last_reactivation_at"))
+        if last_react is not None:
+            quiet_days = float(cadence.get("reactivation_quiet_window_days", 60.0))
+            hours_since_last = _hours_since(last_react, now)
+            if hours_since_last < quiet_days * 24.0:
+                return STATE_REACTIVATED_WAITING, DripAction(
+                    kind="noop",
+                    reason=(
+                        f"reactivation attempt {reactivation_count} sent "
+                        f"{hours_since_last:.0f}h ago, quiet window active"
+                    ),
+                )
+
+        if hours_since_ghosted < threshold_hours:
+            return STATE_NOOP, DripAction(
+                kind="noop",
+                reason=(
+                    f"ghosted {hours_since_ghosted:.0f}h ago, "
+                    f"reactivation not due until {threshold_days:.0f}d"
+                ),
+            )
+
+        # Eligible — build a prompt using the reactivation builder.
+        from clapcheeks.followup.reactivation import build_reactivation_prompt  # noqa: PLC0415
+
+        stage_when_died = match.get("ghost_stage") or match.get("stage") or "opened"
+        memo_text = match.get("memo") or match.get("memo_text") or ""
+        persona_data = match.get("_persona")  # injected by scan_and_fire when available
+
+        prompt = build_reactivation_prompt(
+            name=her,
+            stage_when_died=stage_when_died,
+            memo_text=memo_text or None,
+            persona=persona_data,
+        )
+
+        return STATE_GHOSTED_REACTIVATABLE, DripAction(
+            kind="queue_reactivation",
+            prompt=prompt,
+            reason=(
+                f"ghosted {hours_since_ghosted:.0f}h ago, "
+                f"attempt #{reactivation_count + 1} of {max_attempts}"
+            ),
+            context={
+                "name": her,
+                "action_type": "reactivation",
+                "reactivation_count": reactivation_count,
+                "stage_when_died": stage_when_died,
+            },
+            new_status="ghosted",   # status unchanged; reactivation_count bumped separately
+        )
+
     return STATE_NOOP, DripAction(kind="noop", reason=f"status={status!r} not actionable")
 
 
@@ -658,6 +773,62 @@ def queue_drip_action(
         result["fired"] = ok
         return result
 
+    # ---- Ghost-recovery actions (AI-8804) ----------------------------------
+
+    if action.kind == "queue_reactivation":
+        messages = _generate_sanitized_draft(action.prompt or "", user_id)
+        if not messages:
+            result["error"] = "reactivation_draft_discarded"
+            return result
+
+        result["messages"] = messages
+        if dry_run:
+            logger.info(
+                "[drip dry-run] reactivation match=%s messages=%s",
+                match_id, messages,
+            )
+            result["fired"] = True
+            return result
+
+        queued_id = _insert_queued_replies(
+            user_id=user_id,
+            match=match,
+            messages=messages,
+            auto_send=auto_send,
+            platform_clients=platform_clients,
+        )
+        result["queued_id"] = queued_id
+        result["fired"] = bool(queued_id)
+
+        if result["fired"]:
+            # Read current reactivation_count, then bump it.
+            current_count = int(match.get("reactivation_count") or 0)
+            _patch_match(match_id, {
+                "reactivation_count": current_count + 1,
+                "last_reactivation_at": _now_iso(),
+            })
+            _log_drip_event(
+                user_id=user_id,
+                match_id=match_id,
+                action_type="reactivation",
+                messages=messages,
+                auto_sent=auto_send,
+            )
+        return result
+
+    if action.kind == "mark_reactivation_burned":
+        ok = _patch_match(match_id, {"reactivation_outcome": "burned"})
+        if ok and not dry_run:
+            _log_drip_event(
+                user_id=user_id,
+                match_id=match_id,
+                action_type="mark_reactivation_burned",
+                messages=[],
+                auto_sent=False,
+            )
+        result["fired"] = ok
+        return result
+
     result["error"] = f"unknown action kind {action.kind!r}"
     return result
 
@@ -900,13 +1071,17 @@ def scan_and_fire(
         return stats
 
     params = {
+        # Include ghosted so the reactivation arm can evaluate them (AI-8804).
         "status": "in.(new,opened,conversing,chatting,chatting_phone,stalled,"
-                   "date_proposed,date_booked,dated)",
+                   "date_proposed,date_booked,dated,ghosted)",
         "select": (
             "id,user_id,platform,match_id,name,match_name,status,stage,"
             "last_drip_at,drip_count,outcome,outcome_prompted_at,"
             "handoff_complete,primary_channel,date_booked_at,"
-            "last_activity_at"
+            "last_activity_at,"
+            # Reactivation columns (AI-8804)
+            "reactivation_count,last_reactivation_at,reactivation_eligible_at,"
+            "reactivation_outcome,reactivation_disabled,ghost_stage,memo"
         ),
         "limit": "200",
     }
@@ -939,6 +1114,9 @@ def scan_and_fire(
     # Per-user cadence cache so we don't fetch persona once per match.
     cadence_cache: dict[str, dict] = {}
 
+    # Cache for full persona dicts (for reactivation template selection).
+    persona_cache: dict[str, dict] = {}
+
     for match in matches:
         stats["scanned"] += 1
         u = match.get("user_id")
@@ -946,6 +1124,13 @@ def scan_and_fire(
             if u not in cadence_cache:
                 cadence_cache[u] = load_cadence_for_user(u)
             cadence = cadence_cache[u]
+
+            # Inject persona into match so evaluate_conversation_state can
+            # pass it to build_reactivation_prompt without a Supabase call.
+            if u not in persona_cache:
+                persona_cache[u] = _load_full_persona(u)
+            match["_persona"] = persona_cache[u]
+
             events = _fetch_recent_events(match.get("id"))
             auto_send = _get_auto_send_flag(u)
             state, action = evaluate_conversation_state(
@@ -1029,6 +1214,36 @@ def _fetch_recent_events(match_id: Optional[str], limit: int = 50) -> list[dict]
     except Exception as exc:
         logger.debug("events fetch failed: %s", exc)
         return []
+
+
+def _load_full_persona(user_id: Optional[str]) -> dict:
+    """Load the full persona dict for a user (for reactivation templates).
+
+    Returns {} on any failure — callers must handle missing persona gracefully.
+    """
+    if not user_id:
+        return {}
+    url, key, requests = _supabase_rest()
+    if not url:
+        return {}
+    try:
+        r = requests.get(
+            f"{url}/rest/v1/clapcheeks_user_settings",
+            params={
+                "user_id": f"eq.{user_id}",
+                "select": "persona",
+                "limit": "1",
+            },
+            headers={"apikey": key, "Authorization": f"Bearer {key}"},
+            timeout=10,
+        )
+        if r.status_code >= 300:
+            return {}
+        rows = r.json() or []
+        return (rows[0].get("persona") or {}) if rows else {}
+    except Exception as exc:
+        logger.debug("persona load failed for %s: %s", user_id, exc)
+        return {}
 
 
 def _get_auto_send_flag(user_id: Optional[str]) -> bool:
