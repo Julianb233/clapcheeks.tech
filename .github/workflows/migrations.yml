@@ -1,0 +1,166 @@
+name: Migrations sanity check
+
+# AI-8769: applies the full supabase/migrations/ set to a fresh Postgres in CI to ensure
+# the migration set is internally consistent (no missing references, no syntax errors,
+# no missed IF NOT EXISTS guards on something that gets re-CREATED later).
+#
+# This does NOT touch prod. It spins up Postgres 17, applies every migration in
+# lexical order, and asserts exit 0. Failures here mean someone landed a migration that
+# can't apply against an empty DB.
+#
+# KNOWN SKIPS: see .planning/migration-audit/inventory.md "Pre-existing migration debt"
+# section. Several pre-existing migrations don't apply cleanly to vanilla Postgres
+# (they need real Supabase storage.buckets columns, or have schema drift between
+# committed migrations and prod). The job continues past these and only HARD FAILS on
+# NEW migrations introduced in the PR.
+
+on:
+  pull_request:
+    paths:
+      - 'supabase/migrations/**.sql'
+      - '.github/workflows/migrations.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'supabase/migrations/**.sql'
+
+jobs:
+  apply-migrations:
+    name: Apply migrations against empty Postgres 17
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install psql client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+
+      - name: Stub Supabase auth schema (auth.users + auth.uid)
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d postgres <<'SQL'
+          CREATE SCHEMA IF NOT EXISTS auth;
+          CREATE TABLE IF NOT EXISTS auth.users (
+              id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+              email text UNIQUE,
+              raw_user_meta_data jsonb DEFAULT '{}'::jsonb
+          );
+          CREATE OR REPLACE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $$
+              SELECT '00000000-0000-0000-0000-000000000000'::uuid;
+          $$;
+          CREATE OR REPLACE FUNCTION auth.role() RETURNS text LANGUAGE sql STABLE AS $$
+              SELECT 'authenticated'::text;
+          $$;
+          CREATE OR REPLACE FUNCTION auth.jwt() RETURNS jsonb LANGUAGE sql STABLE AS $$
+              SELECT '{}'::jsonb;
+          $$;
+          -- Supabase normally creates these roles; stub them so RLS GRANTs don't fail.
+          DO $$ BEGIN
+            CREATE ROLE authenticated NOLOGIN;
+          EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+          DO $$ BEGIN
+            CREATE ROLE anon NOLOGIN;
+          EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+          DO $$ BEGIN
+            CREATE ROLE service_role NOLOGIN;
+          EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+          SQL
+
+      - name: Identify NEW migrations vs base ref
+        id: diff
+        run: |
+          # Find migrations added/modified in this PR vs main
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            base="origin/${{ github.base_ref }}"
+            git fetch origin "${{ github.base_ref }}" --depth=1
+          else
+            base="HEAD~1"
+          fi
+          changed=$(git diff --name-only --diff-filter=AM "$base" -- 'supabase/migrations/*.sql' | sort -u || true)
+          if [ -z "$changed" ]; then
+            echo "No migration changes."
+            echo "new_files=" >> "$GITHUB_OUTPUT"
+          else
+            echo "Changed migrations:"
+            echo "$changed"
+            # GH Actions multi-line output
+            {
+              echo "new_files<<EOF"
+              echo "$changed"
+              echo "EOF"
+            } >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Apply every migration in lexical order (warn-only on known issues)
+        env:
+          PGPASSWORD: postgres
+        run: |
+          set -uo pipefail
+          ok=0
+          warn=0
+          fail_new=0
+          new_files="${{ steps.diff.outputs.new_files }}"
+          for f in $(ls supabase/migrations/*.sql | sort); do
+            name=$(basename "$f")
+            echo ""
+            echo "=== $name ==="
+            if psql -h localhost -U postgres -d postgres -v ON_ERROR_STOP=1 -f "$f" > /tmp/mig-out.log 2>&1; then
+              ok=$((ok+1))
+              echo "OK"
+            else
+              # Check if this migration is NEW in the PR — if so, hard fail
+              if echo "$new_files" | grep -qF "$f"; then
+                echo "FAIL (NEW migration in this PR did not apply cleanly):"
+                tail -25 /tmp/mig-out.log
+                fail_new=$((fail_new+1))
+              else
+                warn=$((warn+1))
+                echo "WARN (pre-existing migration debt — see inventory.md):"
+                tail -10 /tmp/mig-out.log | head -5
+              fi
+            fi
+          done
+          echo ""
+          echo "Summary: $ok clean / $warn warn (pre-existing) / $fail_new fail (new)"
+          if [ "$fail_new" -gt 0 ]; then
+            echo "Hard fail: $fail_new NEW migration(s) in this PR did not apply cleanly."
+            exit 1
+          fi
+
+      - name: Re-apply migration set (idempotency check, NEW files only)
+        env:
+          PGPASSWORD: postgres
+        run: |
+          set -euo pipefail
+          new_files="${{ steps.diff.outputs.new_files }}"
+          if [ -z "$new_files" ]; then
+            echo "No new migrations to idempotency-check."
+            exit 0
+          fi
+          fail=0
+          for f in $new_files; do
+            if [ ! -f "$f" ]; then continue; fi
+            echo "=== Re-applying $(basename $f) ==="
+            if ! psql -h localhost -U postgres -d postgres -v ON_ERROR_STOP=1 -f "$f" >/dev/null 2>&1; then
+              echo "FAIL: $f is not idempotent (re-apply errored)"
+              fail=1
+            fi
+          done
+          if [ "$fail" -ne 0 ]; then exit 1; fi
+          echo "Idempotency confirmed for all NEW migrations in this PR."
