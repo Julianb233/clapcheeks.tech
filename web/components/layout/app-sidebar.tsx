@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { logout } from '@/app/auth/actions'
+import AiActiveSwitch from '@/components/header/AiActiveSwitch'
 
 type NavItem = {
   href: string
@@ -223,6 +224,11 @@ export default function AppSidebar() {
 
         {/* User / logout */}
         <div className="p-3 border-t border-white/8">
+          {/* AI-8809: AI Active master toggle */}
+          <div className="mb-2">
+            <AiActiveSwitch />
+          </div>
+
           <div className="flex items-center gap-3 px-2 py-2">
             <div className="w-8 h-8 rounded-full bg-gradient-to-br from-yellow-500 to-red-600 flex items-center justify-center text-[11px] font-bold text-black">
               {(email[0] ?? 'C').toUpperCase()}

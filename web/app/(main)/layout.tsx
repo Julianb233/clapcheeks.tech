@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import AppSidebar from '@/components/layout/app-sidebar'
 import ConnectionBar from '@/components/layout/connection-bar'
+import AiActiveBanner from '@/components/header/AiActiveBanner'
 import PageOrbs from '@/components/page-orbs'
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
@@ -25,6 +26,8 @@ export default async function MainLayout({ children }: { children: React.ReactNo
       <div className="relative min-h-screen" style={{ zIndex: 1 }}>
         <AppSidebar />
         <div className="lg:pl-[260px]">
+          {/* AI-8809: sticky banner when AI is globally paused */}
+          <AiActiveBanner />
           {/* AI-8764: token health + ban risk pills, sticky at top */}
           <ConnectionBar />
           <main className="min-h-screen">{children}</main>
