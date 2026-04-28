@@ -744,6 +744,9 @@ def converse(platform: str, dry_run: bool) -> None:
 from clapcheeks.commands.profile import profile
 main.add_command(profile)
 
+from clapcheeks.commands.e2e_outbound import send_test
+main.add_command(send_test)
+
 
 @main.group()
 def reengagement() -> None:
