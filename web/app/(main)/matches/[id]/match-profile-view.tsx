@@ -7,6 +7,7 @@ import { toast } from 'sonner'
 import { VoiceInput, VoiceTextarea } from '@/components/voice'
 import ConversationThread, { type ChatMessage } from './conversation-thread'
 import MemoViewer from './memo-viewer'
+import AttributeChips, { type MatchAttributes } from '@/components/matches/AttributeChips'
 
 type TabKey = 'profile' | 'conversation' | 'memo' | 'intel'
 
@@ -65,6 +66,9 @@ type MatchRow = {
   red_flags: string[] | null
   opener_sent_at: string | null
   created_at: string | null
+  // AI-8814 match attributes
+  attributes: MatchAttributes | null
+  attributes_updated_at: string | null
 }
 
 const STAGE_OPTIONS: { value: string; label: string }[] = [
@@ -402,6 +406,18 @@ export default function MatchProfileView({
               {m.distance_miles != null && <> &middot; {m.distance_miles} mi</>}
               {m.stage && <> &middot; {m.stage}</>}
             </p>
+            {/* AI-8814: Attribute chips — prominent, directly under name */}
+            {m.attributes && (
+              <div className="mt-2">
+                <AttributeChips
+                  matchId={m.id}
+                  attributes={m.attributes}
+                  onAttributesChange={(updated) =>
+                    setM((cur) => ({ ...cur, attributes: updated }))
+                  }
+                />
+              </div>
+            )}
           </div>
 
           {(m.job || m.school) && (

@@ -7,9 +7,11 @@ import {
   STATUS_COLORS,
   formatTimeAgo,
 } from '@/lib/matches/types'
+import AttributeChipMini from './AttributeChipMini'
+import type { MatchAttributes } from './AttributeChips'
 
 type Props = {
-  match: ClapcheeksMatchRow
+  match: ClapcheeksMatchRow & { attributes?: MatchAttributes | null }
   lastMessage?: string | null
 }
 
@@ -69,6 +71,10 @@ export default function MatchCard({ match, lastMessage }: Props) {
             {formatTimeAgo(match.last_activity_at ?? match.updated_at)}
           </span>
         </div>
+        {/* AI-8814: Mini attribute chips */}
+        {match.attributes && (
+          <AttributeChipMini attributes={match.attributes} className="mb-1.5" />
+        )}
         {lastMessage ? (
           <p className="text-xs text-white/50 line-clamp-2 leading-snug">{lastMessage}</p>
         ) : (
