@@ -1,0 +1,75 @@
+# Worker A — AI-8814 Match Attribute Extraction + Tagging
+# Agent: agent8
+# Branch: AI-8814-match-attributes
+# Date: 2026-04-27
+
+## Work Log
+
+### Phase 1: Research (complete)
+- Wrote .planning/bussit/worker-A-research.md
+- Chose Claude tool-use over NER/spaCy: informal dating language needs contextual understanding
+- Chose anthropic SDK directly (already in project), no LangChain dependency
+- Designed prompt caching on system prompt for ~90% cost reduction
+- Researched dietary taxonomy, allergy life-safety UX patterns
+
+### Phase 2: Plan (complete)
+- Wrote .planning/bussit/worker-A-PLAN.md
+- Concrete file list, extraction prompt skeleton, AttributeUpdate schema
+
+### Phase 3: Database Migration (complete)
+- supabase/migrations/20260428050000_match_attributes.sql
+- attributes JSONB DEFAULT '{}', attributes_updated_at TIMESTAMPTZ
+- GIN index on attributes for filter queries
+- _dismissed[] array stored inside JSONB column
+
+### Phase 4: Python Extractor (complete)
+- agent/clapcheeks/intel/__init__.py (package init)
+- agent/clapcheeks/intel/attributes.py (645 lines)
+  - 6 categories: dietary, allergy, schedule, lifestyle, logistics, comms
+  - extract_attributes(): haiku-4-5 primary, escalates to sonnet-4-6 when avg_confidence < 0.70
+  - merge_attributes(): idempotent JSONB merge
+  - check_draft_attribute_conflicts(): sober/celiac/vegan/nut-allergy rules
+  - dismiss_attribute(): operator override persistence
+
+### Phase 5: Python Tests (complete)
+- agent/tests/test_attributes_extractor.py (40 tests)
+- agent/tests/test_attributes_idempotency.py (5 tests)
+- agent/tests/test_sanitizer_attribute_conflicts.py (20 tests)
+- All 65 tests passing
+
+### Phase 6: Pipeline Wiring (complete)
+- agent/clapcheeks/followup/drip.py: _maybe_extract_attributes() every N messages
+- agent/clapcheeks/ai/drafter.py: match_attributes kwarg passthrough
+- agent/clapcheeks/ai/sanitizer.py: attribute-conflict check in sanitize_and_validate()
+
+### Phase 7: Web Components (complete)
+- web/components/matches/AttributeChip.tsx: single chip with popover
+- web/components/matches/AttributeChips.tsx: chip row for profile view
+- web/components/matches/AttributeChipMini.tsx: compact grid card variant
+- web/app/api/matches/[id]/attributes/route.ts: GET + POST dismiss API
+
+### Phase 8: Web Tests (complete)
+- web/components/matches/__tests__/AttributeChips.test.tsx (8 tests)
+
+### Phase 9: Page Wiring (complete)
+- web/app/(main)/matches/[id]/match-profile-view.tsx: chips under name
+- web/components/matches/MatchCard.tsx: mini chips on grid card
+
+## Verification
+- 65/65 Python tests passing
+- 0 TypeScript errors in new files (211 pre-existing from uninstalled deps)
+- Build failures all pre-existing (missing node_modules in worktree)
+
+## Commits
+1. e35158e — migration
+2. e0bc2e3 — python extractor
+3. 4717470 — python tests
+4. 2f6f7f4 — pipeline wiring
+5. caf8e3a — web components + API route
+6. 65e68f6 — web tests
+7. 765f9f5 — page wiring
+
+## Known Pre-existing Issues (not caused by AI-8814)
+- tests/test_vision.py::TestDaemonVisionWorker::test_process_match_upserts_photo_scores_and_summary
+  fails with AttributeError: module 'clapcheeks.daemon' has no attribute '_process_match_vision'
+  Confirmed pre-existing on base branch before any changes.

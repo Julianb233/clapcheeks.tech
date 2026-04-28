@@ -1091,7 +1091,9 @@ def scan_and_fire(
             "last_activity_at,"
             # Reactivation columns (AI-8804)
             "reactivation_count,last_reactivation_at,reactivation_eligible_at,"
-            "reactivation_outcome,reactivation_disabled,ghost_stage,memo"
+            "reactivation_outcome,reactivation_disabled,ghost_stage,memo,"
+            # AI-8814 attribute extraction
+            "attributes,attributes_updated_at,messages_total"
         ),
         "limit": "200",
     }
@@ -1142,6 +1144,14 @@ def scan_and_fire(
             match["_persona"] = persona_cache[u]
 
             events = _fetch_recent_events(match.get("id"))
+
+            # AI-8814: Attribute extraction — run every N messages (default 5)
+            # Best-effort: failure never blocks the drip state machine.
+            try:
+                _maybe_extract_attributes(match, events, persona_cache.get(u, {}), dry_run=dry_run)
+            except Exception as exc:
+                logger.debug("attribute extraction skipped for match %s: %s", match.get("id"), exc)
+
             auto_send = _get_auto_send_flag(u)
             state, action = evaluate_conversation_state(
                 match=match,
@@ -1170,6 +1180,82 @@ def scan_and_fire(
             stats["errors"] += 1
 
     return stats
+
+
+# AI-8814: Attribute extraction interval (configurable via env var)
+_ATTRIBUTE_EXTRACTION_INTERVAL = int(os.environ.get("CLAPCHEEKS_ATTR_INTERVAL", "5"))
+
+
+def _maybe_extract_attributes(
+    match: dict,
+    events: list[dict],
+    persona: dict,
+    dry_run: bool = False,
+) -> None:
+    """Extract + merge match attributes if enough messages have been ingested.
+
+    Runs every N messages (default 5). Best-effort — never raises to caller.
+    Uses the messages count from match.messages_total; if absent, counts events.
+    """
+    match_id = match.get("id")
+    if not match_id:
+        return
+
+    messages_total = int(match.get("messages_total") or 0)
+    # Fall back to event count if messages_total column not yet populated.
+    if messages_total == 0:
+        messages_total = len(events)
+
+    if messages_total == 0 or messages_total % _ATTRIBUTE_EXTRACTION_INTERVAL != 0:
+        return  # not on an extraction tick
+
+    # Build message list from events (best-effort; real body may be empty)
+    messages = [
+        {
+            "sender": e.get("sender") or "unknown",
+            "body": e.get("body") or e.get("content") or "",
+        }
+        for e in events
+        if e.get("sender") in ("her", "us", "match", "incoming")
+    ]
+    if not messages:
+        return
+
+    try:
+        from clapcheeks.intel.attributes import extract_attributes, merge_attributes
+    except ImportError:
+        logger.debug("clapcheeks.intel.attributes not importable, skipping attribute extraction")
+        return
+
+    prior = match.get("attributes") or {}
+    delta = extract_attributes(messages, prior=prior, persona=persona)
+
+    # Check if we got any useful attributes
+    total_extracted = sum(
+        len(getattr(delta, cat, []))
+        for cat in ("dietary", "allergy", "schedule", "lifestyle", "logistics", "comms")
+    )
+    if total_extracted == 0:
+        return
+
+    merged = merge_attributes(prior, delta)
+
+    if dry_run:
+        logger.info(
+            "[attr dry-run] match=%s extracted=%d attrs model=%s",
+            match_id, total_extracted, delta.model_used,
+        )
+        return
+
+    # Persist to Supabase
+    _patch_match(match_id, {
+        "attributes": merged,
+        "attributes_updated_at": _now_iso(),
+    })
+    logger.info(
+        "attributes extracted for match=%s: %d attrs, model=%s",
+        match_id, total_extracted, delta.model_used,
+    )
 
 
 def _fetch_recent_events(match_id: Optional[str], limit: int = 50) -> list[dict]:
