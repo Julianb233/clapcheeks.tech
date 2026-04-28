@@ -1,0 +1,43 @@
+# Opener templates ranked by data-backed reply rate.
+# Source: Hinge "Best Hinge Openers 2026" 500k-conversation analysis (SwipeStats)
+# + VIDA Select Observation+Question framework
+# Variables: {detail} = concrete profile detail, {q} = low-effort question
+
+formulas:
+  oq_formula:
+    description: "Observation + Question - 67% higher reply rate vs question-only or statement-only"
+    pattern: "{observation_about_detail} {one_line_question_tied_to_it}"
+    examples:
+      - "Cabo trip looks insane - were the cliffs as scary as they look?"
+      - "That sourdough is unreal. self-taught or class?"
+      - "Pole-vaulting in the photo is wild. were you a track kid?"
+
+  two_truths_lie:
+    description: "Hinge's own #1 opener; structure does the work, content can be average"
+    pattern: |
+      "two truths and a lie:
+      1. {truth_about_you_1}
+      2. {truth_about_you_2}
+      3. {plausible_lie}
+
+      ready?"
+    examples:
+      - |
+        two truths and a lie:
+        1. ran a half-marathon hungover
+        2. proposed to my college girlfriend (rejected)
+        3. learned spanish from telenovelas
+
+        ready?
+
+  prompt_callback:
+    description: "Comments on PROMPTS beat photo comments by 47% (Hinge data)"
+    pattern: "Reply to her prompt {prompt_question} with engagement + own twist"
+    examples:
+      - "Her prompt 'best travel story': 'Mine was getting my passport stolen in Vietnam - yours was way cuter, what was the seafood that almost killed you?'"
+
+constraints:
+  - max_length: 220
+  - never_generic_hey: true
+  - no_yes_no_questions: true  # always open-ended
+  - first_message_only: true

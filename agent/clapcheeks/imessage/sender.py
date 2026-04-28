@@ -203,3 +203,76 @@ def send_imessage(
             return SendResult(ok=False, channel="osascript", error=str(exc))
 
     return SendResult(ok=False, channel="noop", error="no iMessage transport available")
+
+
+# ---------------------------------------------------------------------------
+# Time-of-day per-recipient send window (research quick-win)
+# ---------------------------------------------------------------------------
+def send_imessage_with_window(
+    phone: str,
+    body: str,
+    *,
+    handle_id: str | None = None,
+    defer_to_window: bool = True,
+    user_id: str | None = None,
+    match_name: str | None = None,
+    dry_run: bool = False,
+) -> SendResult:
+    """Send `body` to `phone` only if NOW is in the recipient's predicted-best
+    send window. If outside the window AND ``defer_to_window`` is True,
+    enqueue a row in ``clapcheeks_scheduled_messages`` with
+    ``scheduled_at = next_window_hour`` and return a deferred ``SendResult``.
+
+    Source: Nielsen + Hinge data - 5pm-midnight peak; reply-within-24h
+    boosts date odds 72%. Per-recipient hours learned from chat.db reply
+    timestamps in ``send_window.best_send_hour_for``.
+
+    This is OPT-IN. Existing callers that use ``send_imessage()`` directly
+    are unchanged. Callers that want the window optimization should call
+    THIS function instead.
+    """
+    from clapcheeks.safety.send_window import (
+        is_within_send_window,
+        next_window_hour,
+    )
+
+    e164 = to_e164_us(phone)
+    if not e164:
+        return SendResult(ok=False, channel="noop", error=f"bad phone: {phone!r}")
+
+    handle = handle_id or e164
+    in_window, reason = is_within_send_window(handle)
+
+    if in_window or not defer_to_window:
+        return send_imessage(phone=phone, body=body, dry_run=dry_run)
+
+    # Defer: write a scheduled-messages row for the queue worker.
+    scheduled_at = next_window_hour(handle).isoformat()
+    logger.info(
+        "deferring iMessage to %s until %s (%s)", e164, scheduled_at, reason,
+    )
+
+    if dry_run:
+        return SendResult(ok=True, channel="deferred", error=None)
+
+    try:
+        from clapcheeks.job_queue import _client as _svc_client
+
+        c = _svc_client()
+        c.table("clapcheeks_scheduled_messages").insert({
+            "user_id": user_id,
+            "match_name": match_name or e164,
+            "platform": "iMessage",
+            "phone": e164,
+            "message_text": body,
+            "scheduled_at": scheduled_at,
+            "status": "approved",
+            "sequence_type": "manual",
+        }).execute()
+    except Exception as exc:
+        logger.warning(
+            "deferred enqueue failed (%s); falling back to immediate send", exc,
+        )
+        return send_imessage(phone=phone, body=body, dry_run=dry_run)
+
+    return SendResult(ok=True, channel="deferred", error=None)
