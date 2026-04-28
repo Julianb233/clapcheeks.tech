@@ -29,6 +29,7 @@ const PRIMARY: NavItem[] = [
   { href: '/matches', label: 'Match Brief', icon: <ProfileIcon />, badge: 'new' },
   { href: '/conversation', label: 'Conversations', icon: <ChatIcon /> },
   { href: '/intelligence', label: 'Intelligence', icon: <SparkIcon /> },
+  { href: '/intel/health', label: 'Account Health', icon: <SparkIcon />, badge: 'new' },
   { href: '/analytics', label: 'Analytics', icon: <ChartIcon /> },
   { href: '/photos', label: 'Photos', icon: <CameraIcon /> },
   { href: '/coaching', label: 'Coaching', icon: <RizzIcon /> },
