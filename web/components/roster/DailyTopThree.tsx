@@ -61,7 +61,7 @@ export default function DailyTopThree({ matches }: Props) {
           return (
             <li key={m.id}>
               <Link
-                href={`/dashboard/matches/${m.id}`}
+                href={`/matches/${m.id}`}
                 className="flex items-center gap-3 bg-black/30 hover:bg-black/50 border border-white/5 rounded-lg p-2 transition-colors"
               >
                 <span className="text-yellow-400 font-mono font-bold text-sm w-5">#{i + 1}</span>

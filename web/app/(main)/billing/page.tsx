@@ -1,4 +1,5 @@
 import type { Metadata } from 'next'
+import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import BillingClient from './billing-client'
@@ -48,6 +49,37 @@ export default async function BillingPage() {
           subscriptionStatus={profile?.subscription_status || 'inactive'}
           hasStripeCustomer={!!profile?.stripe_customer_id}
         />
+
+        {/* Device add-on CTA — moved out of the sidebar 2026-04-27
+            (sidebar-audit Fix E). The /device page is a marketing landing
+            with a "Coming soon Q3" banner; it's an upsell, not a daily-use
+            tool. The page itself is still reachable by URL for marketing. */}
+        <div className="mt-8 rounded-2xl border border-yellow-500/30 bg-gradient-to-br from-yellow-500/10 to-red-600/5 p-6">
+          <div className="flex items-start gap-4">
+            <div className="flex-shrink-0 w-12 h-12 rounded-xl bg-gradient-to-br from-yellow-500 to-red-600 flex items-center justify-center">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="black" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M4 4h16v12H4z M2 20h20" />
+              </svg>
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-baseline gap-2 flex-wrap">
+                <h3 className="text-white font-semibold text-base">Clapcheeks Device</h3>
+                <span className="text-[10px] uppercase tracking-widest font-mono text-yellow-300 bg-black/40 px-2 py-0.5 rounded border border-yellow-500/30">
+                  add-on · coming Q3
+                </span>
+              </div>
+              <p className="text-white/60 text-sm mt-1">
+                Set it and forget it — swipe 24/7 from a dedicated device, no laptop required. $49/mo when it ships.
+              </p>
+              <Link
+                href="/device"
+                className="inline-flex items-center gap-1 mt-3 text-xs text-yellow-300 hover:text-yellow-200 font-mono"
+              >
+                Learn more →
+              </Link>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   )
