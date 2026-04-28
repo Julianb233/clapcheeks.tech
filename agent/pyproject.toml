@@ -40,3 +40,8 @@ clapcheeks = "clapcheeks.cli:main"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["clapcheeks*"]
+
+[tool.pytest.ini_options]
+markers = [
+    "manual: test requires Mac hardware + RUN_E2E=1 (deselect with -m 'not manual')",
+]
