@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
-import { createClient } from '@/lib/supabase/client'
 
 interface Stats {
   opener_reply_rate: number
@@ -12,6 +11,8 @@ interface Stats {
   best_send_time: { hour: number; day: string } | null
   trend: { this_week: number; last_week: number }
   heatmap: { day: number; hour: number; total: number; replied: number }[]
+  not_yet_available?: boolean
+  missing_tables?: string[]
 }
 
 // Derive a human-readable "communication persona" from match reply patterns
@@ -31,6 +32,8 @@ function getBestStyle(styles: { style: string; reply_rate: number }[]): string {
 interface ABResult {
   styles: { style: string; sent: number; reply_rate: number }[]
   winner: string | null
+  not_yet_available?: boolean
+  missing_tables?: string[]
 }
 
 const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
@@ -39,32 +42,47 @@ export default function IntelligencePage() {
   const [stats, setStats] = useState<Stats | null>(null)
   const [abTest, setAbTest] = useState<ABResult | null>(null)
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
+    let cancelled = false
     async function fetchData() {
       try {
-        const supabase = createClient()
-        const { data: { session } } = await supabase.auth.getSession()
-        const token = session?.access_token
-        const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
-
-        const headers: Record<string, string> = {}
-        if (token) headers['Authorization'] = `Bearer ${token}`
-
+        // Same-origin Next.js API routes — auth is handled via Supabase SSR
+        // cookies in the route handlers. No bearer token needed here.
         const [statsRes, abRes] = await Promise.all([
-          fetch(`${apiBase}/intelligence/stats`, { headers }),
-          fetch(`${apiBase}/intelligence/ab-test`, { headers }),
+          fetch('/api/intelligence/stats', { credentials: 'include' }),
+          fetch('/api/intelligence/ab-test', { credentials: 'include' }),
         ])
 
-        if (statsRes.ok) setStats(await statsRes.json())
-        if (abRes.ok) setAbTest(await abRes.json())
-      } catch {
-        // silent in production
+        if (cancelled) return
+
+        const errors: string[] = []
+        if (statsRes.ok) {
+          setStats(await statsRes.json())
+        } else {
+          errors.push(`stats (${statsRes.status})`)
+        }
+        if (abRes.ok) {
+          setAbTest(await abRes.json())
+        } else {
+          errors.push(`A/B test (${abRes.status})`)
+        }
+        if (errors.length > 0) {
+          setError(`Couldn't load ${errors.join(' and ')}. Try refreshing in a moment.`)
+        }
+      } catch (err) {
+        if (cancelled) return
+        const msg = err instanceof Error ? err.message : 'Unknown error'
+        setError(`Network error loading intelligence data: ${msg}`)
       } finally {
-        setLoading(false)
+        if (!cancelled) setLoading(false)
       }
     }
     fetchData()
+    return () => {
+      cancelled = true
+    }
   }, [])
 
   if (loading) {
@@ -112,6 +130,35 @@ export default function IntelligencePage() {
             Back to Dashboard
           </Link>
         </div>
+
+        {/* Inline error toast — surfaced when API routes fail. We no longer
+            silent-swallow these errors: knowing the page is broken is better
+            than seeing all-zero data and assuming nothing's happening. */}
+        {error && (
+          <div
+            role="alert"
+            className="mb-6 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3"
+          >
+            <div className="text-red-300 text-sm font-medium">Couldn&apos;t load all data</div>
+            <div className="text-red-200/70 text-xs mt-1">{error}</div>
+          </div>
+        )}
+
+        {/* Banner shown when the underlying analytics tables haven't been
+            provisioned yet (Phase L migrations pending). We show zeros + this
+            banner instead of an error so the page still renders. */}
+        {(stats?.not_yet_available || abTest?.not_yet_available) && (
+          <div
+            role="status"
+            className="mb-6 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3"
+          >
+            <div className="text-amber-200 text-sm font-medium">Data collection in progress</div>
+            <div className="text-amber-100/70 text-xs mt-1">
+              Once your agent is connected and openers start flowing, this page will fill in
+              automatically. No action needed.
+            </div>
+          </div>
+        )}
 
         {/* Section 1: Opener Performance */}
         <div className="bg-white/[0.03] border border-white/[0.08] rounded-xl p-6 mb-6">
