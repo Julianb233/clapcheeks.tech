@@ -497,33 +497,27 @@ def scan_and_save(
 def push_digest_to_supabase(digest: dict, user_id: str | None = None) -> tuple[int, str]:
     """Best-effort upload of the digest to Supabase clapcheeks_voice_profiles.
 
-    Reads SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY from env (with
-    web/.env.local fallback). user_id can come from CLAPCHEEKS_USER_ID
-    env var if not supplied. Returns (http_status, body_text).
+    AI-8767: Uses the operator's user-scoped JWT via supabase_client.get_user_client()
+    so the service-role key is not required on operator Macs.
+    user_id can come from CLAPCHEEKS_USER_ID env var if not supplied.
+    Returns (http_status, body_text).
     """
     import os
     import urllib.error
     import urllib.request
 
-    url = os.environ.get("SUPABASE_URL") or os.environ.get("NEXT_PUBLIC_SUPABASE_URL")
-    key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY") or os.environ.get("SUPABASE_KEY")
     user_id = user_id or os.environ.get("CLAPCHEEKS_USER_ID")
 
-    if not (url and key):
-        env_path = Path("/opt/agency-workspace/clapcheeks.tech/web/.env.local")
-        if env_path.exists():
-            for line in env_path.read_text().splitlines():
-                if "=" not in line or line.startswith("#"):
-                    continue
-                k, _, v = line.partition("=")
-                v = v.strip().strip('"').strip("'")
-                if k.strip() == "NEXT_PUBLIC_SUPABASE_URL":
-                    url = url or v
-                if k.strip() == "SUPABASE_SERVICE_ROLE_KEY":
-                    key = key or v
+    # Resolve Supabase URL and user JWT for REST call
+    from clapcheeks.supabase_client import _load_env_file, _resolve
 
-    if not (url and key and user_id):
-        return 0, "missing SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY / CLAPCHEEKS_USER_ID"
+    env = _load_env_file()
+    url = _resolve("SUPABASE_URL", env) or _resolve("NEXT_PUBLIC_SUPABASE_URL", env)
+    user_token = _resolve("SUPABASE_USER_ACCESS_TOKEN", env)
+    anon_key = _resolve("SUPABASE_ANON_KEY", env)
+
+    if not (url and user_token and user_id):
+        return 0, "missing SUPABASE_URL / SUPABASE_USER_ACCESS_TOKEN / CLAPCHEEKS_USER_ID — run `clapcheeks setup`"
 
     payload = {
         "user_id": user_id,
@@ -533,8 +527,8 @@ def push_digest_to_supabase(digest: dict, user_id: str | None = None) -> tuple[i
     }
     body = json.dumps(payload).encode()
     headers = {
-        "apikey": key,
-        "Authorization": f"Bearer {key}",
+        "apikey": anon_key or user_token,
+        "Authorization": f"Bearer {user_token}",
         "Content-Type": "application/json",
         "Prefer": "resolution=merge-duplicates,return=representation",
     }

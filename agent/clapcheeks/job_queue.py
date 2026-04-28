@@ -49,12 +49,22 @@ def _client():
 
     Kept as a function (not a module-level singleton) so tests can
     monkey-patch ``supabase.create_client``.
+
+    AI-8767 NOTE: This function legitimately uses service-role because
+    ``clapcheeks_agent_jobs`` is a multi-user cross-user table (the Chrome
+    extension polls and claims jobs across all users).  This code only runs
+    on the VPS daemon, NOT on operator Macs.  CLAPCHEEKS_ALLOW_SERVICE_ROLE
+    must be set in the VPS environment.  # NOQA: service-role-ok
     """
-    from supabase import create_client
+    from supabase import create_client  # NOQA: service-role-ok
 
     url, key = _load_supabase_env()
     if not url or not key:
-        raise RuntimeError("SUPABASE_URL or SUPABASE_SERVICE_KEY not set")
+        raise RuntimeError(
+            "SUPABASE_URL or SUPABASE_SERVICE_KEY not set. "
+            "job_queue requires VPS service-role credentials — "
+            "this module must not run on operator Macs (AI-8767)."
+        )
     return create_client(url, key)
 
 
