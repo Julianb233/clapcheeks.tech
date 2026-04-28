@@ -1,7 +1,15 @@
 """Local Ollama reply generator — all inference stays on-device.
 
 Includes the P2 anti-LLM-voice guard stack, P6 per-contact memo injection
-(read side), and P7 time-aware staleness recovery prompting.
+(read side), P7 time-aware staleness recovery prompting, and AI-8763
+voice-digest few-shot prompting from chat.db.
+
+AI-8763 belt-and-suspenders design: the voice digest (computed by
+clapcheeks.voice.clone from the operator's chat.db) is injected as
+{role: "assistant"} few-shot examples BEFORE the live conversation, plus
+a numeric system-prompt constraint (avg length, emoji ratio, openers).
+The P2 _clean_output guard stack still runs AFTER the LLM responds — both
+layers are intentionally complementary.
 """
 from __future__ import annotations
 
@@ -268,6 +276,68 @@ def _load_memo(handle_id: str) -> str:
         return ""
 
 
+# ---------------------------------------------------------------------------
+# AI-8763 — voice-digest few-shot prompting
+# ---------------------------------------------------------------------------
+
+
+def _load_voice_digest() -> dict | None:
+    """Load the operator's chat.db-derived style digest, if available.
+
+    Returns None when no digest has been computed yet. Callers should
+    treat None as "no few-shot data" and continue with the existing
+    style_prompt path only — the older voice.py heuristic still runs
+    upstream.
+    """
+    try:
+        from clapcheeks.voice.clone import load_digest
+    except ImportError:  # pragma: no cover - voice module always present
+        return None
+    try:
+        return load_digest()
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.debug("voice digest unavailable: %s", exc)
+        return None
+
+
+def _digest_style_constraint(digest: dict) -> str:
+    """Render the digest stats as a single-sentence system-prompt constraint."""
+    avg = digest.get("avg_length_chars") or 0
+    emoji_ratio = digest.get("emoji_per_message") or 0
+    openers = digest.get("most_common_openers") or []
+    parts: list[str] = []
+    if avg:
+        parts.append(f"avg length ~{int(round(avg))} chars")
+    parts.append(f"emojis ~{emoji_ratio:.0%} of messages")
+    if openers:
+        parts.append("common openers: " + ", ".join(openers[:5]))
+    if not parts:
+        return ""
+    return "Match this style: " + "; ".join(parts) + "."
+
+
+def _digest_few_shot_examples(digest: dict, max_examples: int = 12) -> list[dict]:
+    """Convert digest sample_messages into Ollama-format few-shot turns.
+
+    Renders alternating user/assistant turns so the LLM treats them as
+    past conversational style rather than plain context. Operator-curated
+    'boosted_samples' (set by /studio/voice tone calibration) are always
+    placed first.
+    """
+    samples = digest.get("sample_messages") or []
+    if not samples:
+        return []
+    boosted = digest.get("boosted_samples") or []
+    ordered = list(boosted) + [s for s in samples if s not in boosted]
+    ordered = ordered[:max_examples]
+
+    examples: list[dict] = []
+    for s in ordered:
+        examples.append({"role": "user", "content": "(continue conversation)"})
+        examples.append({"role": "assistant", "content": s})
+    return examples
+
+
 class ReplyGenerator:
     """Generate reply suggestions using local Ollama models only."""
 
@@ -275,6 +345,10 @@ class ReplyGenerator:
         config = load_config()
         self.model = model or config.get("ai_model", "llama3.2")
         self.style_prompt = style_prompt
+        # AI-8763: cached at construct-time so we don't re-read the file
+        # on every generation call. `clapcheeks watch --style-refresh`
+        # re-constructs ReplyGenerator and so picks up a fresh digest.
+        self._voice_digest = _load_voice_digest()
 
     def suggest_reply(
         self,
@@ -344,10 +418,24 @@ class ReplyGenerator:
                 f"already know about her]:\n{memo}\n\n" + system_prompt
             )
 
+        # AI-8763 — append numeric style constraint from chat.db digest.
+        if self._voice_digest:
+            extra = _digest_style_constraint(self._voice_digest)
+            if extra:
+                system_prompt += " " + extra
+
         # Build message history from last 10 messages
         messages: list[dict[str, str]] = [
             {"role": "system", "content": system_prompt}
         ]
+
+        # AI-8763 — inject few-shot examples from the operator's past sends
+        # BEFORE the live conversation history so the LLM has stylistic
+        # anchors before it sees the current thread. Belt-and-suspenders
+        # with the P2 anti-voice guards downstream.
+        if self._voice_digest:
+            messages.extend(_digest_few_shot_examples(self._voice_digest))
+
         for msg in conversation[-10:]:
             role = "assistant" if msg.get("is_from_me") else "user"
             text = msg.get("text", "")
