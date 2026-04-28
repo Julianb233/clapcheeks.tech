@@ -2,6 +2,33 @@
 
 import { ConversationMessage, formatTimeAgo } from '@/lib/matches/types'
 
+// Channel badge styles for all supported platforms (AI-8807)
+const CHANNEL_BADGES: Record<string, string> = {
+  tinder:    'bg-rose-500/20 text-rose-300 border-rose-500/30',
+  hinge:     'bg-purple-500/20 text-purple-300 border-purple-500/30',
+  bumble:    'bg-amber-500/20 text-amber-300 border-amber-500/30',
+  instagram: 'bg-pink-500/20 text-pink-300 border-pink-500/30',
+  imessage:  'bg-blue-500/20 text-blue-300 border-blue-500/30',
+  platform:  'bg-white/10 text-white/60 border-white/15',
+}
+
+const CHANNEL_LABELS: Record<string, string> = {
+  tinder:    'Tinder',
+  hinge:     'Hinge',
+  bumble:    'Bumble',
+  instagram: 'Instagram',
+  imessage:  'iMessage',
+  platform:  'App',
+}
+
+function getChannelBadge(channel: string | null | undefined) {
+  const key = (channel ?? 'platform').toLowerCase()
+  return {
+    cls: CHANNEL_BADGES[key] ?? CHANNEL_BADGES.platform,
+    label: CHANNEL_LABELS[key] ?? channel ?? 'App',
+  }
+}
+
 type Props = {
   messages: ConversationMessage[]
   matchName?: string | null
@@ -23,6 +50,7 @@ export default function ConversationThread({ messages, matchName }: Props) {
     <div className="bg-white/[0.03] border border-white/10 rounded-xl p-4 space-y-3 max-h-[600px] overflow-y-auto">
       {messages.map((msg, i) => {
         const isOut = msg.direction === 'outgoing'
+        const badge = getChannelBadge(msg.channel)
         return (
           <div
             key={msg.id ?? i}
@@ -42,14 +70,11 @@ export default function ConversationThread({ messages, matchName }: Props) {
                 }`}
               >
                 <span>{isOut ? 'You' : matchName ?? 'Her'} · {formatTimeAgo(msg.sent_at)}</span>
-                {msg.channel === 'imessage' && (
-                  <span className="px-1.5 py-px rounded bg-blue-500/20 text-blue-300 border border-blue-500/30 text-[9px] uppercase">
-                    iMessage
-                  </span>
-                )}
-                {msg.channel === 'platform' && msg.platform && (
-                  <span className="px-1.5 py-px rounded bg-white/10 text-white/60 border border-white/15 text-[9px] uppercase">
-                    {msg.platform}
+                {msg.channel && (
+                  <span
+                    className={`px-1.5 py-px rounded border text-[9px] uppercase ${badge.cls}`}
+                  >
+                    {badge.label}
                   </span>
                 )}
               </div>

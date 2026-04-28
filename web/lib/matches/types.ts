@@ -138,7 +138,8 @@ export type MatchListFilters = {
   minScore: number
 }
 
-export type ConversationChannel = 'platform' | 'imessage'
+// Unified channel type — includes specific platform names (AI-8807)
+export type ConversationChannel = 'platform' | 'imessage' | 'tinder' | 'hinge' | 'bumble' | 'instagram'
 
 export type ConversationMessage = {
   id?: string
