@@ -159,7 +159,15 @@ class IMMessageWatcher:
 
         # Generate reply from conversation context
         messages = self._reader.get_messages(chat_id, limit=15)
-        reply = self._reply_gen.suggest_reply(messages, contact_name=contact_name)
+        last_ts = float(message.get("timestamp") or 0.0)
+        last_txt = message.get("text", "") or ""
+        reply = self._reply_gen.suggest_reply(
+            messages,
+            contact_name=contact_name,
+            handle_id=handle_id,
+            last_msg_timestamp=last_ts,
+            last_msg_text=last_txt,
+        )
 
         if not reply or reply.startswith("Error") or reply.startswith("Ollama"):
             console.print(f"[red]Reply generation failed:[/red] {reply}")
