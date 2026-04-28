@@ -5,6 +5,17 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 import { VoiceInput, VoiceTextarea } from '@/components/voice'
+import ConversationThread, { type ChatMessage } from './conversation-thread'
+import MemoViewer from './memo-viewer'
+
+type TabKey = 'profile' | 'conversation' | 'memo' | 'intel'
+
+const TABS: { key: TabKey; label: string }[] = [
+  { key: 'profile', label: 'Profile' },
+  { key: 'conversation', label: 'Conversation' },
+  { key: 'memo', label: 'Memo' },
+  { key: 'intel', label: 'Intel' },
+]
 
 type Photo = {
   url: string
@@ -83,10 +94,21 @@ type PatchBody = {
   match_intel_patch?: Record<string, unknown>
 }
 
-export default function MatchProfileView({ match: initial }: { match: MatchRow }) {
+export default function MatchProfileView({
+  match: initial,
+  conversation = [],
+  memoHandle = null,
+  memoInitial = null,
+}: {
+  match: MatchRow
+  conversation?: ChatMessage[]
+  memoHandle?: string | null
+  memoInitial?: { content: string; updated_at: string | null } | null
+}) {
   const router = useRouter()
   const [m, setM] = useState<MatchRow>(initial)
   const [active, setActive] = useState(0)
+  const [tab, setTab] = useState<TabKey>('profile')
 
   const displayName = m.name || m.match_name || 'Unknown'
   const photos = (m.photos_jsonb ?? []).filter((p): p is Photo => !!p?.url)
@@ -229,7 +251,76 @@ export default function MatchProfileView({ match: initial }: { match: MatchRow }
         onCopyOpener={handleCopyOpener}
       />
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8">
+      {/* Tabs */}
+      <div className="mb-6 border-b border-white/10 flex gap-1 overflow-x-auto">
+        {TABS.map((t) => {
+          const isActive = tab === t.key
+          const badge =
+            t.key === 'conversation' && conversation.length > 0
+              ? conversation.length
+              : null
+          return (
+            <button
+              key={t.key}
+              type="button"
+              onClick={() => setTab(t.key)}
+              className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors -mb-px ${
+                isActive
+                  ? 'border-pink-500 text-white'
+                  : 'border-transparent text-white/50 hover:text-white/80 hover:border-white/20'
+              }`}
+            >
+              {t.label}
+              {badge != null && (
+                <span
+                  className={`ml-2 text-[10px] px-1.5 py-0.5 rounded-full ${
+                    isActive
+                      ? 'bg-pink-500/30 text-pink-100'
+                      : 'bg-white/10 text-white/60'
+                  }`}
+                >
+                  {badge}
+                </span>
+              )}
+            </button>
+          )
+        })}
+      </div>
+
+      {tab === 'conversation' && (
+        <div className="mb-6">
+          <ConversationThread messages={conversation} />
+        </div>
+      )}
+
+      {tab === 'memo' && (
+        <div className="mb-6">
+          <MemoViewer
+            handle={memoHandle}
+            initialContent={memoInitial?.content}
+            initialUpdatedAt={memoInitial?.updated_at}
+          />
+        </div>
+      )}
+
+      {tab === 'intel' && (
+        <IntelTab
+          prompts={prompts}
+          intelInterests={intelInterests}
+          intelTopics={intelTopics}
+          intelGreen={intelGreen}
+          intelRed={intelRed}
+          spotifyArtists={spotifyArtists}
+          dealbreakers={m.dealbreaker_flags ?? []}
+          visionSummary={m.vision_summary}
+        />
+      )}
+
+      <div
+        className={`grid grid-cols-1 md:grid-cols-2 gap-8 mb-8 ${
+          tab === 'profile' ? '' : 'hidden'
+        }`}
+      >
         {/* Photo carousel */}
         <div>
           <div className="relative aspect-[4/5] rounded-2xl overflow-hidden bg-gradient-to-br from-pink-900/40 to-purple-900/40 border border-white/10">
@@ -380,8 +471,8 @@ export default function MatchProfileView({ match: initial }: { match: MatchRow }
         </div>
       </div>
 
-      {/* Notes + Tags block */}
-      <div className="mb-8">
+      {/* Notes + Tags block (profile tab only) */}
+      <div className={`mb-8 ${tab === 'profile' ? '' : 'hidden'}`}>
         <NotesBlock
           matchId={m.id}
           initialNotes={existingNotes}
@@ -389,118 +480,162 @@ export default function MatchProfileView({ match: initial }: { match: MatchRow }
           onPatch={patch}
         />
       </div>
+    </div>
+  )
+}
 
-      {/* Secondary grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {prompts.length > 0 && (
-          <Section title="Prompts">
-            <div className="space-y-3">
-              {prompts.map((p, i) => (
-                <div
-                  key={i}
-                  className="p-3 rounded-lg bg-black/30 border border-white/10"
-                >
-                  {(p.question || p.prompt) && (
-                    <div className="text-[11px] text-white/50 uppercase tracking-wide mb-1">
-                      {p.question || p.prompt}
-                    </div>
-                  )}
-                  <div className="text-sm">{p.answer || p.text}</div>
-                </div>
-              ))}
-            </div>
-          </Section>
-        )}
+/* --------------------------------- Intel Tab --------------------------------- */
 
-        {intelInterests.length > 0 && (
-          <Section title="Interests">
-            <div className="flex flex-wrap gap-1.5">
-              {intelInterests.map((t, i) => (
-                <Chip key={i} tone="pink">
-                  {t}
-                </Chip>
-              ))}
-            </div>
-          </Section>
-        )}
+function IntelTab({
+  prompts,
+  intelInterests,
+  intelTopics,
+  intelGreen,
+  intelRed,
+  spotifyArtists,
+  dealbreakers,
+  visionSummary,
+}: {
+  prompts: Prompt[]
+  intelInterests: string[]
+  intelTopics: string[]
+  intelGreen: string[]
+  intelRed: string[]
+  spotifyArtists: string[]
+  dealbreakers: string[]
+  visionSummary: string | null
+}) {
+  const hasAny =
+    prompts.length > 0 ||
+    intelInterests.length > 0 ||
+    intelTopics.length > 0 ||
+    intelGreen.length > 0 ||
+    intelRed.length > 0 ||
+    spotifyArtists.length > 0 ||
+    dealbreakers.length > 0 ||
+    !!visionSummary
 
-        {intelTopics.length > 0 && (
-          <Section title="Conversation Topics">
-            <div className="flex flex-wrap gap-1.5">
-              {intelTopics.map((t, i) => (
-                <Chip key={i} tone="purple">
-                  {t}
-                </Chip>
-              ))}
-            </div>
-          </Section>
-        )}
-
-        {(intelGreen.length > 0 || intelRed.length > 0) && (
-          <Section title="Signals">
-            {intelGreen.length > 0 && (
-              <div className="mb-3">
-                <div className="text-[11px] text-green-400 font-semibold uppercase tracking-wide mb-1">
-                  Green flags
-                </div>
-                <div className="flex flex-wrap gap-1">
-                  {intelGreen.map((t, i) => (
-                    <Chip key={i} tone="green">
-                      {t}
-                    </Chip>
-                  ))}
-                </div>
-              </div>
-            )}
-            {intelRed.length > 0 && (
-              <div>
-                <div className="text-[11px] text-red-400 font-semibold uppercase tracking-wide mb-1">
-                  Red flags
-                </div>
-                <div className="flex flex-wrap gap-1">
-                  {intelRed.map((t, i) => (
-                    <Chip key={i} tone="red">
-                      {t}
-                    </Chip>
-                  ))}
-                </div>
-              </div>
-            )}
-          </Section>
-        )}
-
-        {spotifyArtists.length > 0 && (
-          <Section title="Spotify">
-            <div className="flex flex-wrap gap-1.5">
-              {spotifyArtists.slice(0, 20).map((t, i) => (
-                <Chip key={i} tone="green">
-                  {t}
-                </Chip>
-              ))}
-            </div>
-          </Section>
-        )}
-
-        {(m.dealbreaker_flags?.length ?? 0) > 0 && (
-          <Section title="Dealbreakers">
-            <div className="flex flex-wrap gap-1.5">
-              {m.dealbreaker_flags!.map((t, i) => (
-                <Chip key={i} tone="red">
-                  {t}
-                </Chip>
-              ))}
-            </div>
-          </Section>
-        )}
-
-        {m.vision_summary && (
-          <Section title="Photo Vision Summary">
-            <p className="text-sm text-white/70 whitespace-pre-wrap">
-              {m.vision_summary}
-            </p>
-          </Section>
-        )}
+  if (!hasAny) {
+    return (
+      <div className="mb-6 p-8 rounded-xl border border-white/10 bg-white/5 text-center">
+        <p className="text-sm text-white/60">
+          No intel collected yet — interests, prompts, signals, and Spotify
+          artists appear here as the agent enriches the profile.
+        </p>
       </div>
+    )
+  }
+
+  return (
+    <div className="mb-6 grid grid-cols-1 md:grid-cols-2 gap-4">
+      {prompts.length > 0 && (
+        <Section title="Prompts">
+          <div className="space-y-3">
+            {prompts.map((p, i) => (
+              <div
+                key={i}
+                className="p-3 rounded-lg bg-black/30 border border-white/10"
+              >
+                {(p.question || p.prompt) && (
+                  <div className="text-[11px] text-white/50 uppercase tracking-wide mb-1">
+                    {p.question || p.prompt}
+                  </div>
+                )}
+                <div className="text-sm">{p.answer || p.text}</div>
+              </div>
+            ))}
+          </div>
+        </Section>
+      )}
+
+      {intelInterests.length > 0 && (
+        <Section title="Interests">
+          <div className="flex flex-wrap gap-1.5">
+            {intelInterests.map((t, i) => (
+              <Chip key={i} tone="pink">
+                {t}
+              </Chip>
+            ))}
+          </div>
+        </Section>
+      )}
+
+      {intelTopics.length > 0 && (
+        <Section title="Conversation Topics">
+          <div className="flex flex-wrap gap-1.5">
+            {intelTopics.map((t, i) => (
+              <Chip key={i} tone="purple">
+                {t}
+              </Chip>
+            ))}
+          </div>
+        </Section>
+      )}
+
+      {(intelGreen.length > 0 || intelRed.length > 0) && (
+        <Section title="Signals">
+          {intelGreen.length > 0 && (
+            <div className="mb-3">
+              <div className="text-[11px] text-green-400 font-semibold uppercase tracking-wide mb-1">
+                Green flags
+              </div>
+              <div className="flex flex-wrap gap-1">
+                {intelGreen.map((t, i) => (
+                  <Chip key={i} tone="green">
+                    {t}
+                  </Chip>
+                ))}
+              </div>
+            </div>
+          )}
+          {intelRed.length > 0 && (
+            <div>
+              <div className="text-[11px] text-red-400 font-semibold uppercase tracking-wide mb-1">
+                Red flags
+              </div>
+              <div className="flex flex-wrap gap-1">
+                {intelRed.map((t, i) => (
+                  <Chip key={i} tone="red">
+                    {t}
+                  </Chip>
+                ))}
+              </div>
+            </div>
+          )}
+        </Section>
+      )}
+
+      {spotifyArtists.length > 0 && (
+        <Section title="Spotify">
+          <div className="flex flex-wrap gap-1.5">
+            {spotifyArtists.slice(0, 20).map((t, i) => (
+              <Chip key={i} tone="green">
+                {t}
+              </Chip>
+            ))}
+          </div>
+        </Section>
+      )}
+
+      {dealbreakers.length > 0 && (
+        <Section title="Dealbreakers">
+          <div className="flex flex-wrap gap-1.5">
+            {dealbreakers.map((t, i) => (
+              <Chip key={i} tone="red">
+                {t}
+              </Chip>
+            ))}
+          </div>
+        </Section>
+      )}
+
+      {visionSummary && (
+        <Section title="Photo Vision Summary">
+          <p className="text-sm text-white/70 whitespace-pre-wrap">
+            {visionSummary}
+          </p>
+        </Section>
+      )}
     </div>
   )
 }
