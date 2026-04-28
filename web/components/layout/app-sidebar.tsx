@@ -11,6 +11,12 @@ type NavItem = {
   label: string
   icon: React.ReactNode
   badge?: string
+  /**
+   * If set, the nav item shows a live count badge keyed by this id. The
+   * sidebar maintains a per-key count map and renders a colored circle when
+   * the count is > 0.
+   */
+  countKey?: 'approvals'
 }
 
 const PRIMARY: NavItem[] = [
@@ -29,7 +35,7 @@ const PRIMARY: NavItem[] = [
 ]
 
 const SECONDARY: NavItem[] = [
-  { href: '/autonomy', label: 'Autonomy', icon: <SparkIcon /> },
+  { href: '/autonomy', label: 'Autonomy', icon: <SparkIcon />, countKey: 'approvals' },
   { href: '/referrals', label: 'Referrals', icon: <GiftIcon />, badge: 'new' },
   { href: '/settings/ai', label: 'AI Settings', icon: <GearIcon />, badge: 'new' },
   { href: '/settings', label: 'Weekly Reports', icon: <BellIcon /> },
@@ -42,12 +48,89 @@ export default function AppSidebar() {
   const pathname = usePathname() ?? '/'
   const [email, setEmail] = useState<string>('')
   const [mobileOpen, setMobileOpen] = useState(false)
+  const [counts, setCounts] = useState<Record<NonNullable<NavItem['countKey']>, number>>({
+    approvals: 0,
+  })
 
   useEffect(() => {
     const supabase = createClient()
     supabase.auth.getUser().then(({ data }) => {
       setEmail(data.user?.email ?? '')
     })
+  }, [])
+
+  // Live approval-queue badge: count of pending items for the current user.
+  // Subscribes to Supabase Realtime postgres_changes; falls back to 30s polling
+  // if the realtime channel never reaches SUBSCRIBED.
+  useEffect(() => {
+    const supabase = createClient()
+    let cancelled = false
+    let userId: string | null = null
+    let pollHandle: ReturnType<typeof setInterval> | null = null
+    let realtimeOk = false
+
+    async function refreshApprovals() {
+      if (!userId || cancelled) return
+      const { count, error } = await supabase
+        .from('clapcheeks_approval_queue')
+        .select('id', { count: 'exact', head: true })
+        .eq('user_id', userId)
+        .eq('status', 'pending')
+      if (cancelled) return
+      if (error) {
+        // Table may not be reachable for unauthenticated/preview users.
+        // Silently keep zero rather than spam the UI.
+        return
+      }
+      setCounts((c) => ({ ...c, approvals: count ?? 0 }))
+    }
+
+    const channel = supabase.channel('sidebar-approval-queue')
+
+    ;(async () => {
+      const { data } = await supabase.auth.getUser()
+      userId = data.user?.id ?? null
+      if (!userId) return
+
+      await refreshApprovals()
+
+      channel
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'clapcheeks_approval_queue',
+            filter: `user_id=eq.${userId}`,
+          },
+          () => {
+            // Any insert/update/delete on this user's rows -> recount.
+            refreshApprovals()
+          },
+        )
+        .subscribe((status) => {
+          if (status === 'SUBSCRIBED') {
+            realtimeOk = true
+            // Stop polling — realtime is live.
+            if (pollHandle) {
+              clearInterval(pollHandle)
+              pollHandle = null
+            }
+          }
+        })
+
+      // Poll fallback: kick off a 30s interval. If realtime SUBSCRIBES first,
+      // the callback above clears it.
+      pollHandle = setInterval(() => {
+        if (!realtimeOk) refreshApprovals()
+      }, 30_000)
+    })()
+
+    return () => {
+      cancelled = true
+      if (pollHandle) clearInterval(pollHandle)
+      supabase.removeChannel(channel)
+    }
   }, [])
 
   function isActive(href: string) {
@@ -104,14 +187,26 @@ export default function AppSidebar() {
           <SectionLabel>Workflow</SectionLabel>
           <ul className="space-y-0.5 mb-6">
             {PRIMARY.map((item) => (
-              <NavLink key={item.href} item={item} active={isActive(item.href)} onClick={() => setMobileOpen(false)} />
+              <NavLink
+                key={item.href}
+                item={item}
+                active={isActive(item.href)}
+                count={item.countKey ? counts[item.countKey] : 0}
+                onClick={() => setMobileOpen(false)}
+              />
             ))}
           </ul>
 
           <SectionLabel>Configuration</SectionLabel>
           <ul className="space-y-0.5">
             {SECONDARY.map((item) => (
-              <NavLink key={item.href} item={item} active={isActive(item.href)} onClick={() => setMobileOpen(false)} />
+              <NavLink
+                key={item.href}
+                item={item}
+                active={isActive(item.href)}
+                count={item.countKey ? counts[item.countKey] : 0}
+                onClick={() => setMobileOpen(false)}
+              />
             ))}
           </ul>
         </nav>
@@ -163,12 +258,23 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
 function NavLink({
   item,
   active,
+  count,
   onClick,
 }: {
   item: NavItem
   active: boolean
+  count?: number
   onClick?: () => void
 }) {
+  // Color the live count badge by urgency:
+  //   >5  -> red   (operator needs to clear backlog)
+  //   1-5 -> amber (gentle nudge)
+  const showCount = !!item.countKey && (count ?? 0) > 0
+  const countTone =
+    (count ?? 0) > 5
+      ? 'bg-red-500/90 text-white'
+      : 'bg-amber-400/90 text-black'
+
   return (
     <li>
       <Link
@@ -186,7 +292,15 @@ function NavLink({
           {item.icon}
         </span>
         <span className="flex-1">{item.label}</span>
-        {item.badge && (
+        {showCount && (
+          <span
+            aria-label={`${count} pending`}
+            className={`min-w-[18px] h-[18px] inline-flex items-center justify-center text-[10px] font-bold rounded-full px-1.5 ${countTone}`}
+          >
+            {count! > 99 ? '99+' : count}
+          </span>
+        )}
+        {item.badge && !showCount && (
           <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-gradient-to-r from-yellow-500 to-red-600 text-black font-bold uppercase tracking-wider">
             {item.badge}
           </span>

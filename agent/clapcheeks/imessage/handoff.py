@@ -13,6 +13,10 @@ Two detection paths:
 When both are true, `handoff_complete=true` + status flips to
 `chatting_phone`. The daemon's iMessage poller takes over drafting from
 that point on.
+
+P6 (AI-8740, write side): on transition to chatting_phone we also write a
+portable per-contact memo via :func:`record_handoff_memo` so the iMessage
+reply path has the match's profile + last-30-message convo on hand.
 """
 from __future__ import annotations
 
@@ -21,6 +25,7 @@ import re
 from dataclasses import dataclass
 from typing import Iterable
 
+from clapcheeks.imessage.memo import write_memo
 from clapcheeks.imessage.reader import normalize_phone_digits, to_e164_us
 
 logger = logging.getLogger("clapcheeks.imessage.handoff")
@@ -176,3 +181,180 @@ def load_handoff_template(persona_json: dict | None) -> str:
         "hey, I'm never really on this app — text me. 6194801234. "
         "easier to actually chat that way."
     )
+
+
+# ---------------------------------------------------------------------------
+# P6 (AI-8740): per-contact memo at platform → iMessage handoff.
+# ---------------------------------------------------------------------------
+
+def _coerce_str(val) -> str:
+    """Best-effort string coercion for fields that might be int/None/dict."""
+    if val is None:
+        return ""
+    if isinstance(val, str):
+        return val
+    return str(val)
+
+
+def _extract_phone_from_match(match_data: dict) -> str:
+    """Pull the best phone candidate out of a platform match dict.
+
+    Different sources stash the phone under different keys; we check the
+    most common ones first, then fall back to scanning string fields for
+    a NANP-shaped number.
+    """
+    if not isinstance(match_data, dict):
+        return ""
+    for key in ("her_phone", "phone", "phone_e164", "phone_number", "number"):
+        val = match_data.get(key)
+        if val:
+            return _coerce_str(val)
+    # Some platforms tuck the number into a free-text field after handoff.
+    for key in ("last_message", "phone_handoff_text", "bio"):
+        val = match_data.get(key)
+        if isinstance(val, str):
+            extracted = extract_phone(val)
+            if extracted:
+                return extracted
+    return ""
+
+
+def _extract_profile_fields(match_data: dict) -> dict:
+    """Normalize Tinder/Hinge/offline match dicts into write_memo kwargs.
+
+    Tinder typically exposes:
+        {name, age, city_name, distance_mi, schools:[{name}],
+         jobs:[{title:{name}, company:{name}}]}
+    Hinge typically exposes:
+        {first_name, age, location, hometown, education:[{school_name}],
+         job_title, employer, prompts:[{prompt, response}], comment}
+    Offline ingest can be free-form. We fall back to empty strings.
+    """
+    if not isinstance(match_data, dict):
+        return {}
+
+    name = (
+        match_data.get("name")
+        or match_data.get("first_name")
+        or match_data.get("display_name")
+        or ""
+    )
+
+    city = (
+        match_data.get("city")
+        or match_data.get("city_name")
+        or match_data.get("location")
+        or ""
+    )
+
+    age = match_data.get("age") or match_data.get("birth_age") or ""
+
+    distance_mi = (
+        match_data.get("distance_mi")
+        or match_data.get("distance")
+        or ""
+    )
+
+    schools_raw = match_data.get("schools") or match_data.get("education") or []
+    schools: list[str] = []
+    if isinstance(schools_raw, list):
+        for s in schools_raw:
+            if isinstance(s, dict):
+                val = s.get("name") or s.get("school_name") or s.get("school")
+                if val:
+                    schools.append(_coerce_str(val))
+            elif s:
+                schools.append(_coerce_str(s))
+
+    jobs_raw = match_data.get("jobs") or []
+    jobs: list[str] = []
+    if isinstance(jobs_raw, list):
+        for j in jobs_raw:
+            if isinstance(j, dict):
+                title = j.get("title")
+                if isinstance(title, dict):
+                    title = title.get("name") or ""
+                company = j.get("company")
+                if isinstance(company, dict):
+                    company = company.get("name") or ""
+                merged = " @ ".join(
+                    filter(None, [_coerce_str(title), _coerce_str(company)])
+                )
+                if merged:
+                    jobs.append(merged)
+            elif j:
+                jobs.append(_coerce_str(j))
+    # Hinge-flavored single-job fallback.
+    job_title = match_data.get("job_title") or match_data.get("job")
+    employer = match_data.get("employer") or match_data.get("company")
+    if (job_title or employer) and not jobs:
+        merged = " @ ".join(
+            filter(None, [_coerce_str(job_title), _coerce_str(employer)])
+        )
+        if merged:
+            jobs.append(merged)
+
+    prompts_raw = match_data.get("prompts") or []
+    prompts: list[dict] = []
+    if isinstance(prompts_raw, list):
+        for p in prompts_raw:
+            if not isinstance(p, dict):
+                continue
+            question = p.get("question") or p.get("prompt") or "?"
+            answer = p.get("answer") or p.get("response") or "?"
+            prompts.append({
+                "question": _coerce_str(question),
+                "answer": _coerce_str(answer),
+            })
+
+    her_comment = (
+        match_data.get("her_comment")
+        or match_data.get("comment")
+        or match_data.get("like_comment")
+        or ""
+    )
+
+    return {
+        "name": _coerce_str(name),
+        "age": _coerce_str(age),
+        "city": _coerce_str(city),
+        "distance_mi": _coerce_str(distance_mi),
+        "schools": schools,
+        "jobs": jobs,
+        "prompts": prompts,
+        "her_comment": _coerce_str(her_comment),
+    }
+
+
+def record_handoff_memo(
+    match_data: dict,
+    convo_lines: list[str] | None,
+    source: str,
+) -> str:
+    """Write a per-contact memo for a match that just handed off to iMessage.
+
+    Pulls the phone number + whatever profile fields are available out of
+    ``match_data`` (Tinder dict shape, Hinge dict shape, or offline-ish
+    free-form). Wraps :func:`write_memo` with the platform-specific
+    extraction so callers don't have to know the memo format.
+
+    Returns the path written, or an empty string if the memo could not be
+    written (no phone, write failure, etc.). Never raises — the handoff
+    state-machine flip must not be blocked by a memo I/O error.
+    """
+    try:
+        phone = _extract_phone_from_match(match_data)
+        if not phone:
+            logger.info("record_handoff_memo: no phone in match_data, skipping")
+            return ""
+
+        kwargs = _extract_profile_fields(match_data)
+        return write_memo(
+            phone,
+            source=source or "",
+            convo_lines=convo_lines or [],
+            **kwargs,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("record_handoff_memo failed: %s", exc)
+        return ""

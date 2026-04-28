@@ -10,6 +10,7 @@ import CoachingSection from './components/coaching-section'
 import DashboardLive from './components/dashboard-live'
 import AgentStatusBadge from './components/agent-status-badge'
 import IMessageTestPanel from './components/imessage-test-panel'
+import BriefingCard from './components/briefing-card'
 import { getLatestCoaching } from '@/lib/coaching/generate'
 import { TrendCard } from './components/trend-card'
 import { DashboardCharts } from './components/dashboard-charts'
@@ -395,6 +396,9 @@ export default async function Dashboard() {
         <p className="font-body text-white/40 text-sm mb-8">
           {hasAgent ? 'Last 30 days of activity — your agent is closing.' : 'Install the agent to start dominating your dating life.'}
         </p>
+
+        {/* Operator briefing — actionable counts pointing to the next page to open */}
+        <BriefingCard />
 
         {/* Stats row -- 5 cards with trend arrows */}
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3 mb-8">

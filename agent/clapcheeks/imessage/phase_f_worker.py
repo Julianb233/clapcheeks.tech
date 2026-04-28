@@ -14,6 +14,11 @@ Designed to be driven by daemon.py's worker registry — import
 
 We keep this module Supabase-agnostic for easy unit testing: pass a
 `supabase_client` that implements `.table(...).select/update/insert/...`.
+
+P6 (AI-8740, write side): when scan_platform_messages_for_handoff flips
+status to 'chatting_phone', we call record_handoff_memo to write the
+portable per-contact memo so the iMessage reply path has profile +
+last-30-message convo on hand.
 """
 from __future__ import annotations
 
@@ -24,6 +29,7 @@ from typing import Any, Iterable
 from clapcheeks.imessage.handoff import (
     compute_handoff_state,
     load_handoff_template,
+    record_handoff_memo,
     scan_message,
     should_draft_handoff_ask,
 )
@@ -60,6 +66,19 @@ def apply_handoff_updates(
                        match_row.get("id"), exc)
 
 
+def _format_convo_lines(msg_list: list[dict]) -> list[str]:
+    """Render the last N platform messages as 'her: ...' / 'me: ...' lines."""
+    out: list[str] = []
+    for msg in msg_list[-30:]:
+        body = (msg.get("body") or "").strip()
+        if not body:
+            continue
+        direction = (msg.get("direction") or "incoming").lower()
+        speaker = "her" if direction == "incoming" else "me"
+        out.append(f"{speaker}: {body}")
+    return out
+
+
 def scan_platform_messages_for_handoff(
     supabase_client,
     match_row: dict,
@@ -74,7 +93,10 @@ def scan_platform_messages_for_handoff(
     """
     accumulated: dict = {}
     snapshot = dict(match_row)
-    for msg in recent_messages:
+    # Materialize once so we can replay into record_handoff_memo without
+    # exhausting a generator-style iterable.
+    msg_list = list(recent_messages)
+    for msg in msg_list:
         sig = scan_message(msg.get("body"), direction=msg.get("direction") or "incoming")
         if not sig.phone_e164:
             continue
@@ -86,6 +108,20 @@ def scan_platform_messages_for_handoff(
 
     if accumulated:
         apply_handoff_updates(supabase_client, match_row, accumulated)
+        # P6 (AI-8740): when the state machine flips into chatting_phone,
+        # write a per-contact memo so the iMessage reply path has the
+        # match's profile + recent convo on hand.
+        if accumulated.get("status") == "chatting_phone":
+            convo_lines = _format_convo_lines(msg_list)
+            merged = {**match_row, **accumulated}
+            try:
+                record_handoff_memo(
+                    merged,
+                    convo_lines=convo_lines,
+                    source=str(merged.get("platform") or "unknown"),
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("phase_f: handoff memo write failed: %s", exc)
     return accumulated
 
 
