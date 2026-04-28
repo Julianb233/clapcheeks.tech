@@ -39,9 +39,11 @@ const PRIMARY: NavItem[] = [
   { href: '/conversation', label: 'Conversation AI', icon: <ChatIcon /> },
   { href: '/intelligence', label: 'Intelligence', icon: <SparkIcon /> },
   { href: '/analytics', label: 'Insights', icon: <ChartIcon /> },
+  { href: '/intel/health', label: 'Account Health', icon: <SparkIcon /> },
   { href: '/photos', label: 'Photos', icon: <CameraIcon /> },
   { href: '/coaching', label: 'AI Coach', icon: <RizzIcon /> },
-  { href: '/dashboard/content-library', label: 'Content Library', icon: <CameraIcon />, badge: 'new' },
+  { href: '/studio/voice', label: 'Voice Studio', icon: <SparkIcon /> },
+  { href: '/dashboard/content-library', label: 'Content Library', icon: <CameraIcon /> },
   { href: '/autonomy', label: 'Autonomy', icon: <SparkIcon />, countKey: 'approvals' },
 ]
 

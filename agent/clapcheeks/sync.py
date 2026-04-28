@@ -257,9 +257,11 @@ def pull_platform_tokens() -> int:
 
     try:
         client = create_client(url, key)
+        # AI-8766: prefer encrypted columns, fall back to deprecated plaintext
+        # while the backfill rolls out.
         r = client.table("clapcheeks_user_settings") \
-            .select(("tinder_auth_token,tinder_auth_token_updated_at,"
-                     "hinge_auth_token,hinge_auth_token_updated_at")) \
+            .select(("tinder_auth_token_enc,tinder_auth_token,tinder_auth_token_updated_at,"
+                     "hinge_auth_token_enc,hinge_auth_token,hinge_auth_token_updated_at")) \
             .eq("user_id", user_id).limit(1).execute()
     except Exception:
         return 0
@@ -280,7 +282,7 @@ def pull_platform_tokens() -> int:
     updated = 0
     for plat, env_key in (("tinder", "TINDER_AUTH_TOKEN"),
                            ("hinge", "HINGE_AUTH_TOKEN")):
-        token = row.get(f"{plat}_auth_token")
+        token = _resolve_platform_token(row, user_id, plat)
         ts = row.get(f"{plat}_auth_token_updated_at")
         if not token or not ts:
             continue
@@ -299,6 +301,33 @@ def pull_platform_tokens() -> int:
         state_file.parent.mkdir(parents=True, exist_ok=True)
         state_file.write_text(json.dumps(last))
     return updated
+
+
+def _resolve_platform_token(row: dict, user_id: str, platform: str) -> str | None:
+    """Return the decrypted token for ``platform``, preferring the
+    encrypted column. Falls back to the deprecated plaintext column with a
+    warning for migration visibility (AI-8766)."""
+    enc_value = row.get(f"{platform}_auth_token_enc")
+    if enc_value:
+        try:
+            from clapcheeks.auth.token_vault import decrypt_token_supabase
+            return decrypt_token_supabase(enc_value, user_id)
+        except Exception as exc:  # noqa: BLE001
+            import logging
+            logging.getLogger(__name__).error(
+                "token_vault decrypt failed for %s/%s: %s",
+                user_id, platform, exc,
+            )
+            # fall through to plaintext fallback
+    plain = row.get(f"{platform}_auth_token")
+    if plain:
+        import logging
+        logging.getLogger(__name__).warning(
+            "DEPRECATED plaintext %s_auth_token used for user %s — backfill needed",
+            platform, user_id,
+        )
+        return plain
+    return None
 
 
 def _merge_env_line(key: str, value: str) -> None:

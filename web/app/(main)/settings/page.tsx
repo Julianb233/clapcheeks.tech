@@ -95,6 +95,18 @@ export default async function SettingsPage() {
         <p className="text-sm text-white/60 mb-8">
           Tune the AI voice, drip rules, calendar, weekly reports, and approval gates.
         </p>
+
+        {/* Notifications shortcut — picks which channels reach you for agent events */}
+        <a
+          href="/settings/notifications"
+          className="block mb-6 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl p-4 transition-colors"
+        >
+          <div className="text-white font-semibold text-sm">Notifications →</div>
+          <div className="text-white/60 text-xs mt-1">
+            Pick which channels reach you for each agent event — email, iMessage, push.
+          </div>
+        </a>
+
         <SettingsForm initial={settings} userId={user.id} />
       </div>
     </div>
