@@ -183,11 +183,15 @@ def _signed_storage_url(
 
 
 def _load_ig_session(user_id: str, client: Any) -> dict[str, Any] | None:
-    """Pull the IG session cookie blob from clapcheeks_user_settings."""
+    """Pull the IG session cookie blob from clapcheeks_user_settings.
+
+    AI-8766: prefers ``instagram_auth_token_enc``. Falls back to deprecated
+    plaintext ``instagram_auth_token`` with a warning.
+    """
     try:
         resp = (
             client.table("clapcheeks_user_settings")
-            .select("instagram_auth_token")
+            .select("instagram_auth_token,instagram_auth_token_enc")
             .eq("user_id", user_id)
             .limit(1)
             .execute()
@@ -198,7 +202,27 @@ def _load_ig_session(user_id: str, client: Any) -> dict[str, Any] | None:
     data = getattr(resp, "data", None) or []
     if not data:
         return None
-    tok = data[0].get("instagram_auth_token")
+    row = data[0]
+
+    enc = row.get("instagram_auth_token_enc")
+    tok: Any = None
+    if enc:
+        try:
+            from clapcheeks.auth.token_vault import decrypt_token_supabase
+            tok = decrypt_token_supabase(enc, user_id)
+        except Exception as exc:  # noqa: BLE001
+            log.error("ig token_vault decrypt failed for %s: %s", user_id, exc)
+            tok = None
+
+    if not tok:
+        plain = row.get("instagram_auth_token")
+        if plain:
+            log.warning(
+                "DEPRECATED plaintext instagram_auth_token used for user %s — backfill needed",
+                user_id,
+            )
+            tok = plain
+
     if not tok:
         return None
     if isinstance(tok, str):

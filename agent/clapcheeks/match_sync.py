@@ -509,18 +509,61 @@ def _invalidate_token(
 
 
 def _load_users_with_tokens(supabase_client) -> list[dict]:
+    """Return rows with at least one platform token (encrypted OR legacy plaintext).
+
+    AI-8766: prefers encrypted columns. The decrypted value is materialised
+    onto the row dict under the legacy ``tinder_auth_token`` /
+    ``hinge_auth_token`` keys so callers downstream can stay agnostic about
+    where the secret came from.
+    """
     try:
         r = supabase_client.table("clapcheeks_user_settings") \
-            .select("user_id,tinder_auth_token,hinge_auth_token") \
+            .select(
+                "user_id,"
+                "tinder_auth_token,tinder_auth_token_enc,"
+                "hinge_auth_token,hinge_auth_token_enc"
+            ) \
             .execute()
     except Exception as exc:
         logger.error("load users failed: %s", exc)
         return []
     rows = r.data or []
-    return [
-        row for row in rows
-        if row.get("tinder_auth_token") or row.get("hinge_auth_token")
-    ]
+    out: list[dict] = []
+    for row in rows:
+        user_id = row.get("user_id")
+        if not user_id:
+            continue
+        tinder = _decrypt_or_plain(row, user_id, "tinder")
+        hinge = _decrypt_or_plain(row, user_id, "hinge")
+        if tinder or hinge:
+            row["tinder_auth_token"] = tinder
+            row["hinge_auth_token"] = hinge
+            out.append(row)
+    return out
+
+
+def _decrypt_or_plain(row: dict, user_id: str, platform: str) -> str | None:
+    """Return the decrypted token for platform, falling back to the
+    deprecated plaintext column with a warning."""
+    enc = row.get(f"{platform}_auth_token_enc")
+    if enc:
+        try:
+            from clapcheeks.auth.token_vault import decrypt_token_supabase
+            return decrypt_token_supabase(enc, user_id)
+        except Exception as exc:  # noqa: BLE001
+            logger.error(
+                "token_vault decrypt failed for %s/%s: %s",
+                user_id, platform, exc,
+            )
+            # fall through to plaintext path
+    plain = row.get(f"{platform}_auth_token")
+    if plain:
+        logger.warning(
+            "DEPRECATED plaintext %s_auth_token used for user %s — run backfill_encrypt_tokens",
+            platform, user_id,
+        )
+        return plain
+    return None
 
 
 def sync_matches(once: bool = False) -> dict:
