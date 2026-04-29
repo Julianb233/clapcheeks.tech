@@ -108,6 +108,7 @@ function entryToMessage(
  * @param userId    Auth user UUID
  * @param externalId  The match's external_id (used by clapcheeks_conversations)
  * @param matchPlatform  The match's platform ('tinder'|'hinge'|'bumble'|...)
+ * @param herPhone  E.164 phone for imessage matches (AI-8926: used when externalId is null)
  * @returns Sorted, deduped list of up to 500 messages
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -116,24 +117,27 @@ export async function getMatchConversationUnified(
   userId: string,
   externalId: string | null | undefined,
   matchPlatform?: string | null,
+  herPhone?: string | null,
 ): Promise<UnifiedMessage[]> {
-  if (!externalId) return []
+  // AI-8926: build candidate match_id list. iMessage matches are stored with
+  // `match_id = imessage:<her_phone>` and have no external_id, so derive the
+  // canonical id from her_phone when externalId is missing.
+  const candidates: string[] = []
+  if (externalId) {
+    const canonicalId =
+      matchPlatform && !externalId.includes(':')
+        ? `${matchPlatform}:${externalId}`
+        : externalId
+    candidates.push(canonicalId)
+    if (canonicalId !== externalId) candidates.push(externalId)
+  }
+  if (herPhone) {
+    const phoneId = `imessage:${herPhone}`
+    if (!candidates.includes(phoneId)) candidates.push(phoneId)
+  }
+  if (candidates.length === 0) return []
 
-  // AI-8876: After PR #72 all writers emit canonical `<platform>:<external_id>`
-  // match_ids.  Support a brief migration-window overlap where some rows may
-  // still have the bare externalId.  Query for both forms via PostgREST OR filter.
-  const canonicalId =
-    matchPlatform && !externalId.includes(':')
-      ? `${matchPlatform}:${externalId}`
-      : externalId
-
-  // Build the filter: try canonical form first.  If it differs from the raw
-  // externalId, also include the legacy bare form so rows written before the
-  // migration are still visible.
-  const matchIdFilter =
-    canonicalId !== externalId
-      ? `match_id.eq.${canonicalId},match_id.eq.${externalId}`
-      : `match_id.eq.${canonicalId}`
+  const matchIdFilter = candidates.map((id) => `match_id.eq.${id}`).join(',')
 
   const { data, error } = await supabase
     .from('clapcheeks_conversations')

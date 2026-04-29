@@ -41,20 +41,28 @@ export default async function MatchDetailPage({
   if (herPhone) memoHandle = herPhone
   else if (externalId) memoHandle = platform ? `${platform}:${externalId}` : externalId
 
-  // AI-8876: canonical match_id for realtime subscription
-  const conversationMatchId =
-    externalId
-      ? platform && !externalId.includes(':')
+  // Canonical match_id for realtime subscription.
+  // AI-8876 produced this for tinder/hinge/bumble (uses external_id).
+  // AI-8926 extends it to imessage matches, which have no external_id but do
+  // have her_phone — those rows live under `imessage:<her_phone>`.
+  let conversationMatchId: string | null = null
+  if (externalId) {
+    conversationMatchId =
+      platform && !externalId.includes(':')
         ? `${platform}:${externalId}`
         : externalId
-      : null
+  } else if (herPhone) {
+    conversationMatchId = `imessage:${herPhone}`
+  }
 
-  // Unified cross-channel conversation fetch (AI-8807)
+  // Unified cross-channel conversation fetch (AI-8807, AI-8926).
+  // herPhone is the fallback when externalId is null (iMessage matches).
   const unifiedMessages = await getMatchConversationUnified(
     supabase as any,
     user.id,
     externalId,
     platform,
+    herPhone,
   )
 
   // Map UnifiedMessage -> ChatMessage (compatible type)
