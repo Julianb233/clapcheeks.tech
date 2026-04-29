@@ -122,6 +122,14 @@ export default function ScheduledPage() {
       setError('Name, message, and schedule time are required')
       return
     }
+    // datetime-local returns naive "YYYY-MM-DDTHH:mm" — interpret in the
+    // browser's local TZ and send a real ISO so Postgres TIMESTAMPTZ stores
+    // the moment Julian actually meant.
+    const localDate = new Date(compose.scheduled_at)
+    if (isNaN(localDate.getTime())) {
+      setError('Invalid schedule time')
+      return
+    }
     setComposing(true)
     const res = await fetch('/api/scheduled-messages', {
       method: 'POST',
@@ -130,7 +138,7 @@ export default function ScheduledPage() {
         match_name: compose.match_name,
         phone: compose.phone || null,
         message_text: compose.message_text,
-        scheduled_at: compose.scheduled_at,
+        scheduled_at: localDate.toISOString(),
         sequence_type: compose.sequence_type,
         delay_hours: compose.delay_hours ? parseInt(compose.delay_hours) : null,
       }),
