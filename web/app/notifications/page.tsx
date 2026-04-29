@@ -1,10 +1,51 @@
 import type { Metadata } from "next"
 import { redirect } from "next/navigation"
+import { revalidatePath } from "next/cache"
 import { createClient } from "@/lib/supabase/server"
-import { ArrowLeft, Bell, Calendar, Users, AlertTriangle } from "lucide-react"
+import { ArrowLeft, Bell, Calendar, Users, AlertTriangle, X } from "lucide-react"
 import Link from "next/link"
 
 export const metadata: Metadata = { title: 'Notifications | Clapcheeks' }
+
+async function markAllRead() {
+  "use server"
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  if (!user) return
+
+  await supabase
+    .from("notifications")
+    .update({ is_read: true, read_at: new Date().toISOString() })
+    .eq("user_id", user.id)
+    .eq("is_read", false)
+  revalidatePath("/notifications")
+}
+
+async function clearRead() {
+  "use server"
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  if (!user) return
+
+  await supabase.from("notifications").delete().eq("user_id", user.id).eq("is_read", true)
+  revalidatePath("/notifications")
+}
+
+async function dismissNotification(id: string) {
+  "use server"
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  if (!user) return
+
+  await supabase.from("notifications").delete().eq("id", id).eq("user_id", user.id)
+  revalidatePath("/notifications")
+}
 
 export default async function NotificationsPage() {
   const supabase = await createClient()
@@ -23,6 +64,9 @@ export default async function NotificationsPage() {
     .select("*")
     .eq("user_id", user.id)
     .order("created_at", { ascending: false })
+
+  const hasUnread = notifications?.some((n) => !n.is_read) ?? false
+  const hasRead = notifications?.some((n) => n.is_read) ?? false
 
   const getIcon = (type: string) => {
     switch (type) {
@@ -52,7 +96,27 @@ export default async function NotificationsPage() {
             >
               <ArrowLeft className="w-5 h-5" />
             </Link>
-            <h1 className="text-2xl font-bold text-white">Notifications</h1>
+            <h1 className="text-2xl font-bold text-white flex-1">Notifications</h1>
+            {hasUnread && (
+              <form action={markAllRead}>
+                <button
+                  type="submit"
+                  className="text-xs font-medium text-white/60 hover:text-white/90 px-3 py-1.5 rounded-lg border border-white/10 hover:bg-white/5 transition-colors"
+                >
+                  Mark all read
+                </button>
+              </form>
+            )}
+            {hasRead && (
+              <form action={clearRead}>
+                <button
+                  type="submit"
+                  className="text-xs font-medium text-white/60 hover:text-white/90 px-3 py-1.5 rounded-lg border border-white/10 hover:bg-white/5 transition-colors"
+                >
+                  Clear read
+                </button>
+              </form>
+            )}
           </div>
         </div>
       </header>
@@ -83,11 +147,22 @@ export default async function NotificationsPage() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-start justify-between gap-2 mb-1">
                       <h3 className="font-semibold text-white">{notification.title}</h3>
-                      {!notification.is_read && (
-                        <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-brand-500/20 text-brand-300 border border-brand-500/30 flex-shrink-0">
-                          New
-                        </span>
-                      )}
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        {!notification.is_read && (
+                          <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-brand-500/20 text-brand-300 border border-brand-500/30">
+                            New
+                          </span>
+                        )}
+                        <form action={dismissNotification.bind(null, notification.id)}>
+                          <button
+                            type="submit"
+                            aria-label="Dismiss notification"
+                            className="text-white/30 hover:text-white/70 p-1 rounded transition-colors"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                        </form>
+                      </div>
                     </div>
                     <p className="text-sm text-white/50 mb-2">{notification.message}</p>
                     <p className="text-xs text-white/25">

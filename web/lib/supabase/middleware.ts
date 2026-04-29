@@ -15,11 +15,23 @@ export async function updateSession(request: NextRequest) {
           return request.cookies.getAll()
         },
         setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value))
-          supabaseResponse = NextResponse.next({
-            request,
+          // NextRequest cookies are read-only from the browser's POV — to actually
+          // persist refreshed Supabase auth cookies we must set them on the response.
+          // Re-create the response first so prior cookie state on supabaseResponse
+          // isn't lost.
+          supabaseResponse = NextResponse.next({ request })
+          cookiesToSet.forEach(({ name, value, options }) => {
+            // Keep this middleware execution in sync — Supabase may read updated
+            // cookies again later in the same request.
+            request.cookies.set(name, value)
+
+            // Don't let cookies get silently dropped on local HTTP dev. Honor an
+            // explicit secure: false from options, otherwise default to HTTPS-detect.
+            const isHttps = request.nextUrl.protocol === "https:"
+            const secure = typeof options?.secure === "boolean" ? options.secure : isHttps
+
+            supabaseResponse.cookies.set(name, value, { ...options, secure })
           })
-          cookiesToSet.forEach(({ name, value, options }) => supabaseResponse.cookies.set(name, value, options))
         },
       },
     },
