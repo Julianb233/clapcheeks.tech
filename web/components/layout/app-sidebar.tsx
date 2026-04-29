@@ -17,7 +17,7 @@ type NavItem = {
    * sidebar maintains a per-key count map and renders a colored circle when
    * the count is > 0.
    */
-  countKey?: 'approvals'
+  countKey?: 'approvals' | 'scheduled'
 }
 
 // Sidebar IA per sidebar-audit (2026-04-27) — Fixes C+D+E.
@@ -46,6 +46,8 @@ const PRIMARY: NavItem[] = [
   { href: '/studio/voice', label: 'Voice Studio', icon: <SparkIcon /> },
   { href: '/dashboard/content-library', label: 'Content Library', icon: <CameraIcon /> },
   { href: '/autonomy', label: 'Autonomy', icon: <SparkIcon />, countKey: 'approvals' },
+  { href: '/scheduled', label: 'Scheduled', icon: <ClockIcon />, countKey: 'scheduled' },
+  { href: '/nurture', label: 'Nurture', icon: <SeedIcon /> },
 ]
 
 const SECONDARY: NavItem[] = [
@@ -61,6 +63,7 @@ export default function AppSidebar() {
   const [mobileOpen, setMobileOpen] = useState(false)
   const [counts, setCounts] = useState<Record<NonNullable<NavItem['countKey']>, number>>({
     approvals: 0,
+    scheduled: 0,
   })
 
   useEffect(() => {
@@ -134,6 +137,68 @@ export default function AppSidebar() {
       // the callback above clears it.
       pollHandle = setInterval(() => {
         if (!realtimeOk) refreshApprovals()
+      }, 30_000)
+    })()
+
+    return () => {
+      cancelled = true
+      if (pollHandle) clearInterval(pollHandle)
+      supabase.removeChannel(channel)
+    }
+  }, [])
+
+  // Live scheduled-messages badge: pending + approved-but-overdue count.
+  useEffect(() => {
+    const supabase = createClient()
+    let cancelled = false
+    let userId: string | null = null
+    let pollHandle: ReturnType<typeof setInterval> | null = null
+    let realtimeOk = false
+
+    async function refreshScheduled() {
+      if (!userId || cancelled) return
+      const { count, error } = await supabase
+        .from('clapcheeks_scheduled_messages')
+        .select('id', { count: 'exact', head: true })
+        .eq('user_id', userId)
+        .eq('status', 'pending')
+      if (cancelled) return
+      if (error) return
+      setCounts((c) => ({ ...c, scheduled: count ?? 0 }))
+    }
+
+    const channel = supabase.channel('sidebar-scheduled-messages')
+
+    ;(async () => {
+      const { data } = await supabase.auth.getUser()
+      userId = data.user?.id ?? null
+      if (!userId) return
+
+      await refreshScheduled()
+
+      channel
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'clapcheeks_scheduled_messages',
+            filter: `user_id=eq.${userId}`,
+          },
+          () => refreshScheduled(),
+        )
+        .subscribe((status) => {
+          if (status === 'SUBSCRIBED') {
+            realtimeOk = true
+            if (pollHandle) {
+              clearInterval(pollHandle)
+              pollHandle = null
+            }
+          }
+        })
+
+      pollHandle = setInterval(() => {
+        if (!realtimeOk) refreshScheduled()
       }, 30_000)
     })()
 
@@ -359,5 +424,7 @@ function LaptopIcon()   { return IconBase('M4 4h16v12H4z M2 20h20') }
 function ProfileIcon()  { return IconBase('M16 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2M12 3a4 4 0 1 0 0 8 4 4 0 0 0 0-8zM17 11l2 2 4-4') }
 function GiftIcon()     { return IconBase('M20 12v10H4V12M2 7h20v5H2zM12 22V7') }
 function HelpIcon()     { return IconBase('M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3M12 17h.01') }
+function ClockIcon()    { return IconBase('M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 6v6l4 2') }
+function SeedIcon()     { return IconBase('M12 3v18M5 8c0 4 3 7 7 7M19 8c0 4-3 7-7 7M12 21c-3-2-5-5-5-9M12 21c3-2 5-5 5-9') }
 function MenuIcon()     { return IconBase('M3 12h18M3 6h18M3 18h18') }
 function CloseIcon()    { return IconBase('M18 6L6 18M6 6l12 12') }
