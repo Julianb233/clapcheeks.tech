@@ -28,6 +28,13 @@ const nextConfig = {
         permanent: false,
       },
       {
+        // AI-8926: sidebar label is "Pipeline" but the route is /leads.
+        // Anyone typing /pipeline directly used to get a 404.
+        source: '/pipeline',
+        destination: '/leads',
+        permanent: false,
+      },
+      {
         source: '/settings/ai',
         destination: '/settings',
         permanent: false,

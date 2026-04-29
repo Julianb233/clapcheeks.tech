@@ -200,8 +200,11 @@ export default async function ConnectionBar() {
 
   const since = new Date(Date.now() - ONE_DAY_MS).toISOString()
 
-  // 3 reads in parallel — keep the bar render cheap.
-  const [settingsRes, eventsRes, deviceRes] = await Promise.all([
+  // 4 reads in parallel — keep the bar render cheap.
+  // AI-8926: clapcheeks_device_heartbeats is the modern source-of-truth for
+  // agent freshness (the daemon upserts every heartbeat).  Older `devices`
+  // rows can be stale; pick the freshest of the two.
+  const [settingsRes, eventsRes, deviceRes, heartbeatRes] = await Promise.all([
     (supabase as any)
       .from('clapcheeks_user_settings')
       .select(
@@ -225,11 +228,31 @@ export default async function ConnectionBar() {
       .order('last_seen_at', { ascending: false })
       .limit(1)
       .maybeSingle(),
+    (supabase as any)
+      .from('clapcheeks_device_heartbeats')
+      .select('last_heartbeat_at')
+      .eq('user_id', user.id)
+      .order('last_heartbeat_at', { ascending: false })
+      .limit(1)
+      .maybeSingle(),
   ])
 
   const settings = (settingsRes.data as UserSettingsRow | null) ?? null
   const events = ((eventsRes.data as BanEventRow[] | null) ?? []) as BanEventRow[]
-  const device = (deviceRes.data as DeviceRow | null) ?? null
+  const deviceRow = (deviceRes.data as DeviceRow | null) ?? null
+  const heartbeatRow = (heartbeatRes.data as { last_heartbeat_at: string | null } | null) ?? null
+
+  // Compose a unified device view: take the freshest last_seen across both
+  // sources.  Treat a fresh heartbeat as is_active=true (the daemon only
+  // emits heartbeats while running).
+  const candidates: { last_seen_at: string | null; is_active: boolean }[] = []
+  if (deviceRow?.last_seen_at) candidates.push({ last_seen_at: deviceRow.last_seen_at, is_active: deviceRow.is_active ?? true })
+  if (heartbeatRow?.last_heartbeat_at) candidates.push({ last_seen_at: heartbeatRow.last_heartbeat_at, is_active: true })
+  const device: DeviceRow | null = candidates.length
+    ? candidates.reduce((best, c) =>
+        new Date(c.last_seen_at!).getTime() > new Date(best.last_seen_at!).getTime() ? c : best,
+      ) as DeviceRow
+    : null
 
   const pills: Pill[] = [
     pillForPlatform('tinder', settings, events),
