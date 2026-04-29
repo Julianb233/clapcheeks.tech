@@ -59,7 +59,7 @@ JOBS = [
         "body": None,
     }),
     ("hinge", "list_matches", {
-        "url": "https://prod.hingeaws.net/match/v1?last_activity_id=",
+        "url": "https://prod-api.hingeaws.net/match/v1?last_activity_id=",
         "method": "GET",
         "headers": {"Accept": "application/json", "Referer": "https://hinge.co/"},
         "body": None,
