@@ -168,6 +168,28 @@ def poll_incoming_imessages(
         # Update checkpoint.
         imessage_checkpoints[match_row["id"]] = new_msgs[-1]["rowid"]
 
+        # AI-8876: always use the canonical <platform>:<external_id> match_id so
+        # getMatchConversationUnified can find the rows.  Never fall back to the
+        # UUID — if external_id is missing the row is broken and we should log it.
+        external_id = match_row.get("external_id")
+        platform = match_row.get("platform") or "offline"
+        if not external_id:
+            logger.warning(
+                "phase_f: match %s has no external_id — skipping conv insert",
+                match_row.get("id"),
+            )
+            return []
+        # Normalise: if external_id is already prefixed (contains ":") use as-is;
+        # otherwise prepend the platform prefix so the format is consistent.
+        if ":" not in external_id:
+            canonical_match_id = f"{platform}:{external_id}"
+            logger.debug(
+                "phase_f: normalising match_id bare→prefixed %r → %r",
+                external_id, canonical_match_id,
+            )
+        else:
+            canonical_match_id = external_id
+
         # Write to clapcheeks_conversations.
         rows = []
         for m in new_msgs:
@@ -176,8 +198,8 @@ def poll_incoming_imessages(
                 sent = sent.isoformat()
             rows.append({
                 "user_id": config.user_id,
-                "match_id": match_row.get("external_id") or match_row.get("id"),
-                "platform": match_row.get("platform") or "offline",
+                "match_id": canonical_match_id,
+                "platform": platform,
                 "channel": "imessage",
                 "direction": "incoming",
                 "body": m.get("text") or "",

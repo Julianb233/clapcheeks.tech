@@ -16,22 +16,22 @@ dependencies = [
     "rich>=13.0",
     "keyring>=24.0",
     "openai>=1.0",
+    # AI-8876: supabase is required by the daemon (not optional)
+    "supabase>=2.0",
+    # AI-8876: playwright is required by Tinder ingest (not optional)
+    "playwright>=1.40",
 ]
 
 [project.optional-dependencies]
-browser = ["playwright>=1.40"]
 google-calendar = ["google-auth-oauthlib>=1.0", "google-api-python-client>=2.0"]
 local-ai = ["ollama>=0.1"]
 anthropic = ["anthropic>=0.20"]
 grindr = ["Grindr>=0.1"]
-supabase = ["supabase>=2.0"]
 all = [
-    "playwright>=1.40",
     "google-auth-oauthlib>=1.0",
     "google-api-python-client>=2.0",
     "ollama>=0.1",
     "anthropic>=0.20",
-    "supabase>=2.0",
 ]
 
 [project.scripts]

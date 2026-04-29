@@ -220,10 +220,11 @@ def _get_user_id_from_token() -> str | None:
         if not url or not key:
             return None
         client = create_client(url, key)
-        device_id = os.environ.get("DEVICE_ID", "default")
+        # AI-8876: column is device_name (not device_id — see clapcheeks_agent_tokens schema)
+        device_name = os.environ.get("DEVICE_ID", "julian-mac-mini-prod")
         resp = client.table("clapcheeks_agent_tokens") \
             .select("user_id") \
-            .eq("device_id", device_id) \
+            .eq("device_name", device_name) \
             .limit(1) \
             .execute()
         rows = resp.data or []

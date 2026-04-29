@@ -117,16 +117,17 @@ def push_agent_status(
                 f"{affected_platform} worker crashed {CRASH_THRESHOLD}+ times in 1 hour"
             )
 
-        device_id = os.environ.get("DEVICE_ID", "default")
+        # AI-8876: column is device_name (not device_id — see clapcheeks_agent_tokens schema)
+        device_name = os.environ.get("DEVICE_ID", "julian-mac-mini-prod")
         try:
             client.table("clapcheeks_agent_tokens").update(payload).eq(
-                "device_id", device_id
+                "device_name", device_name
             ).execute()
         except Exception as exc:
             if "401" in str(exc) or "JWT" in str(exc) or "expired" in str(exc).lower():
                 client = refresh_user_client()
                 client.table("clapcheeks_agent_tokens").update(payload).eq(
-                    "device_id", device_id
+                    "device_name", device_name
                 ).execute()
             else:
                 raise
