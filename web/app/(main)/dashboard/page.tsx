@@ -66,7 +66,7 @@ export default async function Dashboard() {
   const fourteenDaysAgo = new Date()
   fourteenDaysAgo.setDate(fourteenDaysAgo.getDate() - 14)
 
-  const [analyticsRes, convoRes, spendRes, deviceRes, subRes, profileRes] = await Promise.all([
+  const [analyticsRes, convoRes, spendRes, deviceRes, subRes, profileRes, heartbeatRes, matchCountRes] = await Promise.all([
     supabase
       .from('clapcheeks_analytics_daily')
       .select('app, swipes_right, swipes_left, matches, conversations_started, dates_booked, money_spent, date')
@@ -101,6 +101,20 @@ export default async function Dashboard() {
       .select('subscription_tier, subscription_status')
       .eq('id', user.id)
       .single(),
+    // AI-8926: modern device-presence source (daemon upserts every heartbeat).
+    supabase
+      .from('clapcheeks_device_heartbeats')
+      .select('last_heartbeat_at')
+      .eq('user_id', user.id)
+      .order('last_heartbeat_at', { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+    // AI-8926: actual matches count (clapcheeks_analytics_daily can be empty
+    // for users whose agent does not aggregate per-day yet).
+    supabase
+      .from('clapcheeks_matches')
+      .select('id', { count: 'exact', head: true })
+      .eq('user_id', user.id),
   ])
 
   // Fetch coaching session
@@ -114,8 +128,22 @@ export default async function Dashboard() {
   const rows: DailyRow[] = analyticsRes.data || []
   const convos: ConvoRow[] = convoRes.data || []
   const spending = spendRes.data || []
-  const device: DeviceRow | null = deviceRes.data?.[0] || null
+
+  // AI-8926: pick the freshest of (devices.last_seen_at, clapcheeks_device_heartbeats.last_heartbeat_at).
+  const oldDevice = deviceRes.data?.[0] || null
+  const heartbeatTs = (heartbeatRes.data as { last_heartbeat_at: string | null } | null)?.last_heartbeat_at ?? null
+  const candidates: { last_seen_at: string; is_active: boolean }[] = []
+  if (oldDevice?.last_seen_at) candidates.push({ last_seen_at: oldDevice.last_seen_at, is_active: oldDevice.is_active })
+  if (heartbeatTs) candidates.push({ last_seen_at: heartbeatTs, is_active: true })
+  const device: DeviceRow | null = candidates.length
+    ? candidates.reduce((best, c) =>
+        new Date(c.last_seen_at).getTime() > new Date(best.last_seen_at).getTime() ? c : best,
+      ) as DeviceRow
+    : null
   const hasAgent = !!device
+
+  // AI-8926: real-match-count fallback when analytics_daily is empty.
+  const realMatchCount = (matchCountRes as { count?: number | null } | null)?.count ?? 0
 
   // Aggregate totals
   const totals = rows.reduce(
@@ -308,7 +336,8 @@ export default async function Dashboard() {
 
   const stats = [
     { label: 'Swipes Today', value: hasAgent ? String(todaySwipes) : '--', trend: undefined, invertColors: false },
-    { label: 'Total Matches', value: hasAgent ? String(totals.matches) : '--', trend: hasAgent ? chartData.trends.matches : undefined, invertColors: false },
+    // AI-8926: Always show match count from clapcheeks_matches when analytics_daily is empty.
+    { label: 'Total Matches', value: String(totals.matches || realMatchCount), trend: hasAgent ? chartData.trends.matches : undefined, invertColors: false },
     { label: 'Dates Booked', value: hasAgent ? String(totals.dates) : '--', trend: hasAgent ? chartData.trends.dates : undefined, invertColors: false },
     { label: 'Match Rate', value: hasAgent ? `${matchRate.toFixed(1)}%` : '--', trend: undefined, invertColors: false },
     { label: 'Rizz Score', value: hasAgent ? String(rizzScore) : '--', trend: hasAgent ? rizzTrend : undefined, invertColors: false },

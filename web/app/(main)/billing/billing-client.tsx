@@ -117,8 +117,12 @@ export default function BillingClient({ plan, subscriptionStatus, hasStripeCusto
     return `$${(cents / 100).toFixed(2)}`
   }
 
-  // Not subscribed state
-  if (!hasStripeCustomer || subscriptionStatus === 'inactive') {
+  // Not subscribed state.
+  // AI-8926: super_admin / comp'd users are marked elite/active in `profiles`
+  // without ever creating a Stripe customer.  Honor that — only show the
+  // upsell for genuinely inactive accounts.
+  const isProfileActive = subscriptionStatus === 'active' && (plan === 'elite' || plan === 'base')
+  if (!isProfileActive && (!hasStripeCustomer || subscriptionStatus === 'inactive')) {
     return (
       <div className="space-y-6">
         <div className="bg-white/5 border border-white/10 rounded-xl p-6 text-center">
