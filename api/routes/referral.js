@@ -1,6 +1,7 @@
 import { Router } from 'express'
 import Stripe from 'stripe'
 import { supabase } from '../server.js'
+import { asyncHandler } from '../utils/asyncHandler.js'
 
 export const router = Router()
 
@@ -23,7 +24,7 @@ async function requireAuth(req, res, next) {
 }
 
 // GET /referral/code — get user's referral code + stats
-router.get('/code', requireAuth, async (req, res) => {
+router.get('/code', requireAuth, asyncHandler(async (req, res) => {
   const { data: profile, error } = await supabase
     .from('profiles')
     .select('referral_code, free_months_earned')
@@ -44,10 +45,10 @@ router.get('/code', requireAuth, async (req, res) => {
     conversions: conversions || 0,
     months_earned: profile.free_months_earned || 0,
   })
-})
+}))
 
 // POST /referral/apply — apply a referral code at signup
-router.post('/apply', requireAuth, async (req, res) => {
+router.post('/apply', requireAuth, asyncHandler(async (req, res) => {
   const { code } = req.body
   if (!code) return res.status(400).json({ error: 'Missing referral code' })
 
@@ -136,10 +137,10 @@ router.post('/apply', requireAuth, async (req, res) => {
   }
 
   res.json({ success: true, message: 'Referral applied, referrer rewarded' })
-})
+}))
 
 // GET /referral/stats — full referral list with status
-router.get('/stats', requireAuth, async (req, res) => {
+router.get('/stats', requireAuth, asyncHandler(async (req, res) => {
   const { data: profile } = await supabase
     .from('profiles')
     .select('referral_code, free_months_earned')
@@ -164,4 +165,4 @@ router.get('/stats', requireAuth, async (req, res) => {
     months_earned: profile.free_months_earned || 0,
     referrals: list,
   })
-})
+}))
