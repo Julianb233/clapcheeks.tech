@@ -1,4 +1,7 @@
-import 'dotenv/config'
+import dotenv from 'dotenv'
+// override:true so .env values win over any stale shell env vars on the host
+// (PM2 inherits parent shell env at daemon startup; we want .env to be authoritative).
+dotenv.config({ override: true })
 import express from 'express'
 import cors from 'cors'
 import helmet from 'helmet'
