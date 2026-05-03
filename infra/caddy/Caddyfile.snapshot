@@ -1,0 +1,50 @@
+:80 {
+	handle /mitm/* {
+		uri strip_prefix /mitm
+		reverse_proxy localhost:8083
+	}
+
+	handle {
+		root * /usr/share/caddy
+		file_server
+	}
+}
+
+# Dashboard Daddy proxy for Tailscale Serve (AI-9125)
+# Listens on localhost:8766, proxies to Vercel deployment with correct Host header
+:8766 {
+	bind 127.0.0.1
+	reverse_proxy https://dashboard.dashboard-daddy.com {
+		header_up Host dashboard.dashboard-daddy.com
+		header_up X-Forwarded-Host dashboard.dashboard-daddy.com
+	}
+}
+
+# Clapcheeks — AI-9196 (off Fly.io, onto VPS PM2)
+api.clapcheeks.tech {
+	bind 91.98.184.20 2a01:4f8:2210:282a::2
+	reverse_proxy 127.0.0.1:3001 {
+		header_up Host {host}
+		header_up X-Forwarded-For {remote_host}
+		header_up X-Forwarded-Proto https
+	}
+	encode gzip
+	log {
+		output file /var/log/caddy/clapcheeks-api.log
+		format json
+	}
+}
+
+ai.clapcheeks.tech {
+	bind 91.98.184.20 2a01:4f8:2210:282a::2
+	reverse_proxy 127.0.0.1:8000 {
+		header_up Host {host}
+		header_up X-Forwarded-For {remote_host}
+		header_up X-Forwarded-Proto https
+	}
+	encode gzip
+	log {
+		output file /var/log/caddy/clapcheeks-ai.log
+		format json
+	}
+}

@@ -4,6 +4,7 @@ import { Bebas_Neue, DM_Sans, Geist_Mono } from 'next/font/google'
 import { Analytics } from '@vercel/analytics/next'
 import PWAProvider from '@/components/pwa/pwa-provider'
 import PostHogProvider from '@/components/providers/posthog-provider'
+import { ConvexProvider } from '@/components/providers/convex-provider'
 import { ThemeProvider } from '@/components/theme-provider'
 import { Toaster } from '@/components/ui/sonner'
 import './globals.css'
@@ -90,13 +91,15 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           enableSystem
           disableTransitionOnChange
         >
-          {children}
-          <Toaster />
-          <PWAProvider />
-          <Suspense fallback={null}>
-            <PostHogProvider />
-          </Suspense>
-          <Analytics />
+          <ConvexProvider>
+            {children}
+            <Toaster />
+            <PWAProvider />
+            <Suspense fallback={null}>
+              <PostHogProvider />
+            </Suspense>
+            <Analytics />
+          </ConvexProvider>
         </ThemeProvider>
       </body>
     </html>
