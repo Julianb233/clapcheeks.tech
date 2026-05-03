@@ -1,4 +1,4 @@
-import rateLimit from 'express-rate-limit'
+import rateLimit, { ipKeyGenerator } from 'express-rate-limit'
 
 // Auth endpoints: strict (5 req/min per IP)
 export const authLimiter = rateLimit({
@@ -13,7 +13,7 @@ export const authLimiter = rateLimit({
 export const aiLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 20,
-  keyGenerator: (req) => req.user?.id || req.userId || req.ip,
+  keyGenerator: (req) => req.user?.id || req.userId || ipKeyGenerator(req.ip),
   message: { error: 'Rate limit exceeded for AI features. Please wait.' },
   standardHeaders: true,
   legacyHeaders: false,
