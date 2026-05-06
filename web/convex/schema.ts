@@ -35,11 +35,17 @@ export default defineSchema({
     metadata: v.optional(v.any()),        // platform-specific blob (compatibility, age, etc.)
     created_at: v.number(),
     updated_at: v.number(),
+    // Multi-line iMessage fields (AI-9409)
+    line: v.optional(v.number()),                  // 1-5 for fleet multi-line; sticky once set
+    imessage_handle: v.optional(v.string()),       // E.164 phone or email tied to the contact
+    ghl_contact_id: v.optional(v.string()),        // GoHighLevel contact UUID once linked
   })
     .index("by_user", ["user_id"])
     .index("by_user_status", ["user_id", "status"])
     .index("by_user_external", ["user_id", "platform", "external_match_id"])
-    .index("by_last_message", ["user_id", "last_message_at"]),
+    .index("by_last_message", ["user_id", "last_message_at"])
+    .index("by_line_recent", ["line", "last_message_at"])      // AI-9409: per-line queries
+    .index("by_imessage_handle", ["imessage_handle"]),         // AI-9409: sticky-line lookup
 
   // Every message in or out, both for live UI updates and AI training context.
   messages: defineTable({
@@ -56,11 +62,35 @@ export default defineSchema({
       v.literal("ai_auto_send"),
       v.literal("scheduled"),
       v.literal("import"),
+      v.literal("bluebubbles_webhook"),   // AI-9409: inbound from BlueBubbles VPS receiver
     ),
     ai_metadata: v.optional(v.any()),     // model, tokens, prompt id, score, etc.
+    // Multi-line iMessage fields (AI-9409)
+    line: v.optional(v.number()),                  // 1-5 for fleet multi-line; optional — existing rows stay valid
+    transport: v.optional(v.union(                 // which iMessage transport delivered/sent it
+      v.literal("bluebubbles"),
+      v.literal("pypush"),
+      v.literal("applescript"),
+      v.literal("sms"),
+      v.literal("imessage_native"),               // existing clapcheeks rows
+    )),
+    external_guid: v.optional(v.string()),         // BlueBubbles message GUID for dedup + reaction targeting
+    attachments_summary: v.optional(v.array(v.object({
+      guid: v.string(),
+      name: v.optional(v.string()),
+      mime: v.optional(v.string()),
+      size: v.optional(v.number()),
+      is_audio_message: v.optional(v.boolean()),
+    }))),
+    send_error: v.optional(v.object({
+      code: v.optional(v.number()),
+      description: v.optional(v.string()),
+    })),
   })
     .index("by_conversation", ["conversation_id", "sent_at"])
-    .index("by_user_recent", ["user_id", "sent_at"]),
+    .index("by_user_recent", ["user_id", "sent_at"])
+    .index("by_line_recent", ["line", "sent_at"])              // AI-9409: per-line feed
+    .index("by_external_guid", ["external_guid"]),             // AI-9409: dedup lookup
 
   // Replaces public.clapcheeks_scheduled_messages on Postgres.
   scheduled_messages: defineTable({
