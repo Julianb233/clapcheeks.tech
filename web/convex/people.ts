@@ -596,6 +596,48 @@ export const updateVibe = mutation({
 });
 
 // ----------------------------------------------------------------------------
+// updateCourtship
+//
+// Daemon-only writer. Called by the convex_runner enrich_courtship job
+// after Gemini analyzes the conversation. Records trust + courtship-stage
+// signals + "next best move" suggestion the dashboard can show.
+// ----------------------------------------------------------------------------
+export const updateCourtship = mutation({
+  args: {
+    person_id: v.id("people"),
+    trust_score: v.optional(v.number()),
+    courtship_stage: v.optional(v.union(
+      v.literal("matched"), v.literal("early_chat"), v.literal("phone_swap"),
+      v.literal("pre_date"), v.literal("first_date_done"), v.literal("ongoing"),
+      v.literal("exclusive"), v.literal("ghosted"), v.literal("ended"),
+    )),
+    trust_signals_observed: v.optional(v.array(v.string())),
+    trust_signals_missing: v.optional(v.array(v.string())),
+    things_she_loves: v.optional(v.array(v.string())),
+    things_she_dislikes: v.optional(v.array(v.string())),
+    boundaries_stated: v.optional(v.array(v.string())),
+    green_flags: v.optional(v.array(v.string())),
+    red_flags: v.optional(v.array(v.string())),
+    compliments_that_landed: v.optional(v.array(v.string())),
+    references_to_callback: v.optional(v.array(v.string())),
+    her_love_languages: v.optional(v.array(v.string())),
+    next_best_move: v.optional(v.string()),
+    next_best_move_confidence: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const { person_id, ...rest } = args;
+    const patch: Record<string, unknown> = {
+      courtship_last_analyzed: Date.now(),
+      updated_at: Date.now(),
+    };
+    for (const [k, v] of Object.entries(rest)) {
+      if (v !== undefined) patch[k] = v;
+    }
+    await ctx.db.patch(person_id, patch);
+  },
+});
+
+// ----------------------------------------------------------------------------
 // listVibeCandidates
 //
 // Dashboard reader. Returns people whose latest vibe_classification is

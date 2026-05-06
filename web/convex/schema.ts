@@ -294,6 +294,40 @@ export default defineSchema({
     days_since_last_reply: v.optional(v.number()),
     total_messages_30d: v.optional(v.number()),
 
+    // -----------------------------------------------------------------
+    // TRUST + COURTSHIP INTELLIGENCE (Julian: "build trust and court a
+    // girl and the things they like"). Populated by the convex_runner
+    // job enrich_courtship after the chat.db backfill — Gemini reads
+    // the last 100 messages and outputs structured signals about where
+    // the relationship is, what she values, and what your next move
+    // should be.
+    // -----------------------------------------------------------------
+    trust_score: v.optional(v.number()),              // 0.0 - 1.0 — observed trust level
+    courtship_stage: v.optional(v.union(
+      v.literal("matched"),                            // dating-app match, no number swap yet
+      v.literal("early_chat"),                         // exchanging messages, low context
+      v.literal("phone_swap"),                         // off the app, on iMessage
+      v.literal("pre_date"),                           // confirmed but date hasn't happened
+      v.literal("first_date_done"),                    // had one in-person meeting
+      v.literal("ongoing"),                            // dating actively, multiple meetings
+      v.literal("exclusive"),                          // monogamy / committed
+      v.literal("ghosted"),                            // unilateral silence on her end
+      v.literal("ended"),                              // explicit end
+    )),
+    trust_signals_observed: v.optional(v.array(v.string())),    // e.g. ["shares vulnerable details", "follows through on plans"]
+    trust_signals_missing: v.optional(v.array(v.string())),     // e.g. ["never initiates", "only talks late at night"]
+    things_she_loves: v.optional(v.array(v.string())),          // her stated favorite topics / hooks for the next message
+    things_she_dislikes: v.optional(v.array(v.string())),
+    boundaries_stated: v.optional(v.array(v.string())),         // explicit "I don't do X" lines she's drawn
+    green_flags: v.optional(v.array(v.string())),               // positives observed in the convo
+    red_flags: v.optional(v.array(v.string())),                 // warning signs to be aware of
+    compliments_that_landed: v.optional(v.array(v.string())),   // past compliments that got positive response
+    references_to_callback: v.optional(v.array(v.string())),    // inside jokes / shared memories to invoke
+    her_love_languages: v.optional(v.array(v.string())),        // words / time / gifts / acts / touch (1+ if mentioned)
+    next_best_move: v.optional(v.string()),                     // 1-sentence Gemini-suggested next message / move
+    next_best_move_confidence: v.optional(v.number()),          // 0.0 - 1.0
+    courtship_last_analyzed: v.optional(v.number()),            // unix ms of last enrich_courtship run
+
     // Cadence + timing — drives the cadence_runner thread.
     cadence_profile: v.union(
       v.literal("hot"),                             // reply within 5-30m
