@@ -212,14 +212,82 @@ export default defineSchema({
       primary: v.boolean(),
     })),
 
-    // Personality (sourced from Obsidian frontmatter, refreshed by sync).
+    // -----------------------------------------------------------------
+    // OPERATOR-SET enrichment (sourced from Obsidian Templates/Person.md
+    // + Google Contacts user-defined fields + dashboard manual edits).
+    // -----------------------------------------------------------------
     interests: v.array(v.string()),
     goals: v.array(v.string()),
     values: v.array(v.string()),
     context_notes: v.optional(v.string()),          // free-form Obsidian body excerpt
-    disc_primary: v.optional(v.string()),
-    vak_primary: v.optional(v.string()),
+    domain: v.optional(v.array(v.string())),        // ["business", "personal", "creative", ...]
+    disc_primary: v.optional(v.string()),           // D / I / S / C
+    disc_secondary: v.optional(v.string()),
+    disc_type: v.optional(v.string()),              // composite, e.g. "I/D"
+    vak_primary: v.optional(v.string()),            // visual / auditory / kinesthetic
     communication_style: v.optional(v.string()),
+    formality: v.optional(v.string()),              // casual / professional / formal
+    best_contact_time: v.optional(v.string()),
+    preferred_channel: v.optional(v.string()),
+    business_potential: v.optional(v.string()),     // low / medium / high
+    company: v.optional(v.string()),
+    profession: v.optional(v.string()),
+    faith_stage: v.optional(v.string()),
+    is_discipleship: v.optional(v.boolean()),
+    is_client: v.optional(v.boolean()),
+    client_project: v.optional(v.string()),
+    relationship_strength: v.optional(v.number()),  // 1-10
+    cialdini_principle: v.optional(v.string()),     // reciprocity / commitment / social_proof / authority / liking / scarcity / unity
+    rapport_phrases: v.optional(v.array(v.string())),  // operator-curated phrases that build rapport
+
+    // Interests refinement (Julian: "interests")
+    interest_categories: v.optional(v.array(v.string())),  // top-level: sports, music, food, travel, fitness, etc.
+    passions: v.optional(v.array(v.string())),             // deeper than interests
+    dislikes: v.optional(v.array(v.string())),
+    topics_to_avoid: v.optional(v.array(v.string())),
+
+    // -----------------------------------------------------------------
+    // AUTO-COMPUTED enrichment (mirrors Supabase contact_communication_profiles
+    // — populated by comms_profiler / convex_runner enrich_person job).
+    // -----------------------------------------------------------------
+    motivation: v.optional(v.string()),             // toward / away
+    reference_style: v.optional(v.string()),
+    approach: v.optional(v.string()),               // suggested communication approach
+    energy: v.optional(v.string()),                 // high / medium / low
+    rapport_markers: v.optional(v.array(v.string())),  // phrases observed to land well
+    avg_message_length: v.optional(v.number()),
+    emoji_frequency: v.optional(v.number()),        // 0.0 - 1.0
+    recommendations: v.optional(v.array(v.string())),  // coaching suggestions for next reply
+    raw_profile: v.optional(v.any()),               // full LLM analysis blob
+    message_count: v.optional(v.number()),
+    last_analyzed: v.optional(v.number()),          // unix ms
+    observed_response_window: v.optional(v.any()),  // {start_hour, end_hour, p50_minutes, ...}
+    julian_style_with_contact: v.optional(v.string()),  // how Julian's voice should mirror this person
+    best_channels: v.optional(v.array(v.string())),     // observed-best channels for this person
+    contact_history_summary: v.optional(v.string()),
+    relationship_dynamic: v.optional(v.string()),
+    sentiment_trend: v.optional(v.union(
+      v.literal("improving"), v.literal("stable"), v.literal("declining"),
+    )),
+    avg_sentiment_score: v.optional(v.number()),    // -1.0 to 1.0
+    last_sentiment_at: v.optional(v.number()),
+
+    // -----------------------------------------------------------------
+    // DATING / TALKING ACTIVITY INDICATORS (Julian: "dating and talking
+    // indicators"). Computed from Convex messages + observed reply patterns.
+    // Refreshed by enrich_person + a periodic sweep.
+    // -----------------------------------------------------------------
+    is_actively_dating: v.optional(v.boolean()),    // vibe=dating AND has reciprocal messages last 30d
+    is_actively_talking: v.optional(v.boolean()),   // any reciprocal messages last 30d
+    engagement_score: v.optional(v.number()),       // 0.0 - 1.0 composite
+    response_rate: v.optional(v.number()),          // 0.0 - 1.0 — fraction of your outbound that gets a reply
+    avg_response_time_minutes: v.optional(v.number()),
+    conversation_temperature: v.optional(v.union(   // OBSERVED state (not target — see cadence_profile)
+      v.literal("hot"), v.literal("warm"), v.literal("cool"),
+      v.literal("cold"), v.literal("dormant"),
+    )),
+    days_since_last_reply: v.optional(v.number()),
+    total_messages_30d: v.optional(v.number()),
 
     // Cadence + timing — drives the cadence_runner thread.
     cadence_profile: v.union(

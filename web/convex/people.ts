@@ -629,6 +629,118 @@ export const listVibeCandidates = query({
 });
 
 // ----------------------------------------------------------------------------
+// patchEnrichment
+//
+// Generic enrichment writer. Used by the Supabase migration script + the
+// dashboard's manual edit panel + the comms_profiler enrich_person job.
+// Only fields explicitly passed are updated — no field can be cleared
+// accidentally (passing v.optional means "leave alone if absent" here).
+//
+// Looks up by phone-handle if person_id not given (so the migration can
+// match on E.164 without first resolving Convex ids).
+// ----------------------------------------------------------------------------
+export const patchEnrichment = mutation({
+  args: {
+    person_id: v.optional(v.id("people")),
+    user_id: v.optional(v.string()),
+    match_phone_e164: v.optional(v.string()),
+
+    // Operator-set fields
+    domain: v.optional(v.array(v.string())),
+    disc_primary: v.optional(v.string()),
+    disc_secondary: v.optional(v.string()),
+    disc_type: v.optional(v.string()),
+    vak_primary: v.optional(v.string()),
+    communication_style: v.optional(v.string()),
+    formality: v.optional(v.string()),
+    best_contact_time: v.optional(v.string()),
+    preferred_channel: v.optional(v.string()),
+    business_potential: v.optional(v.string()),
+    company: v.optional(v.string()),
+    profession: v.optional(v.string()),
+    faith_stage: v.optional(v.string()),
+    is_discipleship: v.optional(v.boolean()),
+    is_client: v.optional(v.boolean()),
+    client_project: v.optional(v.string()),
+    relationship_strength: v.optional(v.number()),
+    cialdini_principle: v.optional(v.string()),
+    rapport_phrases: v.optional(v.array(v.string())),
+    interest_categories: v.optional(v.array(v.string())),
+    passions: v.optional(v.array(v.string())),
+    dislikes: v.optional(v.array(v.string())),
+    topics_to_avoid: v.optional(v.array(v.string())),
+
+    // Auto-computed fields
+    motivation: v.optional(v.string()),
+    reference_style: v.optional(v.string()),
+    approach: v.optional(v.string()),
+    energy: v.optional(v.string()),
+    rapport_markers: v.optional(v.array(v.string())),
+    avg_message_length: v.optional(v.number()),
+    emoji_frequency: v.optional(v.number()),
+    recommendations: v.optional(v.array(v.string())),
+    raw_profile: v.optional(v.any()),
+    message_count: v.optional(v.number()),
+    last_analyzed: v.optional(v.number()),
+    observed_response_window: v.optional(v.any()),
+    julian_style_with_contact: v.optional(v.string()),
+    best_channels: v.optional(v.array(v.string())),
+    contact_history_summary: v.optional(v.string()),
+    relationship_dynamic: v.optional(v.string()),
+    sentiment_trend: v.optional(v.union(
+      v.literal("improving"), v.literal("stable"), v.literal("declining"),
+    )),
+    avg_sentiment_score: v.optional(v.number()),
+    last_sentiment_at: v.optional(v.number()),
+
+    // Activity indicators
+    is_actively_dating: v.optional(v.boolean()),
+    is_actively_talking: v.optional(v.boolean()),
+    engagement_score: v.optional(v.number()),
+    response_rate: v.optional(v.number()),
+    avg_response_time_minutes: v.optional(v.number()),
+    conversation_temperature: v.optional(v.union(
+      v.literal("hot"), v.literal("warm"), v.literal("cool"),
+      v.literal("cold"), v.literal("dormant"),
+    )),
+    days_since_last_reply: v.optional(v.number()),
+    total_messages_30d: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    let target: any = null;
+    if (args.person_id) {
+      target = await ctx.db.get(args.person_id);
+    } else if (args.match_phone_e164 && args.user_id) {
+      const all = await ctx.db
+        .query("people")
+        .withIndex("by_user", (q) => q.eq("user_id", args.user_id!))
+        .collect();
+      const phone = args.match_phone_e164.trim();
+      target = all.find((p) =>
+        p.handles.some(
+          (h) =>
+            ["imessage", "sms", "whatsapp"].includes(h.channel) &&
+            h.value.trim() === phone,
+        ),
+      ) ?? null;
+    }
+    if (!target) {
+      return { matched: false };
+    }
+
+    const patch: Record<string, unknown> = { updated_at: Date.now() };
+    const skipKeys = new Set(["person_id", "user_id", "match_phone_e164"]);
+    for (const [k, v] of Object.entries(args)) {
+      if (skipKeys.has(k)) continue;
+      if (v === undefined || v === null) continue;
+      patch[k] = v;
+    }
+    await ctx.db.patch(target._id, patch);
+    return { matched: true, person_id: target._id, fields_set: Object.keys(patch).length - 1 };
+  },
+});
+
+// ----------------------------------------------------------------------------
 // updateLiveState
 //
 // Daemon-only writer. Called whenever inbound/outbound activity occurs on
