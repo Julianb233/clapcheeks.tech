@@ -629,6 +629,166 @@ export const listVibeCandidates = query({
 });
 
 // ----------------------------------------------------------------------------
+// upsertFromSupabase
+//
+// Bulk migration entry point. One row per public.people in Dashboard Daddy.
+// Match precedence: supabase_people_id -> email handle -> phone handle ->
+// create new. Pulls operator-set fields the Daddy CRM tracks (circle,
+// relationship_role, company, profession, interests, etc.) into Convex.
+//
+// Default lifecycle for newly-created rows: status="lead",
+// whitelist_for_autoreply=false. Network membership remains gated by the
+// Google Contacts "CC TECH" label per the architecture lock — pulling the
+// data in does NOT enroll someone in the clapcheeks autoreply set.
+// ----------------------------------------------------------------------------
+export const upsertFromSupabase = mutation({
+  args: {
+    user_id: v.string(),
+    supabase_people_id: v.string(),
+    display_name: v.string(),
+    handles: v.array(v.object({
+      channel: HANDLE_CHANNEL,
+      value: v.string(),
+      verified: v.optional(v.boolean()),
+      primary: v.optional(v.boolean()),
+    })),
+    // operator-set passthrough
+    interests: v.optional(v.array(v.string())),
+    company: v.optional(v.string()),
+    profession: v.optional(v.string()),
+    relationship_strength: v.optional(v.number()),
+    is_client: v.optional(v.boolean()),
+    is_discipleship: v.optional(v.boolean()),
+    business_potential: v.optional(v.string()),
+    // misc
+    context_notes: v.optional(v.string()),
+    ghl_contact_id: v.optional(v.string()),
+    notion_page_id: v.optional(v.string()),
+    cadence_profile: v.optional(CADENCE_PROFILE),
+    status: v.optional(PERSON_STATUS),
+  },
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    const incoming = args.handles.map((h) => ({
+      channel: h.channel,
+      value: h.value.trim().toLowerCase(),
+      _original: h.value,
+      verified: h.verified ?? false,
+      primary: h.primary ?? false,
+    }));
+
+    // Pull all of the user's people once, then match in memory (Convex
+    // doesn't index inside arrays of objects).
+    const all = await ctx.db
+      .query("people")
+      .withIndex("by_user", (q) => q.eq("user_id", args.user_id))
+      .collect();
+
+    let match =
+      all.find((p) => (p as any).supabase_people_id === args.supabase_people_id) ??
+      null;
+
+    if (!match) {
+      const incomingEmails = incoming.filter((h) => h.channel === "email").map((h) => h.value);
+      if (incomingEmails.length) {
+        match = all.find((p) =>
+          p.handles.some(
+            (h) => h.channel === "email" &&
+              incomingEmails.includes(h.value.trim().toLowerCase()),
+          ),
+        ) ?? null;
+      }
+    }
+
+    if (!match) {
+      const incomingPhones = incoming
+        .filter((h) => ["imessage", "sms", "whatsapp"].includes(h.channel))
+        .map((h) => h.value);
+      if (incomingPhones.length) {
+        match = all.find((p) =>
+          p.handles.some(
+            (h) => ["imessage", "sms", "whatsapp"].includes(h.channel) &&
+              incomingPhones.includes(h.value.trim().toLowerCase()),
+          ),
+        ) ?? null;
+      }
+    }
+
+    // Merge handles
+    const seen = new Set<string>();
+    const mergedHandles: Array<{ channel: any; value: string; verified: boolean; primary: boolean }> = [];
+    if (match) {
+      for (const h of match.handles) {
+        const key = `${h.channel}:${h.value.trim().toLowerCase()}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          mergedHandles.push({ channel: h.channel, value: h.value, verified: h.verified, primary: h.primary });
+        }
+      }
+    }
+    for (const h of incoming) {
+      const key = `${h.channel}:${h.value}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        mergedHandles.push({ channel: h.channel, value: h._original, verified: h.verified, primary: h.primary });
+      }
+    }
+
+    if (match) {
+      const patch: Record<string, unknown> = {
+        updated_at: now,
+        supabase_people_id: args.supabase_people_id,
+        handles: mergedHandles,
+      };
+      if (!match.display_name || match.display_name === "Unknown") patch.display_name = args.display_name;
+      if (args.interests?.length) {
+        const merged = new Set(match.interests || []);
+        for (const i of args.interests) merged.add(i);
+        patch.interests = Array.from(merged);
+      }
+      if (args.company && !match.company) patch.company = args.company;
+      if (args.profession && !match.profession) patch.profession = args.profession;
+      if (args.relationship_strength !== undefined && match.relationship_strength === undefined) {
+        patch.relationship_strength = args.relationship_strength;
+      }
+      if (args.is_client !== undefined && match.is_client === undefined) patch.is_client = args.is_client;
+      if (args.is_discipleship !== undefined && match.is_discipleship === undefined) {
+        patch.is_discipleship = args.is_discipleship;
+      }
+      if (args.business_potential && !match.business_potential) patch.business_potential = args.business_potential;
+      if (args.ghl_contact_id && !match.ghl_contact_id) patch.ghl_contact_id = args.ghl_contact_id;
+      if (args.context_notes && !match.context_notes) patch.context_notes = args.context_notes;
+      await ctx.db.patch(match._id, patch);
+      return { person_id: match._id, created: false };
+    }
+
+    const id = await ctx.db.insert("people", {
+      user_id: args.user_id,
+      display_name: args.display_name,
+      supabase_people_id: args.supabase_people_id,
+      handles: mergedHandles,
+      interests: args.interests ?? [],
+      goals: [],
+      values: [],
+      context_notes: args.context_notes,
+      company: args.company,
+      profession: args.profession,
+      relationship_strength: args.relationship_strength,
+      is_client: args.is_client,
+      is_discipleship: args.is_discipleship,
+      business_potential: args.business_potential,
+      ghl_contact_id: args.ghl_contact_id,
+      cadence_profile: args.cadence_profile ?? "warm",
+      status: args.status ?? "lead",
+      whitelist_for_autoreply: false,
+      created_at: now,
+      updated_at: now,
+    });
+    return { person_id: id, created: true };
+  },
+});
+
+// ----------------------------------------------------------------------------
 // patchEnrichment
 //
 // Generic enrichment writer. Used by the Supabase migration script + the

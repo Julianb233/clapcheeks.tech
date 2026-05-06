@@ -200,6 +200,11 @@ export default defineSchema({
       v.literal("both"),                                              // dedupe matched same person across both
     )),
 
+    // Cross-system foreign keys (for backfill + bidirectional sync verification).
+    supabase_people_id: v.optional(v.string()),                       // public.people.id from Dashboard Daddy
+    ghl_contact_id: v.optional(v.string()),                           // GoHighLevel CRM
+    notion_page_id: v.optional(v.string()),                           // Notion person page
+
     // Identity handles — every channel a message could land on.
     handles: v.array(v.object({
       channel: v.union(
