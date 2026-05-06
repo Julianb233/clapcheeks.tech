@@ -132,6 +132,189 @@ export const upsertFromObsidian = mutation({
 });
 
 // ----------------------------------------------------------------------------
+// upsertFromGoogleContacts
+//
+// Source-of-truth for clapcheeks-network MEMBERSHIP. The local sync
+// (clapcheeks/intel/google_contacts_sync.py) walks both julianb233@gmail.com
+// and julian@aiacrobatics.com, filters by the "CC TECH" label, and calls
+// this mutation per contact.
+//
+// Match precedence (avoids duplicates with Obsidian-sourced rows):
+//   1. existing row with same google_contact_id
+//   2. existing row with overlapping email handle (case-insensitive)
+//   3. existing row with overlapping phone handle (E.164 normalized)
+//   4. else create a new row
+//
+// Whitelist for autoreply is NEVER auto-true — even when the label is set.
+// Julian flips it manually in the dashboard with full data-source context.
+// ----------------------------------------------------------------------------
+export const upsertFromGoogleContacts = mutation({
+  args: {
+    user_id: v.string(),
+    google_contact_id: v.string(),
+    google_contact_etag: v.optional(v.string()),
+    google_account_source: v.union(
+      v.literal("personal"), v.literal("workspace"), v.literal("both"),
+    ),
+    google_contacts_labels: v.array(v.string()),
+    display_name: v.string(),
+    handles: v.array(v.object({
+      channel: HANDLE_CHANNEL,
+      value: v.string(),
+      verified: v.optional(v.boolean()),
+      primary: v.optional(v.boolean()),
+    })),
+    interests: v.optional(v.array(v.string())),
+    context_notes: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const now = Date.now();
+
+    // Normalize incoming handles for matching.
+    const incoming = args.handles.map((h) => ({
+      channel: h.channel,
+      value: h.value.trim().toLowerCase(),
+      verified: h.verified ?? false,
+      primary: h.primary ?? false,
+      _original: h.value,
+    }));
+
+    // 1. existing by google_contact_id
+    let match = (await ctx.db
+      .query("people")
+      .withIndex("by_user", (q) => q.eq("user_id", args.user_id))
+      .collect())
+      .find((p) => p.google_contact_id === args.google_contact_id) ?? null;
+
+    // 2. existing by email handle overlap
+    if (!match) {
+      const incomingEmails = incoming.filter((h) => h.channel === "email").map((h) => h.value);
+      if (incomingEmails.length) {
+        const all = await ctx.db
+          .query("people")
+          .withIndex("by_user", (q) => q.eq("user_id", args.user_id))
+          .collect();
+        match = all.find((p) =>
+          p.handles.some((h) =>
+            h.channel === "email" && incomingEmails.includes(h.value.trim().toLowerCase()),
+          ),
+        ) ?? null;
+      }
+    }
+
+    // 3. existing by phone handle overlap (imessage / sms / whatsapp share E.164 namespace)
+    if (!match) {
+      const incomingPhones = incoming
+        .filter((h) => ["imessage", "sms", "whatsapp"].includes(h.channel))
+        .map((h) => h.value);
+      if (incomingPhones.length) {
+        const all = await ctx.db
+          .query("people")
+          .withIndex("by_user", (q) => q.eq("user_id", args.user_id))
+          .collect();
+        match = all.find((p) =>
+          p.handles.some((h) =>
+            ["imessage", "sms", "whatsapp"].includes(h.channel) &&
+            incomingPhones.includes(h.value.trim().toLowerCase()),
+          ),
+        ) ?? null;
+      }
+    }
+
+    // Merge existing handles + new handles (dedup on (channel, value)).
+    const mergedHandles: typeof incoming = [];
+    const seen = new Set<string>();
+    if (match) {
+      for (const h of match.handles) {
+        const key = `${h.channel}:${h.value.trim().toLowerCase()}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          mergedHandles.push({
+            channel: h.channel,
+            value: h.value,
+            verified: h.verified,
+            primary: h.primary,
+            _original: h.value,
+          });
+        }
+      }
+    }
+    for (const h of incoming) {
+      const key = `${h.channel}:${h.value}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        mergedHandles.push(h);
+      }
+    }
+    const handlesForWrite = mergedHandles.map((h) => ({
+      channel: h.channel, value: h._original, verified: h.verified, primary: h.primary,
+    }));
+
+    // Merge labels (existing + new).
+    const labelSet = new Set<string>([
+      ...(match?.google_contacts_labels ?? []),
+      ...args.google_contacts_labels,
+    ]);
+
+    // Determine google_account_source: if previously set to a different
+    // source than this call, mark as "both".
+    let accountSource: "personal" | "workspace" | "both" = args.google_account_source;
+    if (match?.google_account_source && match.google_account_source !== args.google_account_source) {
+      accountSource = "both";
+    }
+
+    if (match) {
+      const patch: Record<string, unknown> = {
+        google_contact_id: args.google_contact_id,
+        google_contact_etag: args.google_contact_etag,
+        google_contacts_labels: Array.from(labelSet),
+        google_account_source: accountSource,
+        handles: handlesForWrite,
+        updated_at: now,
+      };
+      // Don't overwrite display_name if it was set by Obsidian (which often
+      // has richer naming conventions). Only fill if missing.
+      if (!match.display_name || match.display_name === "Unknown") {
+        patch.display_name = args.display_name;
+      }
+      // Merge interests (Obsidian may have set richer ones already).
+      if (args.interests?.length) {
+        const existing = new Set(match.interests || []);
+        for (const i of args.interests) existing.add(i);
+        patch.interests = Array.from(existing);
+      }
+      if (args.context_notes && !match.context_notes) {
+        patch.context_notes = args.context_notes;
+      }
+      await ctx.db.patch(match._id, patch);
+      return { person_id: match._id, created: false };
+    }
+
+    // No match — create new row. Default cadence=warm, status=active (since
+    // the contact carries the membership label), whitelist OFF (manual flip).
+    const id = await ctx.db.insert("people", {
+      user_id: args.user_id,
+      display_name: args.display_name,
+      google_contact_id: args.google_contact_id,
+      google_contact_etag: args.google_contact_etag,
+      google_contacts_labels: Array.from(labelSet),
+      google_account_source: accountSource,
+      handles: handlesForWrite,
+      interests: args.interests ?? [],
+      goals: [],
+      values: [],
+      context_notes: args.context_notes,
+      cadence_profile: "warm",
+      status: "active",
+      whitelist_for_autoreply: false,
+      created_at: now,
+      updated_at: now,
+    });
+    return { person_id: id, created: true };
+  },
+});
+
+// ----------------------------------------------------------------------------
 // findByHandle
 //
 // Look up people by exact (channel, value) match. Returns array — caller
@@ -380,6 +563,68 @@ export const deleteByObsidianPath = mutation({
       detached_conversations: convs.length,
       detached_messages: msgs.length,
     };
+  },
+});
+
+// ----------------------------------------------------------------------------
+// updateVibe
+//
+// Daemon-only. Called by the convex_runner classify_conversation_vibe job
+// after Claude scores a conversation. Records the classification +
+// confidence + a 1-sentence evidence string the dashboard can show as
+// "why we think this person is in the dating ecosystem".
+// ----------------------------------------------------------------------------
+export const updateVibe = mutation({
+  args: {
+    person_id: v.id("people"),
+    vibe_classification: v.union(
+      v.literal("dating"), v.literal("platonic"),
+      v.literal("professional"), v.literal("unclear"),
+    ),
+    vibe_confidence: v.number(),
+    vibe_evidence: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.person_id, {
+      vibe_classification: args.vibe_classification,
+      vibe_confidence: args.vibe_confidence,
+      vibe_evidence: args.vibe_evidence,
+      vibe_classified_at: Date.now(),
+      updated_at: Date.now(),
+    });
+  },
+});
+
+// ----------------------------------------------------------------------------
+// listVibeCandidates
+//
+// Dashboard reader. Returns people whose latest vibe_classification is
+// 'dating' but who are NOT yet in the clapcheeks network (no CC TECH label
+// in google_contacts_labels). Sorted by vibe_confidence desc.
+// ----------------------------------------------------------------------------
+export const listVibeCandidates = query({
+  args: {
+    user_id: v.string(),
+    membership_label: v.optional(v.string()),
+    min_confidence: v.optional(v.number()),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const label = args.membership_label ?? "CC TECH";
+    const minConf = args.min_confidence ?? 0.6;
+    const limit = Math.min(args.limit ?? 50, 200);
+    const all = await ctx.db
+      .query("people")
+      .withIndex("by_user", (q) => q.eq("user_id", args.user_id))
+      .collect();
+    const candidates = all.filter((p) => {
+      if (p.vibe_classification !== "dating") return false;
+      if ((p.vibe_confidence ?? 0) < minConf) return false;
+      if ((p.google_contacts_labels ?? []).includes(label)) return false;
+      return true;
+    });
+    candidates.sort((a, b) => (b.vibe_confidence ?? 0) - (a.vibe_confidence ?? 0));
+    return candidates.slice(0, limit);
   },
 });
 

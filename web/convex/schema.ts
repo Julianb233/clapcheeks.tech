@@ -186,6 +186,20 @@ export default defineSchema({
     obsidian_path: v.optional(v.string()),          // e.g. "People/Romantic/Sarah K.md"
     obsidian_md_hash: v.optional(v.string()),
 
+    // Google Contacts linkage. Populated by intel/google_contacts_sync.py for
+    // every contact carrying the configured membership label (default: "CC TECH").
+    // The presence of the label name in google_contacts_labels is what flags
+    // a person as "in the clapcheeks network" — Obsidian no longer governs
+    // membership.
+    google_contact_id: v.optional(v.string()),                       // resourceName, e.g. "people/c123..."
+    google_contact_etag: v.optional(v.string()),                     // for change detection
+    google_contacts_labels: v.optional(v.array(v.string())),         // ["CC TECH", "Family", ...]
+    google_account_source: v.optional(v.union(                       // which gws profile this came from
+      v.literal("personal"),                                          // julianb233@gmail.com
+      v.literal("workspace"),                                         // julian@aiacrobatics.com
+      v.literal("both"),                                              // dedupe matched same person across both
+    )),
+
     // Identity handles — every channel a message could land on.
     handles: v.array(v.object({
       channel: v.union(
@@ -226,6 +240,21 @@ export default defineSchema({
     last_outbound_at: v.optional(v.number()),
     next_followup_at: v.optional(v.number()),
     style_profile: v.optional(v.any()),             // output of comms_profiler
+
+    // Vibe classification — LLM-driven hint for "is this person in the
+    // dating ecosystem?". Computed by convex_runner job classify_conversation_vibe
+    // against the last 50 messages. Surfaces in the dashboard as a candidate
+    // suggestion (NOT auto-applied — Julian still has to add the CC TECH
+    // label in Google Contacts to make them a member of the network).
+    vibe_classification: v.optional(v.union(
+      v.literal("dating"),     // romantic / dating-app context
+      v.literal("platonic"),   // friend / family / coach style
+      v.literal("professional"),  // work / client / vendor
+      v.literal("unclear"),    // not enough signal
+    )),
+    vibe_confidence: v.optional(v.number()),        // 0.0 - 1.0
+    vibe_classified_at: v.optional(v.number()),     // unix ms — last time job ran
+    vibe_evidence: v.optional(v.string()),          // 1-2 sentences from Claude explaining
 
     // Lifecycle
     status: v.union(
