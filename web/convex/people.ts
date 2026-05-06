@@ -336,6 +336,54 @@ export const listForUser = query({
 });
 
 // ----------------------------------------------------------------------------
+// deleteByObsidianPath
+//
+// Cleanup helper for redirect/merged Obsidian stubs that were sync'd before
+// the obsidian_sync._is_redirect() filter existed. Removes the orphan row
+// AND nulls person_id on any conversation/messages it was attached to so we
+// don't leave dangling refs.
+// ----------------------------------------------------------------------------
+export const deleteByObsidianPath = mutation({
+  args: {
+    user_id: v.string(),
+    obsidian_path: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const row = await ctx.db
+      .query("people")
+      .withIndex("by_obsidian_path", (q) => q.eq("obsidian_path", args.obsidian_path))
+      .first();
+    if (!row || row.user_id !== args.user_id) {
+      return { deleted: false, reason: "not_found" };
+    }
+
+    // Null out person_id on any attached conversations + messages.
+    const convs = await ctx.db
+      .query("conversations")
+      .withIndex("by_person", (q) => q.eq("person_id", row._id))
+      .collect();
+    for (const c of convs) {
+      await ctx.db.patch(c._id, { person_id: undefined, updated_at: Date.now() });
+    }
+    const msgs = await ctx.db
+      .query("messages")
+      .withIndex("by_person_recent", (q) => q.eq("person_id", row._id))
+      .collect();
+    for (const m of msgs) {
+      await ctx.db.patch(m._id, { person_id: undefined });
+    }
+
+    await ctx.db.delete(row._id);
+    return {
+      deleted: true,
+      person_id: row._id,
+      detached_conversations: convs.length,
+      detached_messages: msgs.length,
+    };
+  },
+});
+
+// ----------------------------------------------------------------------------
 // updateLiveState
 //
 // Daemon-only writer. Called whenever inbound/outbound activity occurs on
