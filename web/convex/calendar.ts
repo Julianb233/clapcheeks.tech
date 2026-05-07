@@ -70,6 +70,10 @@ export const enqueueFetchJob = internalMutation({
 export const upsertSlots = mutation({
   args: {
     user_id: v.string(),
+    // AI-9545: runner emits window_start_ms / window_end_ms as scoping hints —
+    // accept them as optional for back-compat. Currently unused server-side.
+    window_start_ms: v.optional(v.number()),
+    window_end_ms: v.optional(v.number()),
     slots: v.array(v.object({
       slot_start_ms: v.number(),
       slot_end_ms: v.number(),
