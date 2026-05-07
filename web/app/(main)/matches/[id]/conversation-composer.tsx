@@ -119,6 +119,7 @@ export default function ConversationComposer({ matchId, handle, matchName }: Pro
           text: trimmed,
           matchName: matchName ?? matchId,
           platform: handle?.includes(':') ? handle.split(':')[0] : 'imessage',
+          handle: handle ?? null,
         }),
       })
       if (resp.ok) {

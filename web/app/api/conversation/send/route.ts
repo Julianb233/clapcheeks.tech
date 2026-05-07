@@ -15,7 +15,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json()
-    const { text, matchName, platform } = body
+    const { text, matchName, platform, handle } = body
 
     if (!text || !matchName || !platform) {
       return NextResponse.json(
@@ -29,6 +29,7 @@ export async function POST(request: NextRequest) {
       match_name: matchName,
       platform,
       text,
+      recipient_handle: typeof handle === 'string' && handle ? handle : undefined,
       status: 'queued',
     })
 
