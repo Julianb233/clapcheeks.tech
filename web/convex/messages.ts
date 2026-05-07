@@ -93,6 +93,8 @@ export const upsertFromWebhook = mutation({
     attachments_summary: v.optional(v.any()),
     send_error: v.optional(v.any()),
     ai_metadata: v.optional(v.any()),
+    delivered_at: v.optional(v.number()),
+    read_at: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     // 1. Find or create conversation for this handle
@@ -136,6 +138,64 @@ export const upsertFromWebhook = mutation({
       .first();
     if (existingMsg) {
       return { conversation_id: convId, message_id: existingMsg._id };
+    }
+
+    // 2b. Backfill: REST proxy outbound sends insert "pending-<ts>" rows
+    // because mac CLI doesn't always return the BB guid synchronously. When
+    // the eventual updated-message webhook arrives with the real guid, find
+    // the pending row by (conversation, body, direction=outbound, last 10 min)
+    // and patch the external_guid + delivery fields rather than insert dupe.
+    if (args.direction === "outbound") {
+      const tenMinAgo = args.sent_at - 10 * 60 * 1000;
+      const pendingMatch = await ctx.db
+        .query("messages")
+        .withIndex("by_conversation", (q) =>
+          q.eq("conversation_id", convId).gte("sent_at", tenMinAgo),
+        )
+        .filter((q) =>
+          q.and(
+            q.eq(q.field("direction"), "outbound"),
+            q.eq(q.field("body"), args.body),
+          ),
+        )
+        .first();
+      if (
+        pendingMatch &&
+        typeof pendingMatch.external_guid === "string" &&
+        pendingMatch.external_guid.startsWith("pending-")
+      ) {
+        const patches: Record<string, unknown> = {
+          external_guid: args.external_guid,
+          attachments_summary: args.attachments_summary ?? pendingMatch.attachments_summary,
+          send_error: args.send_error ?? pendingMatch.send_error,
+        };
+        if (args.delivered_at !== undefined) patches.delivered_at = args.delivered_at;
+        if (args.read_at !== undefined) patches.read_at = args.read_at;
+        await ctx.db.patch(pendingMatch._id, patches);
+        return { conversation_id: convId, message_id: pendingMatch._id };
+      }
+
+      // 2c. If row already exists (already patched by earlier event), and
+      // this event carries newer delivered/read timestamps, patch them too.
+      const existingByGuid = await ctx.db
+        .query("messages")
+        .withIndex("by_external_guid", (q) =>
+          q.eq("external_guid", args.external_guid),
+        )
+        .first();
+      if (existingByGuid && (args.delivered_at || args.read_at)) {
+        const patches: Record<string, unknown> = {};
+        if (args.delivered_at !== undefined && !existingByGuid.delivered_at) {
+          patches.delivered_at = args.delivered_at;
+        }
+        if (args.read_at !== undefined && !existingByGuid.read_at) {
+          patches.read_at = args.read_at;
+        }
+        if (Object.keys(patches).length > 0) {
+          await ctx.db.patch(existingByGuid._id, patches);
+        }
+        return { conversation_id: convId, message_id: existingByGuid._id };
+      }
     }
 
     // 3. Insert message
@@ -220,5 +280,52 @@ export const recentForUser = query({
       .withIndex("by_user_recent", (q) => q.eq("user_id", args.user_id))
       .order("desc")
       .take(args.limit ?? 50);
+  },
+});
+
+// AI-9412 — REST proxy read endpoint. Lists recent messages for a given line
+// with optional handle/direction/since filter. Used by GET /api/v1/messages.
+export const listForProxy = query({
+  args: {
+    line: v.optional(v.number()),
+    user_id: v.optional(v.string()),
+    handle: v.optional(v.string()),
+    direction: v.optional(v.union(v.literal("inbound"), v.literal("outbound"))),
+    since: v.optional(v.number()),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const limit = Math.min(args.limit ?? 50, 200);
+    const since = args.since ?? 0;
+
+    // Choose the most selective index
+    let q;
+    if (args.line !== undefined) {
+      q = ctx.db
+        .query("messages")
+        .withIndex("by_line_recent", (idx) =>
+          idx.eq("line", args.line).gte("sent_at", since),
+        );
+    } else if (args.user_id) {
+      q = ctx.db
+        .query("messages")
+        .withIndex("by_user_recent", (idx) =>
+          idx.eq("user_id", args.user_id!).gte("sent_at", since),
+        );
+    } else {
+      q = ctx.db.query("messages");
+    }
+
+    let rows = await q.order("desc").take(limit * 2);
+    if (args.direction) rows = rows.filter((r) => r.direction === args.direction);
+    if (args.handle) {
+      const convs = await ctx.db
+        .query("conversations")
+        .withIndex("by_imessage_handle", (idx) => idx.eq("imessage_handle", args.handle))
+        .collect();
+      const convIds = new Set(convs.map((c) => c._id));
+      rows = rows.filter((r) => convIds.has(r.conversation_id));
+    }
+    return rows.slice(0, limit);
   },
 });
