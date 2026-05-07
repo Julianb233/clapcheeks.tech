@@ -452,8 +452,25 @@ function OperatorPanel({ person }: { person: any }) {
     await save("boundaries_stated", next)
   }
 
+  // AI-9526 — enrichment status banner
+  const lastEnriched = person.courtship_last_analyzed
+  const lastVibed = person.vibe_classified_at
+  const enrichmentAge = lastEnriched ? Math.floor((Date.now() - lastEnriched) / (24 * 3600 * 1000)) : null
+  const enrichmentLabel = !lastEnriched
+    ? { color: "amber", text: "⚠ Never enriched — run /admin/clapcheeks-ops kick-sweep", title: "courtship + next_best_move + curiosity not populated yet" }
+    : enrichmentAge !== null && enrichmentAge >= 7
+    ? { color: "amber", text: `⚠ Enrichment is ${enrichmentAge}d stale — sweep due`, title: "" }
+    : { color: "green", text: `✓ Enriched ${enrichmentAge === 0 ? "today" : `${enrichmentAge}d ago`}${lastVibed ? ` · vibe: ${person.vibe_classification ?? "unclear"}` : ""}`, title: "" }
+
   return (
     <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+      <div className={`md:col-span-2 text-xs px-3 py-1.5 rounded border ${
+        enrichmentLabel.color === "amber"
+          ? "bg-amber-950/40 border-amber-800/50 text-amber-200"
+          : "bg-emerald-950/40 border-emerald-800/50 text-emerald-300"
+      }`} title={enrichmentLabel.title}>
+        {enrichmentLabel.text}
+      </div>
       {/* Ratings */}
       <div className="bg-gray-900 border border-gray-800 rounded-lg p-4">
         <div className="text-xs uppercase tracking-wider text-gray-500 mb-3">Ratings</div>
