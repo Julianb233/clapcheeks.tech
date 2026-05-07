@@ -24,6 +24,32 @@ import { Id } from "@/convex/_generated/dataModel"
 const TABS = ["Timeline", "Memory", "Schedule", "Media", "Profile", "Notes"] as const
 type TabName = typeof TABS[number]
 
+// Debrief preview card — shown above tabs when an upcoming date is within 4h
+function PreDateDebriefCard({ touches }: { touches: any[] }) {
+  const debrief = touches.find(
+    (t: any) =>
+      t.type === "pre_date_debrief" &&
+      t.status === "fired" &&
+      t.draft_body &&
+      t.fired_at && Date.now() - t.fired_at < 6 * 60 * 60 * 1000, // fired in last 6h
+  )
+  if (!debrief) return null
+  return (
+    <div className="mt-4 bg-amber-950/20 border border-amber-700/50 rounded-lg p-4">
+      <div className="flex items-center gap-2 mb-3">
+        <span className="text-lg">📋</span>
+        <h2 className="text-sm font-semibold text-amber-300">Pre-Date Debrief</h2>
+        <span className="text-xs text-gray-500 ml-auto">
+          Generated {debrief.fired_at ? new Date(debrief.fired_at).toLocaleString() : ""}
+        </span>
+      </div>
+      <pre className="text-xs text-gray-300 whitespace-pre-wrap leading-relaxed font-sans">
+        {debrief.draft_body}
+      </pre>
+    </div>
+  )
+}
+
 const TEMPLATE_OPTIONS = [
   { value: "context_aware_reply", label: "Context-aware reply" },
   { value: "hot_reply", label: "Hot reply (high interest)" },
@@ -43,6 +69,8 @@ export default function PersonDossierPage() {
   const params = useParams<{ id: string }>()
   const personId = params.id as Id<"people">
   const dossier = useQuery(api.people.getDossier, { person_id: personId })
+  // AI-9500 W2 E13 — call history for this person
+  const calls = useQuery(api.calls.listForPerson, { person_id: personId, limit: 100 })
   const [tab, setTab] = useState<TabName>("Timeline")
 
   if (dossier === undefined) {
@@ -71,7 +99,11 @@ export default function PersonDossierPage() {
 
       <HeaderCard person={person} />
 
+      <TagsRow person={person} />
+
       <OperatorPanel person={person} />
+
+      <PreDateDebriefCard touches={scheduled_touches ?? []} />
 
       {/* Tabs — scrollable on mobile so all tabs remain accessible */}
       <div className="mt-6 flex gap-1 border-b border-gray-800 overflow-x-auto scrollbar-hide">
@@ -91,7 +123,7 @@ export default function PersonDossierPage() {
       </div>
 
       <div className="bg-gray-900 border border-gray-800 border-t-0 rounded-b-md p-4 sm:p-6 mb-8">
-        {tab === "Timeline" && <TimelineTab messages={messages} conversations={conversations} personId={personId} />}
+        {tab === "Timeline" && <TimelineTab messages={messages} conversations={conversations} personId={personId} calls={calls ?? []} />}
         {tab === "Memory" && <MemoryTab person={person} />}
         {tab === "Schedule" && <ScheduleTab person={person} touches={scheduled_touches} />}
         {tab === "Media" && <MediaTab uses={media_uses} assets={media_assets} />}
@@ -107,6 +139,44 @@ export default function PersonDossierPage() {
 // ---------------------------------------------------------------------------
 // Header card
 // ---------------------------------------------------------------------------
+/** AI-9500 W1: competition signal badge — shown in HeaderCard */
+function CompetitionBadge({ score, evidence }: { score: number | undefined; evidence?: string }) {
+  const [showTip, setShowTip] = useState(false)
+
+  if (score === undefined) return null
+
+  let label: string
+  let colorClass: string
+  if (score < 0.25) {
+    label = `🎯 #1 (${score.toFixed(2)})`
+    colorClass = "bg-emerald-900/60 text-emerald-300 border border-emerald-700/50"
+  } else if (score < 0.55) {
+    label = `⚖️ middle (${score.toFixed(2)})`
+    colorClass = "bg-amber-900/60 text-amber-300 border border-amber-700/50"
+  } else {
+    label = `🚨 juggling (${score.toFixed(2)})`
+    colorClass = "bg-red-900/60 text-red-300 border border-red-700/50"
+  }
+
+  return (
+    <div className="relative inline-block">
+      <span
+        className={`text-xs px-2 py-0.5 rounded cursor-help font-mono ${colorClass}`}
+        onMouseEnter={() => setShowTip(true)}
+        onMouseLeave={() => setShowTip(false)}
+      >
+        {label}
+      </span>
+      {showTip && evidence && (
+        <div className="absolute z-50 left-0 top-full mt-1 w-80 bg-gray-950 border border-gray-700 rounded-md p-3 text-xs text-gray-300 shadow-xl whitespace-pre-wrap">
+          <div className="text-gray-400 uppercase tracking-wider text-[10px] mb-1">Competition Signal Evidence</div>
+          {evidence}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function HeaderCard({ person }: { person: any }) {
   const lastInbound = person.last_inbound_at
     ? `${Math.round((Date.now() - person.last_inbound_at) / 3600000)}h ago`
@@ -131,6 +201,11 @@ function HeaderCard({ person }: { person: any }) {
             }`}>
               {person.whitelist_for_autoreply ? "✓ whitelisted" : "○ manual only"}
             </span>
+            {/* AI-9500 W1: competition signal badge */}
+            <CompetitionBadge
+              score={person.competition_signal_score}
+              evidence={person.competition_signal_evidence}
+            />
           </div>
           <div className="text-sm text-gray-400 mt-1">
             {person.location_observed || person.company || "—"}
@@ -158,6 +233,72 @@ function HeaderCard({ person }: { person: any }) {
             <div className="mt-1 sm:mt-2 capitalize">♈ {person.zodiac_sign} · {person.disc_inference || "DISC ?"}</div>
           )}
         </div>
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// AI-9500 Wave2 #K — TagsRow
+//
+// Chip editor for the person's freeform tags (e.g. "foodie", "hiker").
+// Displayed between HeaderCard and OperatorPanel for quick glance + edit.
+// ---------------------------------------------------------------------------
+function TagsRow({ person }: { person: any }) {
+  const addTag = useMutation(api.people.addTag)
+  const removeTag = useMutation(api.people.removeTag)
+  const [draft, setDraft] = useState("")
+  const [busy, setBusy] = useState(false)
+
+  async function handleAdd() {
+    const tag = draft.trim().toLowerCase()
+    if (!tag) return
+    setBusy(true)
+    try {
+      await addTag({ person_id: person._id, tag })
+      setDraft("")
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function handleRemove(tag: string) {
+    await removeTag({ person_id: person._id, tag })
+  }
+
+  return (
+    <div className="mt-3 flex items-center gap-2 flex-wrap">
+      {(person.tags ?? []).map((tag: string) => (
+        <span
+          key={tag}
+          className="inline-flex items-center gap-1 bg-purple-900/40 border border-purple-700/50 text-purple-200 text-xs px-2 py-0.5 rounded-full"
+        >
+          #{tag}
+          <button
+            onClick={() => handleRemove(tag)}
+            className="text-purple-400 hover:text-purple-100 ml-0.5"
+            title="remove tag"
+          >
+            ×
+          </button>
+        </span>
+      ))}
+      <div className="flex items-center gap-1">
+        <input
+          type="text"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && !busy && handleAdd()}
+          placeholder="add tag…"
+          className="text-xs bg-gray-950 border border-gray-800 rounded px-2 py-0.5 w-28 focus:border-purple-600 outline-none"
+        />
+        <button
+          onClick={handleAdd}
+          disabled={busy || !draft.trim()}
+          className="text-xs px-2 py-0.5 bg-gray-800 hover:bg-purple-900/40 border border-gray-700 text-gray-300 rounded disabled:opacity-40"
+        >
+          +tag
+        </button>
       </div>
     </div>
   )
@@ -375,10 +516,59 @@ function platformStyle(p: string) {
 // Per-platform mode: shows only the dossier messages (existing behavior).
 // Toggle hidden when only one platform is present (_handles_summary.length < 2).
 // ---------------------------------------------------------------------------
-function TimelineTab({ messages: dossierMessages, conversations, personId }: {
+// ---------------------------------------------------------------------------
+// CallBubble — single call entry in the timeline (AI-9500 W2 E13)
+// ---------------------------------------------------------------------------
+function CallBubble({ call }: { call: any }) {
+  const isMissed = call.direction === "missed"
+  const isOut = call.direction === "outbound"
+  const icon = isMissed ? "📵" : "📞"
+  const label = isMissed ? "missed call" : isOut ? "outbound call" : "inbound call"
+
+  const durationLabel = (() => {
+    if (call.duration_seconds == null) return ""
+    const m = Math.floor(call.duration_seconds / 60)
+    const s = call.duration_seconds % 60
+    return m === 0 ? ` · ${s}s` : ` · ${m}m${s > 0 ? `${s}s` : ""}`
+  })()
+
+  const platformLabel = call.platform ? ` · ${call.platform.replace("_", " ")}` : ""
+  const ts = new Date(call.started_at_ms).toLocaleString()
+
+  return (
+    <div className={`flex ${isOut ? "justify-end" : "justify-start"}`}>
+      <div className={`rounded-lg px-3 py-2 border text-sm ${
+        isMissed
+          ? "bg-red-900/20 border-red-700/40 text-red-300"
+          : isOut
+          ? "bg-blue-900/20 border-blue-700/40 text-blue-200"
+          : "bg-gray-800 border-gray-700 text-gray-200"
+      }`}>
+        <span className="mr-1">{icon}</span>
+        <span className="font-medium">{label}</span>
+        {durationLabel && <span className="text-xs opacity-70">{durationLabel}</span>}
+        {call.notes && <div className="text-xs opacity-60 mt-0.5 italic">{call.notes}</div>}
+        <div className="text-[10px] text-gray-500 mt-1">{ts}{platformLabel}</div>
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Timeline tab — AI-9500 W2 #D unified cross-platform thread
+//                + AI-9500 W2 E13 call interleaving
+//
+// Unified mode (default): fetches unifiedThreadForPerson from Convex — merges
+// all platforms (iMessage, Hinge, IG, Telegram, email…) into one chronological
+// feed. Call records are interleaved by timestamp.
+// Per-platform mode: shows only the dossier messages (existing behavior).
+// Toggle hidden when only one platform is present (_handles_summary.length < 2).
+// ---------------------------------------------------------------------------
+function TimelineTab({ messages: dossierMessages, conversations, personId, calls }: {
   messages: any[];
   conversations: any[];
   personId: string;
+  calls: any[];
 }) {
   const [mode, setMode] = useState<"unified" | "platform">("unified")
 
@@ -397,13 +587,20 @@ function TimelineTab({ messages: dossierMessages, conversations, personId }: {
     ? (unified?.messages ?? [])
     : [...dossierMessages].reverse()
 
+  // Build unified event list: messages + calls sorted by timestamp
+  const allEvents = useMemo(() => {
+    const msgEvents = activeMessages.map((m: any) => ({ kind: "message" as const, ts: m.sent_at as number, data: m }))
+    const callEvents = calls.map((c: any) => ({ kind: "call" as const, ts: c.started_at_ms as number, data: c }))
+    return [...msgEvents, ...callEvents].sort((a, b) => a.ts - b.ts)
+  }, [activeMessages, calls])
+
   const isLoading = mode === "unified" && unified === undefined
 
   if (isLoading) {
     return <div className="text-gray-500 text-sm">Loading unified thread…</div>
   }
-  if (!activeMessages.length) {
-    return <div className="text-gray-500 text-sm">No messages yet.</div>
+  if (!allEvents.length) {
+    return <div className="text-gray-500 text-sm">No messages or calls yet.</div>
   }
 
   const platforms = Array.from(new Set(conversations.map((c: any) => c.platform)))
@@ -414,6 +611,7 @@ function TimelineTab({ messages: dossierMessages, conversations, personId }: {
       <div className="flex items-center justify-between mb-3">
         <div className="text-xs text-gray-500">
           {activeMessages.length} message{activeMessages.length !== 1 ? "s" : ""}
+          {calls.length > 0 ? ` · ${calls.length} call${calls.length !== 1 ? "s" : ""}` : ""}
           {" · "}
           {mode === "unified"
             ? handlesSummary.join(", ") || platforms.join(", ")
@@ -447,9 +645,13 @@ function TimelineTab({ messages: dossierMessages, conversations, personId }: {
         )}
       </div>
 
-      {/* Message feed */}
+      {/* Message + call feed interleaved */}
       <div className="space-y-2 max-h-[60vh] overflow-y-auto pr-2">
-        {activeMessages.map((m: any, idx: number) => {
+        {allEvents.map((event, idx) => {
+          if (event.kind === "call") {
+            return <CallBubble key={`call-${event.data._id ?? idx}`} call={event.data} />
+          }
+          const m = event.data
           const isOut = m.direction === "outbound"
           const ts = new Date(m.sent_at).toLocaleString()
           const platform: string = m._platform ?? "imessage"
@@ -481,12 +683,14 @@ function TimelineTab({ messages: dossierMessages, conversations, personId }: {
 
 // ---------------------------------------------------------------------------
 // Memory tab — personal_details, curiosity_ledger, life_events, lit topics
+// + AI-9500 Wave2 #K: things_mentioned editor
 // ---------------------------------------------------------------------------
 function MemoryTab({ person }: { person: any }) {
   const details = person.personal_details ?? []
   const curiosity = (person.curiosity_ledger ?? []).filter((q: any) => q.status === "pending")
   const events = person.recent_life_events ?? []
   const lit = person.topics_that_lit_her_up ?? []
+  const thingsMentioned: any[] = person.things_mentioned ?? []
 
   // AI-9500 #1 — curiosity-question ratio metric
   const questionRatio: number | null = person.her_question_ratio_7d ?? null
@@ -610,12 +814,121 @@ function MemoryTab({ person }: { person: any }) {
           </ul>
         )}
       </Section>
+
+      {/* AI-9500 Wave2 #K — Things she mentioned */}
+      <ThingsMentionedSection person={person} thingsMentioned={thingsMentioned} />
     </div>
   )
 }
 
 // ---------------------------------------------------------------------------
-// Schedule tab — pending touches, post-date calibration, and recent fires
+// AI-9500 Wave2 #K — ThingsMentionedSection
+//
+// Operator can add/remove specific things she mentioned. Auto-extracted entries
+// have source="auto"; operator entries have source="operator".
+// ---------------------------------------------------------------------------
+function ThingsMentionedSection({ person, thingsMentioned }: { person: any; thingsMentioned: any[] }) {
+  const addThingMut = useMutation(api.people.addThingMentioned)
+  const removeThingMut = useMutation(api.people.removeThingMentioned)
+  const [topicDraft, setTopicDraft] = useState("")
+  const [detailDraft, setDetailDraft] = useState("")
+  const [busy, setBusy] = useState(false)
+
+  async function handleAdd() {
+    const topic = topicDraft.trim()
+    if (!topic) return
+    setBusy(true)
+    try {
+      await addThingMut({
+        person_id: person._id,
+        topic,
+        detail: detailDraft.trim() || undefined,
+        source: "operator",
+      })
+      setTopicDraft("")
+      setDetailDraft("")
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function handleRemove(idx: number) {
+    await removeThingMut({ person_id: person._id, idx })
+  }
+
+  const sorted = [...thingsMentioned].sort((a, b) => b.said_at_ms - a.said_at_ms)
+
+  return (
+    <div className="col-span-full">
+      <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">
+        Things She Mentioned ({thingsMentioned.length})
+      </h3>
+      {sorted.length === 0 ? (
+        <div className="text-xs text-gray-600 mb-2">None recorded yet. Add manually or run the auto-extraction sweep.</div>
+      ) : (
+        <ul className="space-y-1 mb-3">
+          {sorted.map((t: any, i: number) => {
+            const realIdx = thingsMentioned.indexOf(t)
+            return (
+              <li key={i} className="flex items-start gap-2 text-xs">
+                <span className={`mt-0.5 px-1.5 py-0.5 rounded text-[10px] ${
+                  t.source === "auto"
+                    ? "bg-blue-900/40 text-blue-300 border border-blue-800/40"
+                    : "bg-purple-900/40 text-purple-300 border border-purple-800/40"
+                }`}>
+                  {t.source === "auto" ? "AI" : "op"}
+                </span>
+                <div className="flex-1">
+                  <span className="font-medium text-gray-200">{t.topic}</span>
+                  {t.detail && <span className="text-gray-500 ml-1">— {t.detail}</span>}
+                  <span className="text-gray-600 ml-2 text-[10px]">
+                    {new Date(t.said_at_ms).toLocaleDateString()}
+                  </span>
+                </div>
+                <button
+                  onClick={() => handleRemove(realIdx)}
+                  className="text-gray-600 hover:text-red-400 text-[10px]"
+                >
+                  ×
+                </button>
+              </li>
+            )
+          })}
+        </ul>
+      )}
+      <div className="flex gap-2 items-end">
+        <div className="flex-1">
+          <input
+            type="text"
+            value={topicDraft}
+            onChange={(e) => setTopicDraft(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && !busy && handleAdd()}
+            placeholder="topic (e.g. Italian food)"
+            className="w-full text-xs bg-gray-950 border border-gray-800 rounded px-2 py-1 mb-1"
+          />
+          <input
+            type="text"
+            value={detailDraft}
+            onChange={(e) => setDetailDraft(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && !busy && handleAdd()}
+            placeholder="detail (optional)"
+            className="w-full text-xs bg-gray-950 border border-gray-800 rounded px-2 py-1"
+          />
+        </div>
+        <button
+          onClick={handleAdd}
+          disabled={busy || !topicDraft.trim()}
+          className="text-xs px-3 py-2 bg-purple-900/40 border border-purple-800 text-purple-200 rounded hover:bg-purple-800/40 disabled:opacity-40"
+        >
+          Add
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Schedule tab — pending touches, post-date calibration, voice memos, and recent fires
 // ---------------------------------------------------------------------------
 function ScheduleTab({ person, touches }: { person: any; touches: any[] }) {
   const cancelMut = useMutation(api.touches.cancelOne)
@@ -624,11 +937,18 @@ function ScheduleTab({ person, touches }: { person: any; touches: any[] }) {
   const markVoiceMemoSent = useMutation(api.touches.markVoiceMemoSent)
   const FLEET_USER_ID = "fleet-julian"
 
+  // AI-9500 W2 #I — date logistics checklists for this person
+  const dateChecklists = useQuery(api.date_logistics.listForPerson, { person_id: person._id })
+  const tickItemMut = useMutation(api.date_logistics.tickItem)
+  const completeChecklistMut = useMutation(api.date_logistics.complete)
+
   const [showDateDoneForm, setShowDateDoneForm] = useState(false)
   const [dateNotesText, setDateNotesText] = useState("")
   const [dateMarkingId, setDateMarkingId] = useState<string | null>(null)
   const [markingBusy, setMarkingBusy] = useState(false)
   const [choiceError, setChoiceError] = useState<string | null>(null)
+  // AI-9500 W2 #G — voice memo state
+  const [voiceBusy, setVoiceBusy] = useState<string | null>(null)   // touch_id being marked
 
   const [voiceBusy, setVoiceBusy] = useState<string | null>(null)
 
@@ -649,6 +969,7 @@ function ScheduleTab({ person, touches }: { person: any; touches: any[] }) {
     (t: any) => t.type === "date_ask" || t.type === "date_dayof" || t.type === "date_confirm_24h"
   ).slice(0, 5)
 
+  // AI-9500 W2 #G — mark a voice_memo touch as sent (operator recorded + sent on phone).
   async function handleVoiceMemoSent(touchId: string) {
     setVoiceBusy(touchId)
     try {
@@ -805,6 +1126,90 @@ function ScheduleTab({ person, touches }: { person: any; touches: any[] }) {
       )}
 
             {/* AI-9500 #6 — Mark date done (schedules calibration touch)           */}
+      {/* AI-9500 W2 #I — Date logistics checklists                           */}
+      {/* ------------------------------------------------------------------ */}
+      {dateChecklists && dateChecklists.length > 0 && (
+        <Section title={`Date logistics (${dateChecklists.length})`}>
+          <div className="space-y-6">
+            {dateChecklists.map((cl: any) => {
+              const allDone = cl.items.every((it: any) => it.done)
+              const doneCnt = cl.items.filter((it: any) => it.done).length
+              const dateLabel = new Date(cl.date_time_ms).toLocaleDateString(undefined, {
+                weekday: "short", month: "short", day: "numeric",
+              })
+              return (
+                <div
+                  key={cl._id}
+                  className={`rounded-lg border p-4 ${
+                    allDone
+                      ? "border-green-700 bg-green-950/20"
+                      : "border-purple-800/50 bg-purple-950/10"
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-3">
+                    <div>
+                      <span className="text-sm font-semibold text-purple-300">
+                        Date: {dateLabel}
+                      </span>
+                      {cl.venue && (
+                        <span className="ml-2 text-xs text-gray-400">@ {cl.venue}</span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className={`text-xs font-mono ${allDone ? "text-green-400" : "text-gray-500"}`}>
+                        {doneCnt}/{cl.items.length}
+                      </span>
+                      {!allDone && (
+                        <button
+                          onClick={() => completeChecklistMut({ checklist_id: cl._id })}
+                          className="text-xs px-2 py-0.5 rounded bg-green-800 hover:bg-green-700 text-white"
+                        >
+                          Mark all done
+                        </button>
+                      )}
+                      {allDone && (
+                        <span className="text-xs text-green-400 font-semibold">All done!</span>
+                      )}
+                    </div>
+                  </div>
+                  <ul className="space-y-2">
+                    {cl.items.map((item: any) => (
+                      <li key={item.key} className="flex items-start gap-2">
+                        <input
+                          type="checkbox"
+                          checked={item.done}
+                          onChange={(e) => tickItemMut({
+                            checklist_id: cl._id,
+                            key: item.key,
+                            done: e.target.checked,
+                          })}
+                          className="mt-0.5 accent-green-500 cursor-pointer"
+                        />
+                        <div className="flex-1">
+                          <span className={`text-sm ${item.done ? "line-through text-gray-500" : "text-gray-200"}`}>
+                            {item.label}
+                          </span>
+                          {item.done_at_ms && (
+                            <span className="ml-2 text-xs text-gray-600">
+                              {new Date(item.done_at_ms).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}
+                            </span>
+                          )}
+                          {item.notes && (
+                            <div className="text-xs text-gray-500 italic mt-0.5">{item.notes}</div>
+                          )}
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )
+            })}
+          </div>
+        </Section>
+      )}
+
+      {/* ------------------------------------------------------------------ */}
+      {/* AI-9500 #6 — Mark date done (schedules calibration touch)           */}
       {/* ------------------------------------------------------------------ */}
       <Section title="Date completed?">
         {!showDateDoneForm ? (

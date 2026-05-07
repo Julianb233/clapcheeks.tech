@@ -92,6 +92,15 @@ crons.interval(
   { user_id: "fleet-julian" },
 );
 
+// AI-9500 W2 E13 — Enqueue a call sync job every 15 minutes.
+// The Mac Mini daemon picks up sync_calls jobs and polls chat.db for
+// iMessage / FaceTime call events, upserting via calls:upsertCall.
+crons.interval(
+  "enqueue-calls-sync",
+  { minutes: 15 },
+  internal.agent_jobs.enqueueCallsSync,
+);
+
 // AI-9500-C: Enqueue a Hinge message sync job every 5 minutes.
 // The local Mac Mini agent (convex_runner.py) claims and executes the job
 // via hinge_poller.poll_hinge(). Dedup guard inside enqueueHingeSync prevents
@@ -163,7 +172,6 @@ crons.interval(
   internal.touches.softNoRecoveryDetectorCron,
 );
 
-
 // AI-9500 W2 #G — Voice-memo trigger sweep every 6 hours.
 // Detects phone-swap +24h, 3rd inbound reply, and post-second-date moments.
 // Parks a voice_memo touch with a 1-2 sentence script for the operator to record.
@@ -174,4 +182,15 @@ crons.interval(
   internal.touches.sweepVoiceMemoCandidates,
 );
 
+// AI-9500 W2 #J: Enqueue a Tinder match + message sync job every 5 minutes.
+// The local Mac Mini agent (convex_runner.py) claims and executes the job
+// via _handle_sync_tinder(). Dedup guard inside enqueueTinderSync prevents
+// pile-up if the previous tick hasn't completed yet.
+// NOTE: The daemon skips gracefully if ~/.clapcheeks/tinder-auth.json is absent.
+// Julian must run: mitmproxy -s scripts/capture_tinder.py once to capture tokens.
+crons.interval(
+  "enqueue-tinder-sync",
+  { minutes: 5 },
+  internal.agent_jobs.enqueueTinderSync,
+);
 export default crons;

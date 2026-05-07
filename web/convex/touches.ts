@@ -68,6 +68,9 @@ const TOUCH_TYPE = v.union(
   v.literal("date_check_in"),          // AI-9500 #5 — 30min-before silence check
   v.literal("date_postmortem"),
   v.literal("post_date_calibration"),  // AI-9500 #6
+  v.literal("pre_date_debrief"),       // AI-9500 W2 #K — debrief Julian 2h before a date
+  v.literal("soft_no_recovery"),       // AI-9500 W2 #B — +14d re-ask after soft_no
+  v.literal("voice_memo"),             // AI-9500 W2 #G — voice memo at high-leverage moment
   v.literal("easy_question_revival"),  // AI-9500 #1
   v.literal("reengage_low_temp"),
   v.literal("birthday_wish"),
@@ -696,6 +699,30 @@ export const fireOne = internalAction({
     }
 
 
+    // -----------------------------------------------------------------------
+    // AI-9500 Wave2 #K — pre_date_debrief special handling.
+    //
+    // Generate a debrief card from getDebriefCard and write it as draft_body
+    // (Markdown summary) on the touch row. This is NOT sent to her — it is
+    // surfaced in the dashboard for Julian to read 2h before the date.
+    // The touch is marked fired immediately; the card lives in draft_body.
+    // -----------------------------------------------------------------------
+    if (touch.type === "pre_date_debrief") {
+      const debriefCard: any = await ctx.runQuery(internal.touches._getDebriefCard, {
+        person_id: touch.person_id,
+        user_id: touch.user_id,
+      });
+      const cardMarkdown = _renderDebriefMarkdown(debriefCard);
+      await ctx.runMutation(internal.touches._setDebriefDraft, {
+        touch_id: args.touch_id,
+        draft_body: cardMarkdown,
+      });
+      await ctx.runMutation(internal.touches._markFired, {
+        touch_id: args.touch_id, status: "fired",
+      });
+      return { fired: true, type: touch.type, debrief_generated: true };
+    }
+
     // Enqueue an agent_jobs row for the Mac Mini daemon to actually send.
     // (Actual send happens daemon-side because BlueBubbles HTTP is on Mac.)
     // Boundary-checking (Layer 2) runs inside convex_runner._draft_with_template.
@@ -868,6 +895,161 @@ export const _enqueueSendJob = internalMutation({
     } as any);
   },
 });
+
+// ---------------------------------------------------------------------------
+// AI-9500 Wave2 #K — internal helpers for pre_date_debrief
+// ---------------------------------------------------------------------------
+
+// _getDebriefCard — thin query wrapper so internalAction can call it
+export const _getDebriefCard = internalMutation({
+  args: {
+    person_id: v.id("people"),
+    user_id: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const person = await ctx.db.get(args.person_id);
+    if (!person) return null;
+
+    const thingsMentioned = (person.things_mentioned ?? [])
+      .slice()
+      .sort((a: any, b: any) => b.said_at_ms - a.said_at_ms)
+      .slice(0, 5);
+
+    const tags = person.tags ?? [];
+
+    const emotionalStateHistory = person.emotional_state_recent ?? [];
+    const latestEmotionalState = emotionalStateHistory.length
+      ? emotionalStateHistory[emotionalStateHistory.length - 1]
+      : null;
+
+    const topicsLitUp = (person.topics_that_lit_her_up ?? [])
+      .slice()
+      .sort((a: any, b: any) => (b.signal_count ?? 0) - (a.signal_count ?? 0))
+      .slice(0, 3);
+
+    const curiosityQuestions = (person.curiosity_ledger ?? [])
+      .filter((q: any) => q.status === "pending")
+      .slice()
+      .sort((a: any, b: any) => (b.priority ?? 0) - (a.priority ?? 0))
+      .slice(0, 3);
+
+    // Last known venue
+    const checklists = await ctx.db
+      .query("date_logistics_checklists")
+      .withIndex("by_person", (q: any) => q.eq("person_id", args.person_id))
+      .order("desc")
+      .take(5);
+
+    let lastKnownVenue: string | null = null;
+    for (const c of checklists) {
+      if (c.venue) { lastKnownVenue = c.venue; break; }
+    }
+
+    return {
+      display_name: person.display_name,
+      courtship_stage: person.courtship_stage,
+      tags,
+      things_mentioned: thingsMentioned,
+      latest_emotional_state: latestEmotionalState,
+      topics_that_lit_her_up: topicsLitUp,
+      curiosity_questions: curiosityQuestions,
+      last_known_venue: lastKnownVenue,
+      boundaries_stated: person.boundaries_stated ?? [],
+      things_she_loves: (person.things_she_loves ?? []).slice(0, 5),
+      next_best_move: person.next_best_move,
+      green_flags: (person.green_flags ?? []).slice(0, 3),
+      red_flags: (person.red_flags ?? []).slice(0, 3),
+    };
+  },
+});
+
+// _setDebriefDraft — write the generated markdown card back to the touch row
+export const _setDebriefDraft = internalMutation({
+  args: {
+    touch_id: v.id("scheduled_touches"),
+    draft_body: v.string(),
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.touch_id, {
+      draft_body: args.draft_body,
+      updated_at: Date.now(),
+    });
+  },
+});
+
+// _renderDebriefMarkdown — pure function, renders the debrief card as Markdown
+function _renderDebriefMarkdown(card: any): string {
+  if (!card) return "# Pre-Date Debrief\n\n_No data available._";
+
+  const lines: string[] = [
+    `# Pre-Date Debrief — ${card.display_name ?? "?"}`,
+    `**Stage:** ${card.courtship_stage ?? "unknown"}`,
+    "",
+  ];
+
+  if (card.tags?.length) {
+    lines.push(`**Tags:** ${card.tags.map((t: string) => `#${t}`).join(" ")}`);
+    lines.push("");
+  }
+
+  if (card.latest_emotional_state) {
+    const es = card.latest_emotional_state;
+    lines.push(`**Recent vibe:** ${es.state} (intensity ${es.intensity?.toFixed(1) ?? "?"}) — ${new Date(es.observed_at_ms).toLocaleDateString()}`);
+    lines.push("");
+  }
+
+  if (card.things_mentioned?.length) {
+    lines.push("## Things She Mentioned");
+    for (const t of card.things_mentioned) {
+      const detail = t.detail ? ` — ${t.detail}` : "";
+      lines.push(`- **${t.topic}**${detail}`);
+    }
+    lines.push("");
+  }
+
+  if (card.topics_that_lit_her_up?.length) {
+    lines.push("## Topics That Lit Her Up");
+    for (const t of card.topics_that_lit_her_up) {
+      lines.push(`- ${t.topic} (×${t.signal_count ?? 1} signals)`);
+    }
+    lines.push("");
+  }
+
+  if (card.curiosity_questions?.length) {
+    lines.push("## Questions to Bring Up");
+    for (const q of card.curiosity_questions) {
+      const topic = q.topic ? ` [${q.topic}]` : "";
+      lines.push(`- ${q.question}${topic}`);
+    }
+    lines.push("");
+  }
+
+  if (card.things_she_loves?.length) {
+    lines.push(`**She loves:** ${card.things_she_loves.join(", ")}`);
+  }
+
+  if (card.boundaries_stated?.length) {
+    lines.push(`**Boundaries (respect these):** ${card.boundaries_stated.join(", ")}`);
+  }
+
+  if (card.last_known_venue) {
+    lines.push(`**Last known venue:** ${card.last_known_venue}`);
+  }
+
+  if (card.next_best_move) {
+    lines.push(`\n**Next best move:** ${card.next_best_move}`);
+  }
+
+  if (card.green_flags?.length) {
+    lines.push(`\n**Green flags:** ${card.green_flags.join(", ")}`);
+  }
+
+  if (card.red_flags?.length) {
+    lines.push(`**Watch out for:** ${card.red_flags.join(", ")}`);
+  }
+
+  return lines.join("\n");
+}
 
 // Dashboard reader: upcoming scheduled touches across all people.
 export const listUpcoming = query({
