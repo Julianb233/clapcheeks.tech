@@ -124,4 +124,13 @@ crons.interval(
   internal.enrichment.sweepFatigueDetection,
 );
 
+// AI-9500 #6 — Post-date calibration auto-pick every 1 hour.
+// If a post_date_calibration touch has candidate_drafts set but operator hasn't
+// committed a choice within 6h, auto-picks "callback" (highest-converting) and fires.
+crons.interval(
+  "post-date-calibration-auto-pick",
+  { hours: 1 },
+  internal.touches.autoPick6hCron,
+);
+
 export default crons;

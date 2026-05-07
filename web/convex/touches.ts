@@ -9,13 +9,22 @@
  *   - scheduleOne     : insert + ctx.scheduler.runAt
  *   - cancelForPerson : when conversation state changes (e.g. she replied,
  *                       cancel pending nudge), cancel a person's pending touches
+ *   - markDateDone    : AI-9500 #6 — operator calls after a date completes.
+ *                       Schedules a post_date_calibration touch +18h out.
+ *   - commitPostDateChoice : AI-9500 #6 — operator picks one of 3 candidates.
+ *                            Copies body to draft_body and fires the standard pipeline.
  *
  * Internal:
  *   - fireOne   : runs at scheduled_for; checks active hours / safety brake;
  *                 enqueues an agent_jobs.send_imessage row (or sends inline);
- *                 records as fired/skipped
+ *                 records as fired/skipped.
+ *                 AI-9500 #6: when type=post_date_calibration, calls
+ *                 _draft3PostDateCandidates and parks row for operator choice.
  *   - drainDue  : safety net cron — finds any "scheduled" rows whose time has
  *                 passed and weren't fired (process crash, etc.)
+ *   - autoPick6hCron : AI-9500 #6 — 1h interval cron. If a post_date_calibration
+ *                      touch has candidate_drafts but operator hasn't chosen within 6h,
+ *                      auto-picks "callback" and fires.
  *
  * AI-9500 Wave 2.4D additions:
  *   - LAYER 1: Anti-loop collision detection via bodyShape (sha1-ish fingerprint
@@ -207,6 +216,117 @@ export const listPreviewsForPerson = query({
 });
 
 // ---------------------------------------------------------------------------
+// AI-9500 #6 — markDateDone
+//
+// Operator calls this from the dossier page once a date has completed.
+// Patches the originating touch (if given) with date_done_at / date_notes_text,
+// then schedules a post_date_calibration touch +18h out.
+//
+// The post_date_calibration touch starts in status="scheduled" and will NOT
+// auto-send: fireOne detects the type, calls _draft3PostDateCandidates, writes
+// candidate_drafts, and leaves the touch in scheduled status for the operator
+// to choose via commitPostDateChoice (or autoPick6hCron fires after 6h).
+// ---------------------------------------------------------------------------
+export const markDateDone = mutation({
+  args: {
+    user_id: v.string(),
+    person_id: v.id("people"),
+    conversation_id: v.optional(v.id("conversations")),
+    // Optionally patch the originating date_ask/date_dayof touch with notes.
+    source_touch_id: v.optional(v.id("scheduled_touches")),
+    date_done_at: v.number(),                  // unix ms — when the date ended
+    date_notes_text: v.optional(v.string()),   // operator notes about the date
+  },
+  handler: async (ctx, args) => {
+    const now = Date.now();
+
+    // Patch the source touch if given.
+    if (args.source_touch_id) {
+      const src = await ctx.db.get(args.source_touch_id);
+      if (src && src.person_id === args.person_id) {
+        await ctx.db.patch(args.source_touch_id, {
+          date_done_at: args.date_done_at,
+          date_notes_text: args.date_notes_text,
+          updated_at: now,
+        });
+      }
+    }
+
+    // Schedule the calibration touch +18h from date_done_at (or from now if date_done_at is in the past).
+    const fireAt = Math.max(args.date_done_at + 18 * 60 * 60 * 1000, now + 60 * 1000);
+    const calibrationTouchId = await ctx.db.insert("scheduled_touches", {
+      user_id: args.user_id,
+      person_id: args.person_id,
+      conversation_id: args.conversation_id,
+      type: "post_date_calibration",
+      scheduled_for: fireAt,
+      status: "scheduled",
+      generate_at_fire_time: true,              // fireOne generates candidates
+      date_done_at: args.date_done_at,
+      date_notes_text: args.date_notes_text,
+      created_at: now,
+      updated_at: now,
+    });
+
+    const delayMs = Math.max(0, fireAt - now);
+    await ctx.scheduler.runAfter(delayMs, internal.touches.fireOne, {
+      touch_id: calibrationTouchId,
+    });
+
+    return { scheduled: true, touch_id: calibrationTouchId, fire_at: fireAt };
+  },
+});
+
+// ---------------------------------------------------------------------------
+// AI-9500 #6 — commitPostDateChoice
+//
+// Operator has reviewed the 3 candidate drafts and picked one.
+// Copies the chosen body to draft_body and runs the standard send pipeline.
+// ---------------------------------------------------------------------------
+export const commitPostDateChoice = mutation({
+  args: {
+    touch_id: v.id("scheduled_touches"),
+    chosen_kind: v.union(
+      v.literal("callback"),
+      v.literal("photo"),
+      v.literal("generic"),
+    ),
+  },
+  handler: async (ctx, args) => {
+    const touch = await ctx.db.get(args.touch_id);
+    if (!touch) return { not_found: true };
+    if (touch.type !== "post_date_calibration") return { wrong_type: touch.type };
+    if (touch.status !== "scheduled") return { wrong_status: touch.status };
+    if (!touch.candidate_drafts?.length) return { no_candidates: true };
+
+    const chosen = touch.candidate_drafts.find((c) => c.kind === args.chosen_kind);
+    if (!chosen) {
+      // Fall back to first candidate if kind not found.
+      const first = touch.candidate_drafts[0];
+      await ctx.db.patch(args.touch_id, {
+        draft_body: first.body,
+        generate_at_fire_time: false,
+        updated_at: Date.now(),
+      });
+    } else {
+      await ctx.db.patch(args.touch_id, {
+        draft_body: chosen.body,
+        generate_at_fire_time: false,
+        updated_at: Date.now(),
+      });
+    }
+
+    // Schedule immediate fire through the standard pipeline.
+    const fireAt = Date.now() + 5 * 60 * 1000; // 5 min buffer for active-hours check
+    await ctx.db.patch(args.touch_id, { scheduled_for: fireAt, updated_at: Date.now() });
+    await ctx.scheduler.runAfter(5 * 60 * 1000, internal.touches.fireOne, {
+      touch_id: args.touch_id,
+    });
+    return { committed: true, chosen_kind: args.chosen_kind };
+  },
+});
+
+// ---------------------------------------------------------------------------
 // cancelForPerson — when she replies / state shifts, cancel pending touches
 // of certain types (we don't want to nudge her 5 minutes after she replied).
 // ---------------------------------------------------------------------------
@@ -379,6 +499,28 @@ export const fireOne = internalAction({
         touch_id: args.touch_id,
         body_shape: bodyShape,
       });
+    }
+
+    // -----------------------------------------------------------------------
+    // AI-9500 #6 — post_date_calibration special handling.
+    //
+    // Instead of immediately enqueueing a send job, we generate 3 candidate
+    // drafts and park the touch for operator review. The touch STAYS in
+    // "scheduled" status — it is NOT marked fired yet. The autoPick6hCron
+    // will auto-fire after 6h if the operator hasn't chosen.
+    // -----------------------------------------------------------------------
+    if (touch.type === "post_date_calibration") {
+      const candidates = await ctx.runAction(internal.touches._draft3PostDateCandidates, {
+        user_id: touch.user_id,
+        person_id: touch.person_id,
+        date_notes_text: touch.date_notes_text,
+      });
+      await ctx.runMutation(internal.touches._setPostDateCandidates, {
+        touch_id: args.touch_id,
+        candidates,
+      });
+      // Do NOT mark as fired — leave in "scheduled" so operator can pick.
+      return { parked_for_choice: true, type: touch.type, candidates };
     }
 
     // Enqueue an agent_jobs row for the Mac Mini daemon to actually send.
@@ -581,6 +723,218 @@ export const listForPerson = query({
       .order("desc")
       .take(Math.min(args.limit ?? 50, 200));
     return rows;
+  },
+});
+
+// ---------------------------------------------------------------------------
+// AI-9500 #6 — _draft3PostDateCandidates (internalAction)
+//
+// Given person context and operator date notes, call the LLM to produce 3
+// candidate follow-up messages:
+//   "callback" — references a specific moment from date_notes_text (3x conversion)
+//   "photo"    — frame around sharing a photo from the date or the day
+//   "generic"  — warm, non-pressuring thanks / light callback
+//
+// Returns the 3 candidates as an array. fireOne writes them to candidate_drafts.
+// ---------------------------------------------------------------------------
+export const _draft3PostDateCandidates = internalAction({
+  args: {
+    user_id: v.string(),
+    person_id: v.id("people"),
+    date_notes_text: v.optional(v.string()),
+  },
+  handler: async (ctx, args): Promise<Array<{ kind: string; body: string; reasoning: string }>> => {
+    // Fetch person context for personalization.
+    const person = await ctx.runQuery(internal.touches._getPerson, { person_id: args.person_id });
+    const name = person?.display_name ?? "her";
+    const references = person?.references_to_callback ?? [];
+    const thingsSheLoves = person?.things_she_loves ?? [];
+    const notes = args.date_notes_text ?? "";
+
+    const systemPrompt = `You are a dating-coach AI helping a man craft the perfect post-date follow-up text.
+Your job is to generate 3 distinct candidate messages for after a first date.
+You MUST return ONLY valid JSON with no other text: an array of 3 objects each with keys "kind", "body", and "reasoning".
+
+Rules:
+- "body" is the actual text message to send (short, casual, no emojis overload, sounds like a real human)
+- Messages should be warm but not needy, specific but not overwhelming
+- The "callback" kind MUST reference a specific moment or detail from the date notes if available
+- The "photo" kind should naturally invite sharing a photo moment from the date/day
+- The "generic" kind is a warm, low-pressure message that works even with minimal notes
+- Keep all bodies under 120 characters — these are texts, not essays`;
+
+    const userPrompt = `Her name: ${name}
+Date notes from operator: ${notes || "No specific notes provided."}
+Known things she loves: ${thingsSheLoves.slice(0, 5).join(", ") || "unknown"}
+Past callback references we've used: ${references.slice(0, 3).join(", ") || "none"}
+
+Generate the 3 candidate follow-up texts now. Return JSON array only.
+Example format:
+[
+  {"kind":"callback","body":"Had to laugh thinking about the thing with the [specific moment]...","reasoning":"References the specific moment she animated about — 3x conversion vs generic"},
+  {"kind":"photo","body":"Still thinking about [location] — you should send me that photo you took","reasoning":"Creates a natural excuse for continued interaction via photo sharing"},
+  {"kind":"generic","body":"[Name] — tonight was actually really fun. Let's do it again soon","reasoning":"Safe fallback — warm without pressure, leaves ball in her court"}
+]`;
+
+    // Call the LLM via the same cascade used elsewhere in enrichment.ts
+    const gemKey = process.env.GEMINI_API_KEY;
+    const dsKey = process.env.DEEPSEEK_API_KEY;
+    const grokKey = process.env.XAI_API_KEY;
+
+    let result: any = null;
+
+    async function tryGeminiLocal(key: string): Promise<any> {
+      const model = process.env.CC_VIBE_MODEL_GEMINI ?? "gemini-2.0-flash";
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`;
+      try {
+        const r = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: `${systemPrompt}\n\n${userPrompt}` }] }],
+            generationConfig: { responseMimeType: "application/json", temperature: 0.7, maxOutputTokens: 400 },
+          }),
+        });
+        if (!r.ok) return null;
+        const j: any = await r.json();
+        const text = j?.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (!text) return null;
+        return JSON.parse(text);
+      } catch { return null; }
+    }
+
+    async function tryOpenAICompatLocal(url: string, key: string, model: string): Promise<any> {
+      try {
+        const r = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+          body: JSON.stringify({
+            model,
+            messages: [
+              { role: "system", content: systemPrompt },
+              { role: "user", content: userPrompt },
+            ],
+            temperature: 0.7,
+            max_tokens: 400,
+          }),
+        });
+        if (!r.ok) return null;
+        const j: any = await r.json();
+        const text = j?.choices?.[0]?.message?.content;
+        if (!text) return null;
+        // Strip markdown code fences if present
+        const clean = text.replace(/```json\s*/gi, "").replace(/```\s*/g, "").trim();
+        return JSON.parse(clean);
+      } catch { return null; }
+    }
+
+    if (gemKey) result = await tryGeminiLocal(gemKey);
+    if (!result && dsKey) result = await tryOpenAICompatLocal("https://api.deepseek.com/chat/completions", dsKey, "deepseek-chat");
+    if (!result && grokKey) result = await tryOpenAICompatLocal("https://api.x.ai/v1/chat/completions", grokKey, "grok-2-latest");
+
+    // Validate: must be array of 3 objects with kind + body.
+    if (Array.isArray(result) && result.length >= 1 && result[0]?.kind && result[0]?.body) {
+      return result.slice(0, 3).map((c: any) => ({
+        kind: String(c.kind),
+        body: String(c.body).slice(0, 200),
+        reasoning: String(c.reasoning ?? "").slice(0, 300),
+      }));
+    }
+
+    // LLM failed — return safe fallbacks so the feature still works.
+    console.warn(`_draft3PostDateCandidates: LLM failed for person ${args.person_id}, using fallbacks`);
+    const fallbackName = name.split(" ")[0];
+    return [
+      {
+        kind: "callback",
+        body: notes
+          ? `Was just thinking about ${notes.slice(0, 40).split(".")[0].toLowerCase()}... good times`
+          : `${fallbackName} — I keep thinking about tonight. Really good time.`,
+        reasoning: "Fallback callback — references notes if available",
+      },
+      {
+        kind: "photo",
+        body: `Still smiling from tonight. You should send me that pic if you grabbed one`,
+        reasoning: "Fallback photo invite — natural excuse for continued contact",
+      },
+      {
+        kind: "generic",
+        body: `${fallbackName} — tonight was genuinely fun. Let's do this again`,
+        reasoning: "Fallback generic — warm, no pressure, open door",
+      },
+    ];
+  },
+});
+
+// ---------------------------------------------------------------------------
+// AI-9500 #6 — _setPostDateCandidates (internalMutation)
+// Writes the 3 candidate drafts to the touch row.
+// ---------------------------------------------------------------------------
+export const _setPostDateCandidates = internalMutation({
+  args: {
+    touch_id: v.id("scheduled_touches"),
+    candidates: v.array(v.object({
+      kind: v.string(),
+      body: v.string(),
+      reasoning: v.string(),
+    })),
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.touch_id, {
+      candidate_drafts: args.candidates,
+      updated_at: Date.now(),
+    });
+  },
+});
+
+// ---------------------------------------------------------------------------
+// AI-9500 #6 — autoPick6hCron (internalMutation)
+//
+// Called by a 1h-interval cron. Scans for post_date_calibration touches with
+// candidate_drafts set but no choice committed after 6h. Auto-picks "callback"
+// (the highest-converting kind) and fires via the standard pipeline.
+// ---------------------------------------------------------------------------
+export const autoPick6hCron = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const now = Date.now();
+    const sixHoursAgo = now - 6 * 60 * 60 * 1000;
+
+    // Find post_date_calibration touches still in "scheduled" with candidates
+    // but updated (candidates generated) more than 6h ago.
+    const candidates = await ctx.db
+      .query("scheduled_touches")
+      .withIndex("by_due", (q) => q.eq("status", "scheduled").lte("scheduled_for", now + 18 * 60 * 60 * 1000))
+      .filter((q) => q.eq(q.field("type"), "post_date_calibration"))
+      .collect();
+
+    let autoPicked = 0;
+    for (const touch of candidates) {
+      if (!touch.candidate_drafts?.length) continue;
+      // Only auto-pick if touch was scheduled and candidates have been set for 6+ hours.
+      // We use updated_at as the proxy for when candidates were written.
+      if (touch.updated_at > sixHoursAgo) continue;
+      // Already has a draft_body = operator chose. Skip.
+      if (touch.draft_body) continue;
+
+      // Auto-pick "callback" — the highest-converting kind.
+      const callbackCandidate = touch.candidate_drafts.find((c) => c.kind === "callback");
+      const chosen = callbackCandidate ?? touch.candidate_drafts[0];
+
+      const fireAt = now + 5 * 60 * 1000;
+      await ctx.db.patch(touch._id, {
+        draft_body: chosen.body,
+        generate_at_fire_time: false,
+        scheduled_for: fireAt,
+        updated_at: now,
+      });
+      await ctx.scheduler.runAfter(5 * 60 * 1000, internal.touches.fireOne, {
+        touch_id: touch._id,
+      });
+      autoPicked++;
+    }
+
+    return { scanned: candidates.length, auto_picked: autoPicked };
   },
 });
 
