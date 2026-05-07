@@ -1,43 +1,30 @@
 import { NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { ConvexHttpClient } from 'convex/browser'
 
 import { encryptToken } from '@/lib/crypto/token-vault'
+import { api } from '@/convex/_generated/api'
 
 /**
- * Token ingest endpoint used by the Chrome extension.
+ * Token ingest endpoint used by the Chrome extension and Mac Mini mitmproxy.
  *
  *   POST /api/ingest/platform-token
  *   Headers:
- *     X-Device-Token: <token from clapcheeks_agent_tokens>
+ *     X-Device-Token: <token from agent_device_tokens (Convex)>
  *     X-Device-Name:  friendly label (optional)
- *   Body: { platform: "tinder" | "hinge" | "instagram" | "bumble", token: string, storage_key?: string }
+ *   Body: { platform: "tinder" | "hinge" | "instagram" | "bumble", token: string, source?: string }
  *
- * Validates the device token, encrypts the platform token with the
- * per-user vault, writes ciphertext to the *_enc column on the user's
- * clapcheeks_user_settings row, and bumps last_seen_at on the device
- * token.
+ * Validates the device token, encrypts the platform token with the per-user
+ * vault, and writes ciphertext to Convex platform_tokens.
  *
- * AI-8766: Plaintext column is no longer written by default. Set
- * MIGRATE_KEEP_PLAINTEXT=true (env) ONLY for a backward-compat window.
+ * AI-9524: Migrated from Supabase clapcheeks_user_settings to Convex
+ * platform_tokens. The plaintext dual-write path (MIGRATE_KEEP_PLAINTEXT) is
+ * removed — that migration window closed under AI-8766.
  */
+
+export const runtime = 'nodejs' // need node:crypto via lib/crypto/token-vault.ts
 
 const ALLOWED_PLATFORMS = ['tinder', 'hinge', 'instagram', 'bumble'] as const
 type Platform = (typeof ALLOWED_PLATFORMS)[number]
-
-// Per-platform mapping from request platform name -> column basenames.
-// Most platforms use `<plat>_auth_token{,_enc,_updated_at,_source}`. Bumble
-// uses `bumble_session{_enc,_updated_at,_source}` since it stores cookies.
-const PLATFORM_COLUMNS: Record<Platform, {
-  plaintext: string
-  enc: string
-  ts: string
-  source: string
-}> = {
-  tinder:    { plaintext: 'tinder_auth_token',    enc: 'tinder_auth_token_enc',    ts: 'tinder_auth_token_updated_at',    source: 'tinder_auth_source' },
-  hinge:     { plaintext: 'hinge_auth_token',     enc: 'hinge_auth_token_enc',     ts: 'hinge_auth_token_updated_at',     source: 'hinge_auth_source' },
-  instagram: { plaintext: 'instagram_auth_token', enc: 'instagram_auth_token_enc', ts: 'instagram_auth_token_updated_at', source: 'instagram_auth_source' },
-  bumble:    { plaintext: 'bumble_session',       enc: 'bumble_session_enc',       ts: 'bumble_session_updated_at',       source: 'bumble_auth_source' },
-}
 
 function cors(resp: NextResponse) {
   resp.headers.set('Access-Control-Allow-Origin', '*')
@@ -59,7 +46,7 @@ export async function POST(req: Request) {
       { error: 'missing X-Device-Token' }, { status: 401 }))
   }
 
-  let body: { platform?: string; token?: string; storage_key?: string; at?: number }
+  let body: { platform?: string; token?: string; source?: string; storage_key?: string; at?: number }
   try {
     body = await req.json()
   } catch {
@@ -77,94 +64,71 @@ export async function POST(req: Request) {
     return cors(NextResponse.json({ error: 'token_too_short' }, { status: 400 }))
   }
 
-  // Service-role client — we look up the device token and scope the write
-  // to its owning user_id. The extension itself holds only the opaque
-  // device token, never a Supabase key.
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY
-  if (!url || !key) {
+  const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL || process.env.CONVEX_URL
+  if (!convexUrl) {
     return cors(NextResponse.json(
-      { error: 'server_unconfigured' }, { status: 500 }))
+      { error: 'server_unconfigured', detail: 'CONVEX_URL not set' },
+      { status: 500 }))
   }
-  const supabase = createClient(url, key, { auth: { persistSession: false } })
 
-  const { data: rows, error: lookupErr } = await supabase
-    .from('clapcheeks_agent_tokens')
-    .select('user_id, device_name')
-    .eq('token', deviceToken)
-    .limit(1)
-
-  if (lookupErr) {
+  // Validate device token + look up user_id via Convex
+  const convex = new ConvexHttpClient(convexUrl)
+  let device: { user_id: string; device_name: string | null; last_seen_at: number | null } | null
+  try {
+    device = await convex.query(api.agentDeviceTokens.validate, { token: deviceToken })
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
     return cors(NextResponse.json(
-      { error: 'lookup_failed', detail: lookupErr.message }, { status: 500 }))
+      { error: 'lookup_failed', detail: msg }, { status: 500 }))
   }
-  const row = rows?.[0]
-  if (!row) {
+  if (!device) {
     return cors(NextResponse.json(
       { error: 'invalid_device_token' }, { status: 401 }))
   }
 
-  // Bump last_seen_at + optionally update device_name if caller set one
-  void supabase
-    .from('clapcheeks_agent_tokens')
-    .update({
-      last_seen_at: new Date().toISOString(),
-      ...(deviceName ? { device_name: deviceName } : {}),
-    })
-    .eq('token', deviceToken)
-    .then(() => null)
-
-  // Encrypt the platform token before storing. If encryption is misconfigured
-  // (missing master key) we surface a 500 rather than silently fall back to
-  // plaintext — the whole point of AI-8766 is that plaintext must not exist
-  // in new rows.
-  const cols = PLATFORM_COLUMNS[platform as Platform]
+  // Encrypt the platform token before storing.
   let ciphertext: Buffer
   try {
-    ciphertext = encryptToken(token, row.user_id)
+    ciphertext = encryptToken(token, device.user_id)
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
     return cors(NextResponse.json(
       { error: 'encryption_failed', detail: msg }, { status: 500 }))
   }
 
-  // Send bytea over the REST wire as `\x...` hex. PostgREST decodes this
-  // into the bytea column as raw bytes.
-  const cipherHex = '\\x' + ciphertext.toString('hex')
+  // Convex v.bytes() expects ArrayBuffer over the wire; Buffer extends Uint8Array
+  // so we slice into a fresh ArrayBuffer matching the buffer's length.
+  const ab = ciphertext.buffer.slice(
+    ciphertext.byteOffset,
+    ciphertext.byteOffset + ciphertext.byteLength,
+  ) as ArrayBuffer
 
-  const upsertRow: Record<string, unknown> = {
-    user_id: row.user_id,
-    [cols.enc]: cipherHex,
-    [cols.ts]: new Date().toISOString(),
-    [cols.source]: 'chrome-extension',
-    token_enc_version: 1,
-  }
+  const source = (body.source || 'chrome-extension').trim() || 'chrome-extension'
 
-  // Optional dual-write to plaintext during the migration window. Default
-  // OFF — turn on per-deployment with MIGRATE_KEEP_PLAINTEXT=true if a
-  // legacy reader still needs it.
-  if (process.env.MIGRATE_KEEP_PLAINTEXT === 'true') {
-    upsertRow[cols.plaintext] = token
-  } else {
-    // Belt-and-braces: actively NULL the plaintext column on every write so
-    // we don't carry stale plaintext after the migration cutover.
-    upsertRow[cols.plaintext] = null
-  }
-
-  const { error: upsertErr } = await supabase
-    .from('clapcheeks_user_settings')
-    .upsert(upsertRow, { onConflict: 'user_id' })
-
-  if (upsertErr) {
+  try {
+    const result = await convex.mutation(api.platformTokens.upsertEncrypted, {
+      token: deviceToken,
+      platform: platform as Platform,
+      ciphertext: ab,
+      enc_version: 1,
+      source,
+      ...(deviceName ? { device_name: deviceName } : {}),
+    })
+    return cors(NextResponse.json({
+      ok: true,
+      platform,
+      device_name: deviceName || device.device_name,
+      updated_at: new Date(result.updated_at).toISOString(),
+      action: result.action,
+      encrypted: true,
+    }))
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    if (msg.includes('invalid_device_token')) {
+      return cors(NextResponse.json(
+        { error: 'invalid_device_token' }, { status: 401 }))
+    }
     return cors(NextResponse.json(
-      { error: 'write_failed', detail: upsertErr.message }, { status: 500 }))
+      { error: 'write_failed', detail: msg }, { status: 500 }))
   }
-
-  return cors(NextResponse.json({
-    ok: true,
-    platform,
-    device_name: deviceName || row.device_name,
-    updated_at: upsertRow[cols.ts],
-    encrypted: true,
-  }))
 }
