@@ -151,8 +151,6 @@ crons.interval(
   internal.enrichment.sweepDateAskGhostOuts,
 );
 
-<<<<<<< Updated upstream
-=======
 // AI-9500 Wave 2 #E — Auto-archive 30d-silence threads daily at 4am Pacific
 // (12:00 UTC). Scans all people; anyone with both last_inbound AND last_outbound
 // older than 30 days (and not already archived/ghosted) gets archived with
@@ -184,7 +182,6 @@ crons.interval(
   internal.touches.sweepVoiceMemoCandidates,
 );
 
-
 // AI-9500 W2 #J: Enqueue a Tinder match + message sync job every 5 minutes.
 // The local Mac Mini agent (convex_runner.py) claims and executes the job
 // via _handle_sync_tinder(). Dedup guard inside enqueueTinderSync prevents
@@ -196,6 +193,4 @@ crons.interval(
   { minutes: 5 },
   internal.agent_jobs.enqueueTinderSync,
 );
-
->>>>>>> Stashed changes
 export default crons;
