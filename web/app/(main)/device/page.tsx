@@ -62,7 +62,7 @@ function Hero() {
         {/* CTAs */}
         <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-12">
           <Link
-            href="/#pricing"
+            href="/billing"
             className="group flex items-center gap-2 bg-brand-600 hover:bg-brand-500 text-white font-semibold px-8 py-4 rounded-xl transition-all duration-200 shadow-xl shadow-brand-900/50 hover:shadow-brand-800/60 active:scale-[0.98] text-base"
           >
             Add Device Plan &mdash; $49/mo
@@ -473,7 +473,7 @@ function Pricing() {
             </ul>
 
             <Link
-              href="/#pricing"
+              href="/billing"
               className="block text-center font-semibold text-sm py-3 rounded-xl transition-all duration-200 active:scale-[0.98] bg-white/6 hover:bg-white/10 border border-white/10 hover:border-white/20 text-white"
             >
               Add to my plan
@@ -523,7 +523,7 @@ function Pricing() {
             </ul>
 
             <Link
-              href="/#pricing"
+              href="/billing"
               className="block text-center font-semibold text-sm py-3 rounded-xl transition-all duration-200 active:scale-[0.98] bg-brand-600 hover:bg-brand-500 text-white shadow-lg shadow-brand-900/40"
             >
               Get the Bundle
@@ -641,14 +641,14 @@ function FinalCTA() {
 
         <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
           <Link
-            href="/#pricing"
+            href="/billing"
             className="group flex items-center gap-2 bg-brand-600 hover:bg-brand-500 text-white font-semibold px-8 py-4 rounded-xl transition-all duration-200 shadow-xl shadow-brand-900/50 hover:shadow-brand-800/60 active:scale-[0.98] text-base"
           >
             Add Device Plan &mdash; $49/mo
             <ChevronRight size={16} className="group-hover:translate-x-0.5 transition-transform" />
           </Link>
           <Link
-            href="/#pricing"
+            href="/billing"
             className="flex items-center gap-2 bg-white/5 hover:bg-white/8 border border-white/10 hover:border-white/20 text-white/80 hover:text-white font-semibold px-8 py-4 rounded-xl transition-all duration-200 text-base active:scale-[0.98]"
           >
             View all plans
