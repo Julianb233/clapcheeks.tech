@@ -12,9 +12,10 @@
  */
 "use client"
 
-import { useQuery } from "convex/react"
+import { useQuery, useMutation } from "convex/react"
 import { api } from "@/convex/_generated/api"
 import Link from "next/link"
+import { useState } from "react"
 
 const FLEET_USER_ID = "fleet-julian"
 
@@ -24,6 +25,36 @@ export default function ClapcheeksOpsOverview() {
   })
   const pendingMedia = useQuery(api.media.listForApproval, { user_id: FLEET_USER_ID })
   const orphanStatus = useQuery(api.backfill.orphanStatus, { user_id: FLEET_USER_ID })
+  // AI-9526: wire the previously hardcoded "—" touches card to live data.
+  const upcomingTouches = useQuery(api.touches.listUpcoming, {
+    user_id: FLEET_USER_ID, horizon_hours: 24, limit: 200,
+  })
+  const pendingLinks = useQuery(api.people.listPendingLinks, {
+    user_id: FLEET_USER_ID, limit: 100,
+  })
+  const profileImports = useQuery(api.profile_import.listForReview, {
+    user_id: FLEET_USER_ID, limit: 50,
+  })
+  // AI-9526: kick-sweep affordance — operator can force-run the sweeps without
+  // waiting 6h. Helpful right after a backfill or when adding a new batch of
+  // people from screenshots.
+  const triggerCourtshipSweep = useMutation(api.enrichment.triggerCourtshipSweep)
+  const triggerVibeSweep = useMutation(api.enrichment.triggerVibeSweep)
+  const [sweepStatus, setSweepStatus] = useState<string | null>(null)
+  const [sweeping, setSweeping] = useState(false)
+
+  async function kickSweeps() {
+    setSweeping(true); setSweepStatus(null)
+    try {
+      const c = await triggerCourtshipSweep({})
+      const v = await triggerVibeSweep({})
+      setSweepStatus(
+        `✓ Courtship: scheduled ${c.scheduled}/${c.eligible} (of ${c.total_people}) · Vibe: scheduled ${v.scheduled}/${v.eligible}. Results land in 30-180s.`
+      )
+    } catch (e: any) {
+      setSweepStatus(`✗ Failed: ${e?.message ?? "unknown"}`)
+    } finally { setSweeping(false) }
+  }
 
   return (
     <div className="p-4 sm:p-8 max-w-7xl">
@@ -77,18 +108,47 @@ export default function ClapcheeksOpsOverview() {
         </div>
       </Link>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8">
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-8">
         <Card title="Pending media for approval"
-              value={pendingMedia?.length ?? "—"}
+              value={pendingMedia === undefined ? "…" : pendingMedia.length}
               href="/admin/clapcheeks-ops/media" />
         <Card title="Orphan conversations (un-linked)"
-              value={orphanStatus?.orphan_conversations_visible ?? "—"} />
+              value={orphanStatus === undefined ? "…" : (orphanStatus.orphans ?? orphanStatus.orphan_conversations_visible ?? 0)} />
         <Card title="Vibe candidates not yet in network"
-              value={vibeCandidates?.length ?? "—"}
+              value={vibeCandidates === undefined ? "…" : vibeCandidates.length}
               href="/admin/clapcheeks-ops/network" />
         <Card title="Scheduled touches (next 24h)"
-              value={"—"}
+              value={upcomingTouches === undefined ? "…" : upcomingTouches.length}
               href="/admin/clapcheeks-ops/touches" />
+        <Card title="Pending links (need review)"
+              value={pendingLinks === undefined ? "…" : pendingLinks.length}
+              href="/admin/clapcheeks-ops/pending-links" />
+        <Card title="Profile screenshots awaiting"
+              value={profileImports === undefined ? "…" : profileImports.length}
+              href="/admin/clapcheeks-ops/profile-imports" />
+      </div>
+
+      {/* AI-9526 — Kick sweeps now */}
+      <div className="mb-8 p-4 rounded-lg border border-purple-800/50 bg-purple-950/20">
+        <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+          <div className="flex-1">
+            <div className="text-sm font-semibold text-purple-200">Force-run enrichment sweeps</div>
+            <div className="text-xs text-purple-400/80 mt-0.5">
+              Sweeps run every 6h on cron. Click to fire now — populates
+              vibe / courtship / next_best_move / curiosity for up to 30 people.
+            </div>
+            {sweepStatus && (
+              <div className="text-xs mt-2 font-mono text-gray-300">{sweepStatus}</div>
+            )}
+          </div>
+          <button
+            onClick={kickSweeps}
+            disabled={sweeping}
+            className="text-sm px-4 py-2 rounded bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-white whitespace-nowrap"
+          >
+            {sweeping ? "Sweeping…" : "🌀 Kick sweeps now"}
+          </button>
+        </div>
       </div>
 
       <section className="mb-8">

@@ -54,8 +54,9 @@ export default function NetworkPage() {
   const [showAll, setShowAll] = useState(false)
   const [showArchived, setShowArchived] = useState(false)
   const [search, setSearch] = useState("")
+  // AI-9526: bumped 500 -> 2000 — fleet roster is ~1037 people, was silently truncating
   const people = useQuery(api.people.listForUser, {
-    user_id: FLEET_USER_ID, limit: 500, only_cc_tech: false,
+    user_id: FLEET_USER_ID, limit: 2000, only_cc_tech: false,
   })
   const archivedPeople = useQuery(api.people.listArchived, {
     user_id: FLEET_USER_ID,
