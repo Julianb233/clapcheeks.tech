@@ -404,6 +404,16 @@ export const upsertFromWebhook = mutation({
               conversation_id: recentAsk.conversation_id,
             });
           }
+
+          // AI-9500 W2 #I — When she says yes, auto-create a date logistics
+          // checklist so the operator can tick off pre-date prep items.
+          if (outcome === "yes" && recentAsk.person_id) {
+            await ctx.scheduler.runAfter(0, internal.date_logistics._createForTouch, {
+              touch_id:  recentAsk._id,
+              person_id: recentAsk.person_id as Id<"people">,
+              user_id:   args.user_id,
+            });
+          }
         }
       }
     }
