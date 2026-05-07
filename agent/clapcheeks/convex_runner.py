@@ -1489,6 +1489,13 @@ def _handle_google_contacts_sync_one(payload: dict) -> dict:
     }
 
 
+
+def _handle_sync_hinge(payload: dict) -> dict:
+    """AI-9507: Poll Hinge SendBird for new messages and push to Convex."""
+    from clapcheeks.intel.hinge_poller import run_once
+    return run_once()
+
+
 HANDLERS = {
     "send_imessage": _handle_send_imessage,
     "send_hinge": _handle_send_hinge,
@@ -1501,6 +1508,7 @@ HANDLERS = {
     "send_digest_to_julian": _handle_send_digest_to_julian,
     "fetch_calendar_slots": _handle_fetch_calendar_slots,
     "create_date_event": _handle_create_date_event,
+    "sync_hinge": _handle_sync_hinge,  # AI-9507: Hinge SendBird poller
 }
 
 

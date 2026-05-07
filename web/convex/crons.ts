@@ -46,4 +46,14 @@ crons.interval(
   internal.touches.drainDue,
 );
 
+// AI-9500-C: Enqueue a Hinge SendBird sync job every 5 minutes.
+// The Mac Mini agent (convex_runner.py) claims and executes the job.
+// Dedup guard in enqueueHingeSync prevents queue flooding if the previous
+// job hasn't been claimed yet.
+crons.interval(
+  "enqueue-hinge-sync",
+  { minutes: 5 },
+  internal.agent_jobs.enqueueHingeSync,
+);
+
 export default crons;
