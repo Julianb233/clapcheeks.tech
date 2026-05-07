@@ -81,74 +81,19 @@ function extractNewEntries(
 // ─── useMatchMessages ─────────────────────────────────────────────────────────
 
 /**
- * Subscribe to live changes on clapcheeks_conversations for a given match.
+ * AI-9572 — NO-OP shim. The conversation thread now subscribes to Convex
+ * via useQuery(api.messages.listByConversation) which auto-updates on every
+ * Convex write. Kept exported so remaining call sites compile without changes.
  *
- * Fires onEvent on INSERT (new conversation row) and UPDATE (messages array grew).
- * The event payload includes `newEntries` — only the freshly appended messages.
- *
- * @param matchId  The match_id text value to filter by (matches match_id column).
- * @param onEvent  Callback fired on each change event.
+ * @param matchId  Unused (was the Supabase match_id filter).
+ * @param onEvent  Unused.
  */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 export function useMatchMessages(
-  matchId: string | null | undefined,
-  onEvent: (event: ConversationRowEvent) => void,
-) {
-  const onEventRef = useRef(onEvent)
-  onEventRef.current = onEvent
-
-  useEffect(() => {
-    if (!matchId) return
-
-    const supabase = createClient()
-    const channel: RealtimeChannel = supabase
-      .channel(`match-conversations:${matchId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'clapcheeks_conversations',
-          filter: `match_id=eq.${matchId}`,
-        },
-        (payload: { eventType: string; new?: Record<string, unknown>; old?: Record<string, unknown> }) => {
-          const newRow = (payload.new ?? {}) as Partial<ConversationRow>
-          onEventRef.current({
-            eventType: 'INSERT',
-            new: newRow,
-            old: {},
-            newEntries: (newRow.messages ?? []) as ConversationMessage[],
-          })
-        },
-      )
-      .on(
-        'postgres_changes',
-        {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'clapcheeks_conversations',
-          filter: `match_id=eq.${matchId}`,
-        },
-        (payload: { eventType: string; new?: Record<string, unknown>; old?: Record<string, unknown> }) => {
-          const newRow = (payload.new ?? {}) as Partial<ConversationRow>
-          const oldRow = (payload.old ?? {}) as Partial<ConversationRow>
-          const newEntries = extractNewEntries(
-            oldRow.messages as ConversationMessage[] | undefined,
-            newRow.messages as ConversationMessage[] | undefined,
-          )
-          onEventRef.current({
-            eventType: 'UPDATE',
-            new: newRow,
-            old: oldRow,
-            newEntries,
-          })
-        },
-      )
-      .subscribe()
-
-    return () => {
-      supabase.removeChannel(channel)
-    }
-  }, [matchId])
+  _matchId: string | null | undefined,
+  _onEvent: (event: ConversationRowEvent) => void,
+): void {
+  // no-op — subscription now handled by Convex in ConversationThread (AI-9572)
 }
 
 // ─── useInboxStream ───────────────────────────────────────────────────────────

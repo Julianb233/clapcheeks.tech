@@ -118,6 +118,33 @@ export const upsert = mutation({
   },
 });
 
+// AI-9572 — Resolve a conversation by external_match_id (any platform).
+// Used by conversation-thread page to get the Convex conversation_id from
+// the UI's match_id (which is external_match_id on the conversations table).
+export const getByMatchId = query({
+  args: {
+    user_id: v.string(),
+    external_match_id: v.string(),
+  },
+  handler: async (ctx, args) => {
+    // Try all platforms via by_user_external index — scan per platform.
+    const platforms = ["hinge", "tinder", "bumble", "imessage", "other"] as const;
+    for (const platform of platforms) {
+      const conv = await ctx.db
+        .query("conversations")
+        .withIndex("by_user_external", (q) =>
+          q
+            .eq("user_id", args.user_id)
+            .eq("platform", platform)
+            .eq("external_match_id", args.external_match_id),
+        )
+        .first();
+      if (conv) return conv;
+    }
+    return null;
+  },
+});
+
 // AI-9500-C: Look up a single conversation by platform + external_match_id.
 // Used by the Hinge poller to resolve the Convex document ID before appending messages.
 export const getByExternal = query({

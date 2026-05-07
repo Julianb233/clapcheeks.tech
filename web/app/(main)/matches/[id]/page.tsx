@@ -135,6 +135,20 @@ export default async function MatchDetailPage({
     channel: m.channel,
   }))
 
+  // AI-9572 — Resolve Convex conversation_id for the reactive thread
+  let convexConversationId: string | null = null
+  if (externalId) {
+    try {
+      const conv = await convex.query(api.conversations.getByMatchId, {
+        user_id: user.id,
+        external_match_id: externalId,
+      })
+      if (conv) convexConversationId = conv._id
+    } catch {
+      // non-fatal
+    }
+  }
+
   // AI-8876: fetch reactions JSONB from the conversation row (best-effort)
   type ReactionEntry = { msg_guid?: string; kind?: string; actor?: string; ts?: string }
   let conversationReactions: ReactionEntry[] | null = null
@@ -158,7 +172,6 @@ export default async function MatchDetailPage({
   let memoInitial: { content: string; updated_at: string | null } | null = null
   if (memoHandle) {
     try {
-      const convex = getConvexServerClient()
       const memoRow = await convex.query(api.memos.getForContact, {
         user_id: user.id,
         contact_handle: memoHandle,
@@ -183,6 +196,7 @@ export default async function MatchDetailPage({
           match={match}
           conversation={conversation}
           conversationMatchId={conversationMatchId}
+          convexConversationId={convexConversationId}
           conversationReactions={conversationReactions}
           memoHandle={memoHandle}
           memoInitial={memoInitial}
