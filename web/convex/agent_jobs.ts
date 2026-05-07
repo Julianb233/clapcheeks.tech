@@ -29,6 +29,42 @@ export const enqueue = mutation({
 // Local agent claims the next-highest-priority queued job for a user.
 // Atomic via Convex's optimistic concurrency — two agents can't grab
 // the same job.
+// AI-9545 — claim a queued job whose job_type is in `allowed_job_types`.
+// Used by the VPS cc-calendar-worker (only handles fetch_calendar_slots /
+// related calendar jobs) so a single broad runner doesn't steal jobs.
+export const claimByTypes = mutation({
+  args: {
+    user_id: v.string(),
+    agent_instance_id: v.string(),
+    allowed_job_types: v.array(v.string()),
+    lock_seconds: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const queued = await ctx.db
+      .query("agent_jobs")
+      .withIndex("by_user_status", (q) =>
+        q.eq("user_id", args.user_id).eq("status", "queued"),
+      )
+      .order("desc")
+      .collect();
+
+    const allowed = new Set(args.allowed_job_types);
+    const target = queued.find((j) => allowed.has(j.job_type));
+    if (!target) return null;
+
+    const now = Date.now();
+    const lockMs = (args.lock_seconds ?? 120) * 1000;
+    await ctx.db.patch(target._id, {
+      status: "running",
+      locked_by: args.agent_instance_id,
+      locked_until: now + lockMs,
+      attempts: target.attempts + 1,
+      updated_at: now,
+    });
+    return await ctx.db.get(target._id);
+  },
+});
+
 export const claim = mutation({
   args: {
     user_id: v.string(),
