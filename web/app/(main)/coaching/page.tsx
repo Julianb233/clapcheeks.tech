@@ -20,6 +20,8 @@ interface BenchmarkComparison {
 }
 
 interface CoachingData {
+  // AI-9526 F9 — sessionId required by /api/coaching/feedback POST.
+  sessionId: string | null
   score: number
   tips: CoachingTip[]
   benchmarks: BenchmarkComparison[]
@@ -87,10 +89,13 @@ export default function CoachingPage() {
   async function handleFeedback(tipIndex: number, helpful: boolean) {
     setFeedbackState((prev) => ({ ...prev, [tipIndex]: helpful }))
 
+    // AI-9526 F9 — include sessionId in body; required by API route.
+    const sessionId = data?.sessionId
+    if (!sessionId) return
     await fetch('/api/coaching/feedback', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tipIndex, helpful }),
+      body: JSON.stringify({ sessionId, tipIndex, helpful }),
     })
   }
 
