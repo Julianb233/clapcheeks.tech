@@ -621,6 +621,7 @@ function ScheduleTab({ person, touches }: { person: any; touches: any[] }) {
   const cancelMut = useMutation(api.touches.cancelOne)
   const markDateDone = useMutation(api.touches.markDateDone)
   const commitPostDateChoice = useMutation(api.touches.commitPostDateChoice)
+  const markVoiceMemoSent = useMutation(api.touches.markVoiceMemoSent)
   const FLEET_USER_ID = "fleet-julian"
 
   const [showDateDoneForm, setShowDateDoneForm] = useState(false)
@@ -628,6 +629,8 @@ function ScheduleTab({ person, touches }: { person: any; touches: any[] }) {
   const [dateMarkingId, setDateMarkingId] = useState<string | null>(null)
   const [markingBusy, setMarkingBusy] = useState(false)
   const [choiceError, setChoiceError] = useState<string | null>(null)
+
+  const [voiceBusy, setVoiceBusy] = useState<string | null>(null)
 
   const upcoming = touches.filter((t) => t.status === "scheduled" && !t.is_preview)
   const fired = touches.filter((t) => t.status === "fired").slice(0, 10)
@@ -638,10 +641,24 @@ function ScheduleTab({ person, touches }: { person: any; touches: any[] }) {
     (t: any) => t.type === "post_date_calibration" && t.candidate_drafts?.length > 0 && !t.draft_body
   )
 
+  // AI-9500 W2 #G — voice_memo touches awaiting operator action.
+  const pendingVoiceMemos = upcoming.filter((t: any) => t.type === "voice_memo")
+
   // Date-ask or date-dayof touches that could be "marked done".
   const dateCandidates = [...upcoming, ...fired].filter(
     (t: any) => t.type === "date_ask" || t.type === "date_dayof" || t.type === "date_confirm_24h"
   ).slice(0, 5)
+
+  async function handleVoiceMemoSent(touchId: string) {
+    setVoiceBusy(touchId)
+    try {
+      await markVoiceMemoSent({ touch_id: touchId as any })
+    } catch (e: any) {
+      alert("Error: " + (e?.message ?? String(e)))
+    } finally {
+      setVoiceBusy(null)
+    }
+  }
 
   async function handleMarkDateDone(sourceTouchId?: string) {
     setMarkingBusy(true)
@@ -737,7 +754,57 @@ function ScheduleTab({ person, touches }: { person: any; touches: any[] }) {
       )}
 
       {/* ------------------------------------------------------------------ */}
-      {/* AI-9500 #6 — Mark date done (schedules calibration touch)           */}
+      {/* AI-9500 W2 #G — Voice memo touches awaiting operator action */}
+      {pendingVoiceMemos.length > 0 && (
+        <Section title={`Voice memo — record & send (${pendingVoiceMemos.length})`}>
+          <div className="text-xs text-gray-500 mb-3">
+            High-leverage moment. Record on your phone, send it, then mark below.
+          </div>
+          {pendingVoiceMemos.map((t: any) => (
+            <div key={t._id} className="mb-4 border border-teal-800 rounded-lg p-4 bg-teal-950/20">
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-teal-400 font-semibold text-xs uppercase tracking-wider">Voice memo</span>
+                <span className="text-gray-500 text-xs">
+                  {" · "}
+                  {t.prompt_template === "voice_memo_trigger_phone_swap"
+                    ? "phone swap +24h"
+                    : t.prompt_template === "voice_memo_trigger_third_reply"
+                    ? "3rd inbound reply"
+                    : t.prompt_template === "voice_memo_trigger_post_second_date"
+                    ? "post-2nd date"
+                    : t.prompt_template ?? "triggered"}
+                </span>
+              </div>
+              {t.draft_body && (
+                <div className="bg-gray-950 border border-gray-700 rounded p-3 mb-3">
+                  <div className="text-[10px] text-gray-500 mb-1 uppercase tracking-wider">Script</div>
+                  <p className="text-sm text-white italic">&ldquo;{t.draft_body}&rdquo;</p>
+                </div>
+              )}
+              <div className="text-[10px] text-gray-600 mb-3">
+                Keep it under 15s. Casual, warm. Voice beats 10 texts at this stage.
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => handleVoiceMemoSent(t._id)}
+                  disabled={voiceBusy === t._id}
+                  className="px-3 py-1.5 text-xs rounded bg-teal-700 hover:bg-teal-600 text-white font-semibold disabled:opacity-50"
+                >
+                  {voiceBusy === t._id ? "Marking..." : "Mark recorded & sent"}
+                </button>
+                <button
+                  onClick={() => cancelMut({ touch_id: t._id, reason: "operator_skipped_voice_memo" })}
+                  className="px-3 py-1.5 text-xs rounded border border-gray-700 text-gray-500 hover:text-gray-300"
+                >
+                  Skip
+                </button>
+              </div>
+            </div>
+          ))}
+        </Section>
+      )}
+
+            {/* AI-9500 #6 — Mark date done (schedules calibration touch)           */}
       {/* ------------------------------------------------------------------ */}
       <Section title="Date completed?">
         {!showDateDoneForm ? (

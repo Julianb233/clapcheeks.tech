@@ -1311,3 +1311,156 @@ function nextHourLocalToUnix(tz: string, hour: number): number {
   );
   return utcGuess - tzOffsetMs;
 }
+
+// ===========================================================================
+// AI-9500 W2 #G — Voice-memo trigger sweep
+//
+// sweepVoiceMemoCandidates — internalMutation called every 6h via cron.
+//
+// Three high-leverage triggers:
+//   1. Phone-swap +24h  — courtship_stage="phone_swap", active last 4d,
+//      last_outbound_at at least 24h ago, no voice_memo yet.
+//   2. 3rd inbound reply — exactly 3 inbound messages across all conversations.
+//   3. Post-second-date  — 2+ fired post_date_calibration touches, no voice_memo in 7d.
+//
+// Each touch: draft_body = short operator script, generate_at_fire_time=false,
+// urgency="warm". Does NOT auto-fire — operator records voice memo manually.
+// ===========================================================================
+
+const VOICE_MEMO_COOLDOWN_MS = 7 * 24 * 60 * 60 * 1000;
+const VOICE_MEMO_PHONE_SWAP_WINDOW_MS = 4 * 24 * 60 * 60 * 1000;
+const VOICE_MEMO_MAX_SWEEP = 30;
+
+function _voiceMemoScript(
+  trigger: "phone_swap" | "third_reply" | "post_second_date",
+  name: string,
+): string {
+  const firstName = name.split(" ")[0];
+  switch (trigger) {
+    case "phone_swap":
+      return `Hey ${firstName} — just wanted to say hey properly. Hope you're having a great day`;
+    case "third_reply":
+      return `Hey ${firstName} — you seem really cool, figured a voice note beats another text`;
+    case "post_second_date":
+      return `${firstName} — that was honestly so fun. Thinking about you`;
+  }
+}
+
+export const sweepVoiceMemoCandidates = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const now = Date.now();
+    const sevenDaysAgo = now - VOICE_MEMO_COOLDOWN_MS;
+
+    const allPeople = await ctx.db
+      .query("people")
+      .withIndex("by_user", (q) => q.eq("user_id", "fleet-julian"))
+      .collect();
+
+    const candidates = allPeople.filter(
+      (p) => p.status !== "ended" && p.status !== "ghosted" && p.whitelist_for_autoreply,
+    );
+
+    let scheduled = 0;
+    let scanned = 0;
+
+    for (const person of candidates.slice(0, VOICE_MEMO_MAX_SWEEP)) {
+      scanned++;
+
+      const existingTouches = await ctx.db
+        .query("scheduled_touches")
+        .withIndex("by_person_status", (q) => q.eq("person_id", person._id))
+        .collect();
+
+      const hasScheduled = existingTouches.some(
+        (t) => t.type === "voice_memo" && t.status === "scheduled",
+      );
+      const hasRecentFired = existingTouches.some(
+        (t) =>
+          t.type === "voice_memo" &&
+          t.status === "fired" &&
+          t.fired_at !== undefined &&
+          t.fired_at >= sevenDaysAgo,
+      );
+      if (hasScheduled || hasRecentFired) continue;
+
+      let triggerKind: "phone_swap" | "third_reply" | "post_second_date" | null = null;
+
+      // Trigger 1: Phone-swap +24h
+      if (person.courtship_stage === "phone_swap") {
+        const lastOut = person.last_outbound_at ?? 0;
+        const twentyFourHoursAgo = now - 24 * 60 * 60 * 1000;
+        if (lastOut >= (now - VOICE_MEMO_PHONE_SWAP_WINDOW_MS) && lastOut <= twentyFourHoursAgo) {
+          triggerKind = "phone_swap";
+        }
+      }
+
+      // Trigger 2: 3rd inbound reply
+      if (!triggerKind) {
+        const inboundMsgs = await ctx.db
+          .query("messages")
+          .withIndex("by_person_recent", (q) => q.eq("person_id", person._id))
+          .filter((q) => q.eq(q.field("direction"), "inbound"))
+          .collect();
+        if (inboundMsgs.length === 3) {
+          triggerKind = "third_reply";
+        }
+      }
+
+      // Trigger 3: Post-second-date
+      if (!triggerKind) {
+        const firedCalibrations = existingTouches.filter(
+          (t) => t.type === "post_date_calibration" && t.status === "fired",
+        );
+        if (firedCalibrations.length >= 2) {
+          triggerKind = "post_second_date";
+        }
+      }
+
+      if (!triggerKind) continue;
+
+      const script = _voiceMemoScript(triggerKind, person.display_name);
+      const fireAt = now + 30 * 60 * 1000;
+
+      await ctx.db.insert("scheduled_touches", {
+        user_id: "fleet-julian",
+        person_id: person._id,
+        type: "voice_memo",
+        scheduled_for: fireAt,
+        status: "scheduled",
+        draft_body: script,
+        generate_at_fire_time: false,
+        urgency: "warm",
+        prompt_template: `voice_memo_trigger_${triggerKind}`,
+        created_at: now,
+        updated_at: now,
+      });
+      // Does NOT call fireOne — operator records manually on phone.
+      scheduled++;
+    }
+
+    return { scanned, scheduled };
+  },
+});
+
+// ---------------------------------------------------------------------------
+// markVoiceMemoSent — operator calls from dossier after recording & sending
+// the voice memo on their phone. Patches status to "fired".
+// ---------------------------------------------------------------------------
+export const markVoiceMemoSent = mutation({
+  args: {
+    touch_id: v.id("scheduled_touches"),
+  },
+  handler: async (ctx, args) => {
+    const touch = await ctx.db.get(args.touch_id);
+    if (!touch) return { not_found: true };
+    if (touch.type !== "voice_memo") return { wrong_type: touch.type };
+    if (touch.status === "fired") return { already_fired: true };
+    await ctx.db.patch(args.touch_id, {
+      status: "fired",
+      fired_at: Date.now(),
+      updated_at: Date.now(),
+    });
+    return { marked_sent: true };
+  },
+});
