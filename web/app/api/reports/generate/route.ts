@@ -103,13 +103,18 @@ export async function POST(request: NextRequest) {
     }
 
     // Send email if user has it enabled
-    const { data: prefs } = await supabase
-      .from('clapcheeks_report_preferences')
-      .select('email_enabled')
-      .eq('user_id', targetUserId)
-      .single()
-
-    const emailEnabled = prefs?.email_enabled !== false // default true
+    // AI-9537: report preferences live on Convex.
+    let emailEnabled = true
+    if (convex) {
+      try {
+        const prefs = await convex.query(api.reportPreferences.getForUser, {
+          user_id: targetUserId,
+        })
+        if (prefs && prefs.email_enabled === false) emailEnabled = false
+      } catch (err) {
+        console.error('Convex report_preferences read failed:', err)
+      }
+    }
 
     if (emailEnabled) {
       const supabaseAdmin = createAdminClient()

@@ -20,12 +20,12 @@ export async function GET() {
   const convex = convexUrl ? new ConvexHttpClient(convexUrl) : null
 
   const [deviceRes, agentTokenRes, heartbeatRow] = await Promise.all([
-    supabase
-      .from('devices')
-      .select('last_seen_at, is_active')
-      .eq('user_id', user.id)
-      .order('last_seen_at', { ascending: false })
-      .limit(1),
+    // AI-9537: devices migrated to Convex.
+    convex
+      ? convex
+          .query(api.devices.listForUser, { user_id: user.id })
+          .catch(() => [] as Array<{ last_seen_at: number; is_active: boolean }>)
+      : Promise.resolve([] as Array<{ last_seen_at: number; is_active: boolean }>),
     supabase
       .from('clapcheeks_agent_tokens')
       .select('status, degraded_platform, degraded_reason')
@@ -39,14 +39,17 @@ export async function GET() {
       : Promise.resolve(null),
   ])
 
-  const oldDevice = deviceRes.data?.[0] || null
+  const deviceRows = (deviceRes as Array<{ last_seen_at: number; is_active: boolean }>) ?? []
+  const oldDevice = deviceRows.length
+    ? deviceRows.reduce((best, d) => (d.last_seen_at > best.last_seen_at ? d : best))
+    : null
   const heartbeatTsMs = heartbeatRow?.last_heartbeat_at ?? null
 
   type DeviceShape = { last_seen_at: string; is_active: boolean }
   const candidates: DeviceShape[] = []
   if (oldDevice?.last_seen_at) {
     candidates.push({
-      last_seen_at: oldDevice.last_seen_at,
+      last_seen_at: new Date(oldDevice.last_seen_at).toISOString(),
       is_active: oldDevice.is_active ?? true,
     })
   }

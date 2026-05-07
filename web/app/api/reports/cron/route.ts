@@ -20,6 +20,11 @@ export async function GET(request: NextRequest) {
 
   const supabase = createAdminClient()
 
+  // AI-9537: subscriptions + report preferences read from Convex.
+  const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL || process.env.CONVEX_URL
+  if (!convexUrl) throw new Error('CONVEX_URL not set')
+  const convex = new ConvexHttpClient(convexUrl)
+
   // Calculate last week boundaries
   const now = new Date()
   const dayOfWeek = now.getUTCDay()
@@ -30,24 +35,20 @@ export async function GET(request: NextRequest) {
   weekEnd.setDate(weekEnd.getDate() + 6)
 
   // Get all users with active subscriptions
-  const { data: subscribers } = await supabase
-    .from('clapcheeks_subscriptions')
-    .select('user_id')
-    .eq('status', 'active')
+  const userIds: string[] = await convex.query(api.billing.listActiveUserIds, {})
 
-  if (!subscribers || subscribers.length === 0) {
+  if (!userIds || userIds.length === 0) {
     return NextResponse.json({ message: 'No active subscribers', processed: 0 })
   }
 
   // Filter by preferences (email_enabled)
-  const userIds = subscribers.map((s) => s.user_id)
-  const { data: prefs } = await supabase
-    .from('clapcheeks_report_preferences')
-    .select('user_id, email_enabled')
-    .in('user_id', userIds)
+  const prefs: Array<{ user_id: string; email_enabled: boolean }> = await convex.query(
+    api.reportPreferences.listEmailEnabledMap,
+    { user_ids: userIds }
+  )
 
   const disabledUsers = new Set(
-    (prefs || []).filter((p) => p.email_enabled === false).map((p) => p.user_id)
+    prefs.filter((p) => p.email_enabled === false).map((p) => p.user_id)
   )
 
   const eligibleUsers = userIds.filter((id) => !disabledUsers.has(id))
@@ -77,9 +78,6 @@ export async function GET(request: NextRequest) {
             .getPublicUrl(filename)
 
           // Save report (Convex)
-          const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL || process.env.CONVEX_URL
-          if (!convexUrl) throw new Error('CONVEX_URL not set')
-          const convex = new ConvexHttpClient(convexUrl)
           const upsertResult = await convex.mutation(
             api.reports.upsertWeeklyReport,
             {

@@ -26,6 +26,11 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
+  // AI-9537: subscriptions + report_preferences read from Convex.
+  const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL || process.env.CONVEX_URL
+  if (!convexUrl) throw new Error('CONVEX_URL not set')
+  const convex = new ConvexHttpClient(convexUrl)
+
   // Calculate last week boundaries (Monday to Sunday)
   const now = new Date()
   const dayOfWeek = now.getUTCDay()
@@ -36,24 +41,20 @@ export async function GET(request: NextRequest) {
   weekEnd.setUTCDate(weekEnd.getUTCDate() + 6) // Last Sunday
 
   // Get all users with active subscriptions
-  const { data: subscribers } = await supabaseAdmin
-    .from('clapcheeks_subscriptions')
-    .select('user_id')
-    .eq('status', 'active')
+  const userIds: string[] = await convex.query(api.billing.listActiveUserIds, {})
 
-  if (!subscribers || subscribers.length === 0) {
+  if (!userIds || userIds.length === 0) {
     return NextResponse.json({ message: 'No active subscribers', processed: 0 })
   }
 
   // Filter by preferences (email_enabled)
-  const userIds = subscribers.map((s) => s.user_id)
-  const { data: prefs } = await supabaseAdmin
-    .from('clapcheeks_report_preferences')
-    .select('user_id, email_enabled')
-    .in('user_id', userIds)
+  const prefs: Array<{ user_id: string; email_enabled: boolean }> = await convex.query(
+    api.reportPreferences.listEmailEnabledMap,
+    { user_ids: userIds }
+  )
 
   const disabledUsers = new Set(
-    (prefs || []).filter((p) => p.email_enabled === false).map((p) => p.user_id)
+    prefs.filter((p) => p.email_enabled === false).map((p) => p.user_id)
   )
 
   const eligibleUserIds = userIds.filter((id) => !disabledUsers.has(id))
@@ -128,20 +129,15 @@ export async function GET(request: NextRequest) {
 
           // Record in weekly_reports (Convex)
           const weekStartStr = weekStart.toISOString().split('T')[0]
-          const convexUrl =
-            process.env.NEXT_PUBLIC_CONVEX_URL || process.env.CONVEX_URL
-          if (convexUrl) {
-            const convex = new ConvexHttpClient(convexUrl)
-            await convex.mutation(api.reports.upsertWeeklyReport, {
-              user_id: userId,
-              week_start_ms: weekStart.getTime(),
-              week_end_ms: weekEnd.getTime(),
-              week_start_iso: weekStartStr,
-              metrics_snapshot: reportData,
-              sent_at: Date.now(),
-              report_type: 'weekly',
-            })
-          }
+          await convex.mutation(api.reports.upsertWeeklyReport, {
+            user_id: userId,
+            week_start_ms: weekStart.getTime(),
+            week_end_ms: weekEnd.getTime(),
+            week_start_iso: weekStartStr,
+            metrics_snapshot: reportData,
+            sent_at: Date.now(),
+            report_type: 'weekly',
+          })
 
           processed++
         } catch (err) {
@@ -196,17 +192,16 @@ Stats: ${stats.swipes} swipes (${stats.swipesChange}%), ${stats.matches} matches
 }
 
 async function getFallbackTip(): Promise<string> {
-  // Try to get latest coaching tip from DB
+  // AI-9537: latest coaching tip from Convex.
   try {
-    const { data } = await supabaseAdmin
-      .from('clapcheeks_coaching_sessions')
-      .select('tips')
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .single()
-
-    if (data?.tips && Array.isArray(data.tips) && data.tips.length > 0) {
-      const tip = data.tips[0]
+    const convexUrl =
+      process.env.NEXT_PUBLIC_CONVEX_URL || process.env.CONVEX_URL
+    if (!convexUrl) return 'Keep swiping and stay consistent with your messaging game!'
+    const convex = new ConvexHttpClient(convexUrl)
+    const session = await convex.query(api.coaching.getMostRecentSession, {})
+    const tips = session?.tips
+    if (tips && Array.isArray(tips) && tips.length > 0) {
+      const tip = tips[0]
       return typeof tip === 'string' ? tip : (tip as { tip?: string }).tip || 'Keep swiping and stay consistent with your messaging game!'
     }
   } catch {

@@ -225,7 +225,24 @@ export default async function ConnectionBar() {
     }
   }
 
-  const [settingsRes, eventsRes, deviceRes, heartbeatPayload] = await Promise.all([
+  // AI-9537: devices migrated to Convex.
+  const fetchDevices = async (): Promise<Array<{ last_seen_at: number; is_active: boolean }>> => {
+    const url = process.env.NEXT_PUBLIC_CONVEX_URL || process.env.CONVEX_URL
+    if (!url) return []
+    try {
+      const { ConvexHttpClient } = await import('convex/browser')
+      const { api } = await import('@/convex/_generated/api')
+      const convex = new ConvexHttpClient(url)
+      const rows = (await convex.query(api.devices.listForUser, {
+        user_id: user.id,
+      })) as Array<{ last_seen_at: number; is_active: boolean }>
+      return rows ?? []
+    } catch {
+      return []
+    }
+  }
+
+  const [settingsRes, eventsRes, deviceRows, heartbeatPayload] = await Promise.all([
     (supabase as any)
       .from('clapcheeks_user_settings')
       .select(
@@ -242,19 +259,21 @@ export default async function ConnectionBar() {
       .gte('detected_at', since)
       .order('detected_at', { ascending: false })
       .limit(50),
-    (supabase as any)
-      .from('devices')
-      .select('last_seen_at,is_active')
-      .eq('user_id', user.id)
-      .order('last_seen_at', { ascending: false })
-      .limit(1)
-      .maybeSingle(),
+    fetchDevices(),
     fetchHeartbeat(),
   ])
 
   const settings = (settingsRes.data as UserSettingsRow | null) ?? null
   const events = ((eventsRes.data as BanEventRow[] | null) ?? []) as BanEventRow[]
-  const deviceRow = (deviceRes.data as DeviceRow | null) ?? null
+  const deviceRowRaw = (deviceRows ?? []).length
+    ? (deviceRows ?? []).reduce((best, d) => (d.last_seen_at > best.last_seen_at ? d : best))
+    : null
+  const deviceRow: DeviceRow | null = deviceRowRaw
+    ? {
+        last_seen_at: new Date(deviceRowRaw.last_seen_at).toISOString(),
+        is_active: deviceRowRaw.is_active,
+      }
+    : null
   const heartbeatRow = heartbeatPayload
 
   // Compose a unified device view: take the freshest last_seen across both

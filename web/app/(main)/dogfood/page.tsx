@@ -49,12 +49,12 @@ export default async function DogfoodPage() {
           })
           .catch(() => [])
       : Promise.resolve([]),
-    supabase
-      .from('clapcheeks_subscriptions')
-      .select('status, plan_id')
-      .eq('user_id', user.id)
-      .limit(1)
-      .single(),
+    // AI-9537: subscriptions migrated to Convex.
+    convex
+      ? convex
+          .query(api.billing.getByUser, { user_id: user.id })
+          .catch(() => null as { status: string; plan?: string } | null)
+      : Promise.resolve(null as { status: string; plan?: string } | null),
   ])
 
   const health = healthRes.data || []
@@ -95,7 +95,14 @@ export default async function DogfoodPage() {
     metrics_snapshot: (r.metrics_snapshot ?? {}) as Record<string, unknown>,
     created_at: new Date(r._creationTime).toISOString(),
   }))
-  const subscription = subscriptionRes.data
+  // AI-9537: subscriptionRes is now the Convex row directly (or null).
+  // Map plan -> plan_id for the legacy subscription shape consumed by DogfoodDashboard.
+  const subscription = subscriptionRes
+    ? {
+        status: (subscriptionRes as { status: string }).status,
+        plan_id: (subscriptionRes as { plan?: string }).plan ?? '',
+      }
+    : null
 
   // Calculate current streak from health data
   const latestHealth = health[0]

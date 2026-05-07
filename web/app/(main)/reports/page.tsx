@@ -33,11 +33,12 @@ export default async function ReportsPage() {
           })
           .catch(() => [])
       : Promise.resolve([]),
-    supabase
-      .from('clapcheeks_report_preferences')
-      .select('*')
-      .eq('user_id', user.id)
-      .single(),
+    // AI-9537: report_preferences migrated to Convex.
+    convex
+      ? convex
+          .query(api.reportPreferences.getForUser, { user_id: user.id })
+          .catch(() => null as { email_enabled: boolean; send_day: string; send_hour: number } | null)
+      : Promise.resolve(null as { email_enabled: boolean; send_day: string; send_hour: number } | null),
   ])
 
   // Map Convex schema (week_start_ms / week_start_iso / week_end_ms) to the
@@ -63,7 +64,9 @@ export default async function ReportsPage() {
     sent_at: r.sent_at ? new Date(r.sent_at).toISOString() : null,
     created_at: new Date(r._creationTime).toISOString(),
   }))
-  const preferences = prefsRes.data || { email_enabled: true, send_day: 'sunday', send_hour: 8 }
+  // AI-9537: prefsRes is now the Convex row directly (or null).
+  const preferences = (prefsRes as { email_enabled: boolean; send_day: string; send_hour: number } | null) ||
+    { email_enabled: true, send_day: 'sunday', send_hour: 8 }
 
   return (
     <div className="min-h-screen bg-black px-6 py-8">
