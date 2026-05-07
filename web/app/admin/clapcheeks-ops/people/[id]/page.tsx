@@ -24,6 +24,7 @@ const TEMPLATE_OPTIONS = [
   { value: "hot_reply", label: "Hot reply (high interest)" },
   { value: "callback_reference", label: "Callback to something she said" },
   { value: "pattern_interrupt", label: "Pattern interrupt (stale)" },
+  { value: "easy_question_revival", label: "💤 Easy yes/no question (quiet thread revival)" },
   { value: "morning_text", label: "Morning text" },
   { value: "ghost_recovery", label: "Ghost recovery" },
   { value: "date_ask_three_options", label: "Ask for the date" },
@@ -386,8 +387,53 @@ function MemoryTab({ person }: { person: any }) {
   const curiosity = (person.curiosity_ledger ?? []).filter((q: any) => q.status === "pending")
   const events = person.recent_life_events ?? []
   const lit = person.topics_that_lit_her_up ?? []
+
+  // AI-9500 #1 — curiosity-question ratio metric
+  const questionRatio: number | null = person.her_question_ratio_7d ?? null
+  const ratioComputedAt: number | null = person.her_question_ratio_computed_at ?? null
+  const isQuietThread = questionRatio !== null && questionRatio < 0.15
+  const lastInboundAgo = person.last_inbound_at
+    ? Math.round((Date.now() - person.last_inbound_at) / 3600000)
+    : null
+  const isSilent24h = lastInboundAgo !== null && lastInboundAgo > 24
+
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+
+      {/* AI-9500 #1 — Curiosity-question ratio badge */}
+      {questionRatio !== null && (
+        <div className={`col-span-full rounded-lg border p-3 mb-2 ${
+          isQuietThread && isSilent24h
+            ? "border-amber-700/60 bg-amber-900/10"
+            : "border-gray-700 bg-gray-800/40"
+        }`}>
+          <div className="flex items-center gap-3 text-sm">
+            <span className="text-lg">{isQuietThread && isSilent24h ? "💤" : "💬"}</span>
+            <div>
+              <span className="font-medium text-gray-200">
+                Question ratio (7d inbound):&nbsp;
+                <span className={isQuietThread ? "text-amber-300 font-bold" : "text-green-300"}>
+                  {(questionRatio * 100).toFixed(0)}%
+                </span>
+              </span>
+              {isQuietThread && isSilent24h ? (
+                <span className="ml-2 text-xs text-amber-400 font-semibold">
+                  — flagged for easy_question_revival (she's stopped asking questions &amp; hasn't replied in {lastInboundAgo}h)
+                </span>
+              ) : isQuietThread ? (
+                <span className="ml-2 text-xs text-gray-500">low ratio but still active</span>
+              ) : (
+                <span className="ml-2 text-xs text-gray-500">healthy engagement</span>
+              )}
+            </div>
+          </div>
+          {ratioComputedAt && (
+            <div className="text-[10px] text-gray-600 mt-1">
+              computed {new Date(ratioComputedAt).toLocaleString()}
+            </div>
+          )}
+        </div>
+      )}
       <Section title={`Personal details (${details.length})`}>
         {details.length === 0 ? <Empty /> : (
           <ul className="space-y-1 text-sm">
@@ -469,16 +515,207 @@ function MemoryTab({ person }: { person: any }) {
 }
 
 // ---------------------------------------------------------------------------
-// Schedule tab — pending touches and recent fires
+// Schedule tab — pending touches, post-date calibration, and recent fires
 // ---------------------------------------------------------------------------
 function ScheduleTab({ person, touches }: { person: any; touches: any[] }) {
   const cancelMut = useMutation(api.touches.cancelOne)
+  const markDateDone = useMutation(api.touches.markDateDone)
+  const commitPostDateChoice = useMutation(api.touches.commitPostDateChoice)
+  const FLEET_USER_ID = "fleet-julian"
+
+  const [showDateDoneForm, setShowDateDoneForm] = useState(false)
+  const [dateNotesText, setDateNotesText] = useState("")
+  const [dateMarkingId, setDateMarkingId] = useState<string | null>(null)
+  const [markingBusy, setMarkingBusy] = useState(false)
+  const [choiceError, setChoiceError] = useState<string | null>(null)
+
   const upcoming = touches.filter((t) => t.status === "scheduled" && !t.is_preview)
   const fired = touches.filter((t) => t.status === "fired").slice(0, 10)
   const skipped = touches.filter((t) => t.status === "skipped").slice(0, 10)
 
+  // Post-date calibration touches with candidates awaiting operator choice.
+  const pendingCalibrations = upcoming.filter(
+    (t: any) => t.type === "post_date_calibration" && t.candidate_drafts?.length > 0 && !t.draft_body
+  )
+
+  // Date-ask or date-dayof touches that could be "marked done".
+  const dateCandidates = [...upcoming, ...fired].filter(
+    (t: any) => t.type === "date_ask" || t.type === "date_dayof" || t.type === "date_confirm_24h"
+  ).slice(0, 5)
+
+  async function handleMarkDateDone(sourceTouchId?: string) {
+    setMarkingBusy(true)
+    try {
+      await markDateDone({
+        user_id: FLEET_USER_ID,
+        person_id: person._id,
+        source_touch_id: sourceTouchId as any,
+        date_done_at: Date.now(),
+        date_notes_text: dateNotesText || undefined,
+      })
+      setShowDateDoneForm(false)
+      setDateNotesText("")
+      setDateMarkingId(null)
+    } catch (e: any) {
+      alert("Error: " + (e?.message ?? String(e)))
+    } finally {
+      setMarkingBusy(false)
+    }
+  }
+
+  async function handleCommitChoice(touchId: string, kind: "callback" | "photo" | "generic") {
+    setChoiceError(null)
+    try {
+      await commitPostDateChoice({ touch_id: touchId as any, chosen_kind: kind })
+    } catch (e: any) {
+      setChoiceError(e?.message ?? String(e))
+    }
+  }
+
   return (
     <div className="space-y-6">
+
+      {/* ------------------------------------------------------------------ */}
+      {/* AI-9500 #6 — Post-date calibration candidate pickers                */}
+      {/* ------------------------------------------------------------------ */}
+      {pendingCalibrations.length > 0 && (
+        <Section title={`Post-date follow-up — choose a message (${pendingCalibrations.length})`}>
+          {choiceError && (
+            <div className="text-red-400 text-xs mb-2">{choiceError}</div>
+          )}
+          {pendingCalibrations.map((t: any) => (
+            <div key={t._id} className="mb-6 border border-purple-800 rounded-lg p-4 bg-purple-950/20">
+              <div className="text-xs text-purple-300 mb-1">
+                Calibration scheduled for {new Date(t.scheduled_for).toLocaleString()}
+                {t.date_notes_text && (
+                  <span className="ml-2 text-gray-400 italic">· "{t.date_notes_text}"</span>
+                )}
+              </div>
+              <div className="text-xs text-gray-500 mb-3">
+                Pick one — operator choice committed immediately. Auto-picks "callback" in 6h if no choice made.
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                {(t.candidate_drafts ?? []).map((draft: any) => (
+                  <div key={draft.kind} className="border border-gray-700 rounded-lg p-3 bg-gray-900 flex flex-col justify-between">
+                    <div>
+                      <div className={`text-[10px] font-semibold mb-1 uppercase tracking-wider ${
+                        draft.kind === "callback" ? "text-green-400" :
+                        draft.kind === "photo" ? "text-blue-400" : "text-amber-400"
+                      }`}>
+                        {draft.kind}
+                        {draft.kind === "callback" && " ★ 3x conversion"}
+                      </div>
+                      <p className="text-sm text-white mb-2">{draft.body}</p>
+                      {draft.reasoning && (
+                        <p className="text-[10px] text-gray-500 italic">{draft.reasoning}</p>
+                      )}
+                    </div>
+                    <button
+                      onClick={() => handleCommitChoice(t._id, draft.kind)}
+                      className={`mt-3 w-full text-xs py-1.5 rounded font-semibold ${
+                        draft.kind === "callback"
+                          ? "bg-green-700 hover:bg-green-600 text-white"
+                          : draft.kind === "photo"
+                          ? "bg-blue-700 hover:bg-blue-600 text-white"
+                          : "bg-amber-700 hover:bg-amber-600 text-white"
+                      }`}
+                    >
+                      Use this
+                    </button>
+                  </div>
+                ))}
+              </div>
+              <button
+                onClick={() => cancelMut({ touch_id: t._id, reason: "operator_declined_all_candidates" })}
+                className="mt-2 text-xs text-red-400 hover:text-red-300"
+              >
+                Skip — don't send any of these
+              </button>
+            </div>
+          ))}
+        </Section>
+      )}
+
+      {/* ------------------------------------------------------------------ */}
+      {/* AI-9500 #6 — Mark date done (schedules calibration touch)           */}
+      {/* ------------------------------------------------------------------ */}
+      <Section title="Date completed?">
+        {!showDateDoneForm ? (
+          <div className="text-xs text-gray-500 space-y-2">
+            <p>
+              If you just came back from a date, mark it done to schedule a +18h post-date follow-up with 3 AI-drafted candidate messages.
+            </p>
+            <button
+              onClick={() => setShowDateDoneForm(true)}
+              className="px-3 py-1.5 text-xs rounded bg-purple-800 hover:bg-purple-700 text-white font-semibold"
+            >
+              Mark date done
+            </button>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <div>
+              <label className="text-xs text-gray-400 block mb-1">
+                Date notes (optional — specific moments = 3x 2nd-date booking rate)
+              </label>
+              <textarea
+                value={dateNotesText}
+                onChange={(e) => setDateNotesText(e.target.value)}
+                placeholder="e.g. laughed at the raccoon story, she brought up hiking, mentioned her sister's wedding"
+                rows={3}
+                className="w-full text-xs bg-gray-950 border border-gray-700 rounded p-2 text-white placeholder-gray-600 resize-none"
+              />
+            </div>
+            {dateCandidates.length > 0 && (
+              <div>
+                <div className="text-xs text-gray-500 mb-1">Link to a date touch (optional):</div>
+                <div className="space-y-1">
+                  {dateCandidates.map((t: any) => (
+                    <label key={t._id} className="flex items-center gap-2 text-xs cursor-pointer">
+                      <input
+                        type="radio"
+                        name="date-source"
+                        value={t._id}
+                        checked={dateMarkingId === t._id}
+                        onChange={() => setDateMarkingId(t._id)}
+                        className="accent-purple-500"
+                      />
+                      <span className="text-gray-300">{t.type} · {new Date(t.scheduled_for).toLocaleDateString()}</span>
+                    </label>
+                  ))}
+                  <label className="flex items-center gap-2 text-xs cursor-pointer">
+                    <input
+                      type="radio"
+                      name="date-source"
+                      value=""
+                      checked={dateMarkingId === null}
+                      onChange={() => setDateMarkingId(null)}
+                      className="accent-purple-500"
+                    />
+                    <span className="text-gray-400">No linked touch</span>
+                  </label>
+                </div>
+              </div>
+            )}
+            <div className="flex gap-2">
+              <button
+                onClick={() => handleMarkDateDone(dateMarkingId ?? undefined)}
+                disabled={markingBusy}
+                className="px-3 py-1.5 text-xs rounded bg-purple-700 hover:bg-purple-600 text-white font-semibold disabled:opacity-50"
+              >
+                {markingBusy ? "Scheduling…" : "Schedule +18h calibration touch"}
+              </button>
+              <button
+                onClick={() => { setShowDateDoneForm(false); setDateNotesText(""); setDateMarkingId(null) }}
+                className="px-3 py-1.5 text-xs rounded border border-gray-700 text-gray-400 hover:text-gray-200"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+      </Section>
+
       <Section title={`Upcoming (${upcoming.length})`}>
         {upcoming.length === 0 ? <Empty text="Nothing queued." /> : (
           <table className="w-full text-xs">
