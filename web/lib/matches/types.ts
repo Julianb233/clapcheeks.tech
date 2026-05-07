@@ -130,6 +130,9 @@ export type ClapcheeksMatchRow = {
   social_graph_confidence?: number | null
   social_graph_sources?: string[] | null
   social_graph_scanned_at?: string | null
+  // AI-9526 F6 — phone surface in MatchDetail Profile tab so operator can
+  // tap Call / iMessage from the dashboard.
+  her_phone?: string | null
 }
 
 export type MatchListFilters = {

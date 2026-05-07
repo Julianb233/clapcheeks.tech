@@ -113,6 +113,8 @@ export function mapConvexMatchRowToLegacy(
     cluster_rank: asNumber(r.cluster_rank),
     social_graph_confidence: asNumber(r.social_graph_confidence),
     social_graph_sources: asArray<string>(r.social_graph_sources),
+    // AI-9526 F6 — surface her_phone for tel:/imessage: links.
+    her_phone: asString(r.her_phone),
   }
 }
 
