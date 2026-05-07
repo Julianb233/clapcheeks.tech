@@ -11,6 +11,7 @@ import { useState, useEffect } from 'react'
 import { useQuery, useMutation } from 'convex/react'
 import { api } from '@/convex/_generated/api'
 import type { Id } from '@/convex/_generated/dataModel'
+import { toast } from 'sonner'
 
 type Props = {
   matchId: string
@@ -44,8 +45,11 @@ export default function AiActiveSwitchPerMatch({ matchId }: Props) {
     setActive(next) // optimistic
     try {
       await patch({ id: row._id, ai_active: next })
-    } catch {
+    } catch (err) {
       setActive(!next) // rollback
+      toast.error(
+        `Failed to toggle AI for this match${err instanceof Error && err.message ? ': ' + err.message : '.'}`,
+      )
     } finally {
       setSaving(false)
     }
