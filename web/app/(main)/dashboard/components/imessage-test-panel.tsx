@@ -58,10 +58,29 @@ export default function IMessageTestPanel() {
     }
   }, [])
 
+  // AI-9500: defer first load and the 15s polling until the browser is idle.
+  // Keeps the test panel from competing with first paint on the dashboard.
   useEffect(() => {
-    loadHistory()
-    const interval = setInterval(loadHistory, 15000) // poll every 15s to catch status updates
-    return () => clearInterval(interval)
+    let interval: ReturnType<typeof setInterval> | null = null
+    let idleHandle: number | null = null
+    const ric = (window as unknown as { requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number }).requestIdleCallback
+    const start = () => {
+      loadHistory()
+      interval = setInterval(loadHistory, 15000)
+    }
+    if (typeof ric === 'function') {
+      idleHandle = ric(start, { timeout: 3000 })
+    } else {
+      idleHandle = window.setTimeout(start, 2200) as unknown as number
+    }
+    return () => {
+      if (interval) clearInterval(interval)
+      const cic = (window as unknown as { cancelIdleCallback?: (h: number) => void }).cancelIdleCallback
+      if (idleHandle != null) {
+        if (typeof cic === 'function') cic(idleHandle)
+        else clearTimeout(idleHandle)
+      }
+    }
   }, [loadHistory])
 
   async function handleSend() {

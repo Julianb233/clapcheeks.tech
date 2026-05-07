@@ -16,63 +16,84 @@ export default function AiActiveBanner() {
   const [reason, setReason] = useState<string | null>(null)
   const [userId, setUserId] = useState<string | null>(null)
 
+  // AI-9500: defer auth lookup + Realtime subscribe until the browser is
+  // idle. The banner only renders when AI is paused (rare state), so the
+  // common-case render is `return null` after a no-op fetch — there's no
+  // user-visible cost to delaying initial probing by ~2s, and we save the
+  // input-blocking work on every authed page navigation.
   useEffect(() => {
-    const supabase = createClient()
     let cancelled = false
+    let channel: ReturnType<ReturnType<typeof createClient>['channel']> | null = null
+    const supabase = createClient()
 
-    ;(async () => {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user || cancelled) return
-      setUserId(user.id)
+    const ric = (window as unknown as {
+      requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number
+      cancelIdleCallback?: (h: number) => void
+    }).requestIdleCallback
+    let idleHandle: number | null = null
 
-      // Initial fetch
-      const { data } = await supabase
-        .from('clapcheeks_user_settings')
-        .select('ai_active, ai_paused_until, ai_paused_reason')
-        .eq('user_id', user.id)
-        .single()
-      if (cancelled) return
-      if (data) {
-        const isActive = data.ai_active &&
-          (!data.ai_paused_until || new Date(data.ai_paused_until) < new Date())
-        setPaused(!isActive)
-        setReason(data.ai_paused_reason ?? null)
-      }
+    const start = () => {
+      ;(async () => {
+        const { data: { user } } = await supabase.auth.getUser()
+        if (!user || cancelled) return
+        setUserId(user.id)
 
-      // Subscribe to live changes
-      const channel = supabase
-        .channel('ai-banner-settings')
-        .on(
-          'postgres_changes',
-          {
-            event: 'UPDATE',
-            schema: 'public',
-            table: 'clapcheeks_user_settings',
-            filter: `user_id=eq.${user.id}`,
-          },
-          (payload: { new?: Record<string, unknown> }) => {
-            if (cancelled) return
-            const row = payload.new as {
-              ai_active: boolean
-              ai_paused_until: string | null
-              ai_paused_reason: string | null
-            }
-            const isActive = row.ai_active &&
-              (!row.ai_paused_until || new Date(row.ai_paused_until) < new Date())
-            setPaused(!isActive)
-            setReason(row.ai_paused_reason ?? null)
-          },
-        )
-        .subscribe()
+        // Initial fetch
+        const { data } = await supabase
+          .from('clapcheeks_user_settings')
+          .select('ai_active, ai_paused_until, ai_paused_reason')
+          .eq('user_id', user.id)
+          .single()
+        if (cancelled) return
+        if (data) {
+          const isActive = data.ai_active &&
+            (!data.ai_paused_until || new Date(data.ai_paused_until) < new Date())
+          setPaused(!isActive)
+          setReason(data.ai_paused_reason ?? null)
+        }
 
-      return () => {
-        cancelled = true
-        supabase.removeChannel(channel)
-      }
-    })()
+        // Subscribe to live changes
+        channel = supabase
+          .channel('ai-banner-settings')
+          .on(
+            'postgres_changes',
+            {
+              event: 'UPDATE',
+              schema: 'public',
+              table: 'clapcheeks_user_settings',
+              filter: `user_id=eq.${user.id}`,
+            },
+            (payload: { new?: Record<string, unknown> }) => {
+              if (cancelled) return
+              const row = payload.new as {
+                ai_active: boolean
+                ai_paused_until: string | null
+                ai_paused_reason: string | null
+              }
+              const isActive = row.ai_active &&
+                (!row.ai_paused_until || new Date(row.ai_paused_until) < new Date())
+              setPaused(!isActive)
+              setReason(row.ai_paused_reason ?? null)
+            },
+          )
+          .subscribe()
+      })()
+    }
+
+    if (typeof ric === 'function') {
+      idleHandle = ric(start, { timeout: 3000 })
+    } else {
+      idleHandle = window.setTimeout(start, 2000) as unknown as number
+    }
 
     return () => {
       cancelled = true
+      const cic = (window as unknown as { cancelIdleCallback?: (h: number) => void }).cancelIdleCallback
+      if (idleHandle != null) {
+        if (typeof cic === 'function') cic(idleHandle)
+        else clearTimeout(idleHandle)
+      }
+      if (channel) supabase.removeChannel(channel)
     }
   }, [])
 
