@@ -1044,8 +1044,6 @@ function ScheduleTab({ person, touches }: { person: any; touches: any[] }) {
   // AI-9500 W2 #G — voice memo state
   const [voiceBusy, setVoiceBusy] = useState<string | null>(null)   // touch_id being marked
 
-  const [voiceBusy, setVoiceBusy] = useState<string | null>(null)
-
   const upcoming = touches.filter((t) => t.status === "scheduled" && !t.is_preview)
   const fired = touches.filter((t) => t.status === "fired").slice(0, 10)
   const skipped = touches.filter((t) => t.status === "skipped").slice(0, 10)
