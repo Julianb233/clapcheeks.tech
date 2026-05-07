@@ -84,7 +84,8 @@ export default async function Dashboard() {
   const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL || process.env.CONVEX_URL
   const convex = convexUrl ? new ConvexHttpClient(convexUrl) : null
 
-  const [analyticsRows, convoRes, spendRes, deviceRes, subRes, profileRes, heartbeatRow, matchCountRes] = await Promise.all([
+  // AI-9575: conversation_stats + spending migrated to Convex.
+  const [analyticsRows, convoRows, spendRows, deviceRes, subRes, profileRes, heartbeatRow, matchCountRes] = await Promise.all([
     convex
       ? convex
           .query(api.telemetry.getDailyForUser, {
@@ -93,17 +94,22 @@ export default async function Dashboard() {
           })
           .catch(() => [])
       : Promise.resolve([]),
-    supabase
-      .from('clapcheeks_conversation_stats')
-      .select('platform, messages_sent, conversations_started, conversations_replied, date')
-      .eq('user_id', user.id)
-      .gte('date', sinceStr)
-      .order('date', { ascending: true }),
-    supabase
-      .from('clapcheeks_spending')
-      .select('amount, category, date')
-      .eq('user_id', user.id)
-      .gte('date', sinceStr),
+    convex
+      ? convex
+          .query(api.conversation_stats.listForUser, {
+            user_id: user.id,
+            since_date: sinceStr,
+          })
+          .catch(() => [] as Array<{ platform: string; messages_sent: number; conversations_started: number; conversations_replied: number; date: string }>)
+      : Promise.resolve([] as Array<{ platform: string; messages_sent: number; conversations_started: number; conversations_replied: number; date: string }>),
+    convex
+      ? convex
+          .query(api.spending.listForUser, {
+            user_id: user.id,
+            since_date: sinceStr,
+          })
+          .catch(() => [] as Array<{ amount: number; category: string; date: string }>)
+      : Promise.resolve([] as Array<{ amount: number; category: string; date: string }>),
     // AI-9537: devices migrated to Convex.
     convex
       ? convex
@@ -171,9 +177,10 @@ export default async function Dashboard() {
   const userIsElite = userPlan === 'elite' && userSubStatus === 'active'
 
   const rows: DailyRow[] = analyticsRes.data || []
-  const convos: ConvoRow[] = convoRes.data || []
+  // AI-9575: Convex returns typed arrays directly (no .data wrapper).
+  const convos: ConvoRow[] = (convoRows as ConvoRow[]) ?? []
   type SpendingRow = { amount: number | string; category: string; date: string }
-  const spending: SpendingRow[] = (spendRes.data as SpendingRow[] | null) ?? []
+  const spending: SpendingRow[] = (spendRows as SpendingRow[]) ?? []
 
   // AI-8926/AI-9536/AI-9537: pick the freshest of (Convex devices.last_seen_at, Convex device_heartbeats.last_heartbeat_at).
   const deviceRows = (deviceRes as Array<{ last_seen_at: number; is_active: boolean }>) ?? []

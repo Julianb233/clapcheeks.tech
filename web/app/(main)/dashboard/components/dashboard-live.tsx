@@ -91,16 +91,20 @@ export default function DashboardLive({ initialData, hasAgent }: DashboardLivePr
   const [data, setData] = useState<SummaryData | null>(initialData)
   const [loading, setLoading] = useState(!initialData)
   const [lastUpdated, setLastUpdated] = useState<Date>(new Date())
+  const [fetchError, setFetchError] = useState(false)
 
   const fetchStats = useCallback(async () => {
     try {
       const res = await fetch('/api/analytics/summary')
-      if (!res.ok) return
-      const json = await res.json()
-      setData(json)
-      setLastUpdated(new Date())
+      if (res.ok) {
+        const json = await res.json()
+        setData(json)
+        setLastUpdated(new Date())
+        setFetchError(false)
+      }
     } catch {
-      // silently ignore fetch errors — data stays stale
+      // AI-9574: surface stale-data indicator instead of silently failing
+      setFetchError(true)
     } finally {
       setLoading(false)
     }
@@ -201,10 +205,19 @@ export default function DashboardLive({ initialData, hasAgent }: DashboardLivePr
 
   return (
     <div className="space-y-6">
-      {/* Last updated indicator */}
+      {/* Last updated indicator — amber when last poll failed (AI-9574) */}
       <div className="flex items-center justify-end gap-2 text-white/20 text-xs">
-        <div className="w-1.5 h-1.5 rounded-full bg-green-500/50 animate-pulse" />
-        Live — updated {lastUpdated.toLocaleTimeString()}
+        {fetchError ? (
+          <>
+            <div className="w-1.5 h-1.5 rounded-full bg-amber-400/70" />
+            <span className="text-amber-400/70">Stale data — {lastUpdated.toLocaleTimeString()}</span>
+          </>
+        ) : (
+          <>
+            <div className="w-1.5 h-1.5 rounded-full bg-green-500/50 animate-pulse" />
+            Live — updated {lastUpdated.toLocaleTimeString()}
+          </>
+        )}
       </div>
 
       {/* ── Conversation Funnel ─────────────────────────────────────── */}

@@ -47,24 +47,55 @@ interface DashboardChartsProps {
 export function DashboardCharts({ initialData, days }: DashboardChartsProps) {
   const [data, setData] = useState<AnalyticsSummary | null>(initialData)
   const [loading, setLoading] = useState(!initialData)
+  const [error, setError] = useState<string | null>(null)
   const effectiveDays = days ?? 30
+
+  const load = () => {
+    setLoading(true)
+    setError(null)
+    fetch(`/api/analytics/summary?days=${effectiveDays}`)
+      .then((r) => r.json())
+      .then(setData)
+      // AI-9574: surface error instead of silently swallowing it
+      .catch((err: unknown) => setError(err instanceof Error ? err.message : 'Failed to load analytics'))
+      .finally(() => setLoading(false))
+  }
 
   useEffect(() => {
     if (initialData && !days) return
-    setLoading(true)
-    fetch(`/api/analytics/summary?days=${effectiveDays}`)
-      .then(r => r.json())
-      .then(setData)
-      .catch(() => {})
-      .finally(() => setLoading(false))
+    load()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialData, days, effectiveDays])
 
   if (loading) {
     return (
       <div className="space-y-6">
-        {[1, 2, 3].map(i => (
+        {[1, 2, 3].map((i) => (
           <div key={i} className="bg-white/5 border border-white/10 rounded-xl p-5 h-64 animate-pulse" />
         ))}
+      </div>
+    )
+  }
+
+  // AI-9574: show inline error card with retry button
+  if (error) {
+    return (
+      <div className="bg-amber-500/10 border border-amber-500/25 rounded-xl p-5 flex items-center justify-between gap-4">
+        <div className="flex items-center gap-3 min-w-0">
+          <svg className="w-4 h-4 text-amber-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4.5c-.77-.833-2.694-.833-3.464 0L3.34 16.5c-.77.833.192 2.5 1.732 2.5z" />
+          </svg>
+          <div>
+            <p className="text-amber-400 font-semibold text-sm">Analytics unavailable</p>
+            <p className="text-white/40 text-xs mt-0.5 truncate">{error}</p>
+          </div>
+        </div>
+        <button
+          onClick={load}
+          className="shrink-0 text-xs text-amber-400 hover:text-amber-300 underline underline-offset-2 transition-colors"
+        >
+          Retry
+        </button>
       </div>
     )
   }
