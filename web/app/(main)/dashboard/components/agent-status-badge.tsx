@@ -48,10 +48,33 @@ export default function AgentStatusBadge({ initialDevice }: AgentStatusBadgeProp
     }
   }, [])
 
+  // AI-9500: defer the first fetch + the polling interval until the browser
+  // is idle. The badge already SSRs with `initialDevice`, so we don't need to
+  // hit the API on first paint — we can wait until the main thread is free.
   useEffect(() => {
-    fetchStatus()
-    const interval = setInterval(fetchStatus, POLL_INTERVAL)
-    return () => clearInterval(interval)
+    let interval: ReturnType<typeof setInterval> | null = null
+    let idleHandle: number | null = null
+
+    const start = () => {
+      fetchStatus()
+      interval = setInterval(fetchStatus, POLL_INTERVAL)
+    }
+
+    const ric = (window as unknown as { requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number }).requestIdleCallback
+    if (typeof ric === 'function') {
+      idleHandle = ric(start, { timeout: 2500 })
+    } else {
+      idleHandle = window.setTimeout(start, 1800) as unknown as number
+    }
+
+    return () => {
+      if (interval) clearInterval(interval)
+      const cic = (window as unknown as { cancelIdleCallback?: (h: number) => void }).cancelIdleCallback
+      if (idleHandle != null) {
+        if (typeof cic === 'function') cic(idleHandle)
+        else clearTimeout(idleHandle)
+      }
+    }
   }, [fetchStatus])
 
   const isOnline = device

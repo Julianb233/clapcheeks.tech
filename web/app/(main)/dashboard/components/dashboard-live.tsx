@@ -106,11 +106,35 @@ export default function DashboardLive({ initialData, hasAgent }: DashboardLivePr
     }
   }, [])
 
-  // Poll every 30 seconds
+  // Poll every 30 seconds. AI-9500: defer the first poll start until the
+  // browser is idle so the live-updating timer doesn't compete with first
+  // paint and worsen INP. requestIdleCallback isn't on TS lib.dom in all
+  // configs, so guard the access.
   useEffect(() => {
     if (!hasAgent) return
-    const interval = setInterval(fetchStats, POLL_INTERVAL)
-    return () => clearInterval(interval)
+    let interval: ReturnType<typeof setInterval> | null = null
+    let idleHandle: number | null = null
+
+    const startPolling = () => {
+      interval = setInterval(fetchStats, POLL_INTERVAL)
+    }
+
+    const ric = (window as unknown as { requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number }).requestIdleCallback
+    if (typeof ric === 'function') {
+      idleHandle = ric(startPolling, { timeout: 2000 })
+    } else {
+      // Safari fallback — defer with a short timeout so we still yield to paint
+      idleHandle = window.setTimeout(startPolling, 1500) as unknown as number
+    }
+
+    return () => {
+      if (interval) clearInterval(interval)
+      const cic = (window as unknown as { cancelIdleCallback?: (h: number) => void }).cancelIdleCallback
+      if (idleHandle != null) {
+        if (typeof cic === 'function') cic(idleHandle)
+        else clearTimeout(idleHandle)
+      }
+    }
   }, [fetchStats, hasAgent])
 
   if (!hasAgent) return null

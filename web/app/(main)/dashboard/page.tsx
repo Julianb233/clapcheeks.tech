@@ -4,16 +4,23 @@ import { redirect } from 'next/navigation'
 import ManageBillingButton from '@/components/manage-billing-button'
 import PlanBadge from '@/components/plan-badge'
 import EliteOnly from '@/components/elite-only'
-import CoachingSection from './components/coaching-section'
 import DashboardLive from './components/dashboard-live'
 import AgentStatusBadge from './components/agent-status-badge'
-import IMessageTestPanel from './components/imessage-test-panel'
 import BriefingCard from './components/briefing-card'
 import { getLatestCoaching } from '@/lib/coaching/generate'
 import { TrendCard } from './components/trend-card'
-import { DashboardCharts } from './components/dashboard-charts'
 import { calculateRizzScore, getRizzTrend } from '@/lib/rizz'
 import { calculateCPN, getCPNTrend } from '@/lib/cpn'
+// AI-9500: route heavy below-the-fold components through client wrappers that
+// use `next/dynamic` with `ssr:false` so Recharts (~250KB) and the iMessage
+// test panel never enter the initial JS bundle. This RSC parent can't call
+// `dynamic({ ssr: false })` directly in Next 15 — wrappers live as client
+// components in `./components/lazy.tsx`.
+import {
+  DashboardChartsLazy,
+  CoachingSectionLazy,
+  IMessageTestPanelLazy,
+} from './components/lazy'
 
 export const metadata: Metadata = {
   title: 'Dashboard — Clapcheeks',
@@ -397,7 +404,7 @@ export default async function Dashboard() {
         {/* Recharts analytics -- Rizz Score, trends, platform breakdown, funnel, spending */}
         {hasAgent && rows.length > 0 && (
           <div className="mb-8">
-            <DashboardCharts initialData={chartData} />
+            <DashboardChartsLazy initialData={chartData} />
           </div>
         )}
 
@@ -495,13 +502,13 @@ export default async function Dashboard() {
         {/* AI Coaching Section */}
         {hasAgent && (
           <div className="mb-8">
-            <CoachingSection initialSession={coachingSession} />
+            <CoachingSectionLazy initialSession={coachingSession} />
           </div>
         )}
 
         {/* iMessage Test Panel */}
         <div className="mb-8">
-          <IMessageTestPanel />
+          <IMessageTestPanelLazy />
         </div>
 
       </div>

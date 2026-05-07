@@ -2,10 +2,34 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { useEffect, useState } from 'react'
+import { memo, useCallback, useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { logout } from '@/app/auth/actions'
 import AiActiveSwitch from '@/components/header/AiActiveSwitch'
+
+// AI-9500: defer non-critical work until the browser is idle so it doesn't
+// compete with first paint and worsen INP. The sidebar mounts on every authed
+// page navigation, so its Realtime subscriptions + 30s pollers were a
+// significant input-blocking source.
+function runWhenIdle(fn: () => void, timeout = 2000): () => void {
+  if (typeof window === 'undefined') {
+    const t = setTimeout(fn, 0)
+    return () => clearTimeout(t)
+  }
+  const ric = (window as unknown as {
+    requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number
+    cancelIdleCallback?: (h: number) => void
+  }).requestIdleCallback
+  if (typeof ric === 'function') {
+    const handle = ric(fn, { timeout })
+    return () => {
+      const cic = (window as unknown as { cancelIdleCallback?: (h: number) => void }).cancelIdleCallback
+      if (typeof cic === 'function') cic(handle)
+    }
+  }
+  const handle = window.setTimeout(fn, Math.min(timeout, 1500))
+  return () => clearTimeout(handle)
+}
 
 type NavItem = {
   href: string
@@ -66,22 +90,32 @@ export default function AppSidebar() {
     scheduled: 0,
   })
 
+  // AI-9500: getUser is a network round-trip — defer it until idle so it
+  // doesn't block first paint of the sidebar.
   useEffect(() => {
-    const supabase = createClient()
-    supabase.auth.getUser().then(({ data }) => {
-      setEmail(data.user?.email ?? '')
-    })
+    const cancelIdle = runWhenIdle(() => {
+      const supabase = createClient()
+      supabase.auth.getUser().then(({ data }) => {
+        setEmail(data.user?.email ?? '')
+      })
+    }, 2500)
+    return cancelIdle
   }, [])
 
   // Live approval-queue badge: count of pending items for the current user.
   // Subscribes to Supabase Realtime postgres_changes; falls back to 30s polling
   // if the realtime channel never reaches SUBSCRIBED.
+  // AI-9500: defer the entire setup (auth lookup + Realtime subscribe + first
+  // count query) until the browser is idle. The badge starts at 0 and updates
+  // a beat later, which is fine — we save tens of ms of input-blocking work
+  // on every page navigation.
   useEffect(() => {
     const supabase = createClient()
     let cancelled = false
     let userId: string | null = null
     let pollHandle: ReturnType<typeof setInterval> | null = null
     let realtimeOk = false
+    const channel = supabase.channel('sidebar-approval-queue')
 
     async function refreshApprovals() {
       if (!userId || cancelled) return
@@ -91,69 +125,62 @@ export default function AppSidebar() {
         .eq('user_id', userId)
         .eq('status', 'pending')
       if (cancelled) return
-      if (error) {
-        // Table may not be reachable for unauthenticated/preview users.
-        // Silently keep zero rather than spam the UI.
-        return
-      }
+      if (error) return
       setCounts((c) => ({ ...c, approvals: count ?? 0 }))
     }
 
-    const channel = supabase.channel('sidebar-approval-queue')
+    const cancelIdle = runWhenIdle(() => {
+      ;(async () => {
+        const { data } = await supabase.auth.getUser()
+        userId = data.user?.id ?? null
+        if (!userId || cancelled) return
 
-    ;(async () => {
-      const { data } = await supabase.auth.getUser()
-      userId = data.user?.id ?? null
-      if (!userId) return
+        await refreshApprovals()
 
-      await refreshApprovals()
-
-      channel
-        .on(
-          'postgres_changes',
-          {
-            event: '*',
-            schema: 'public',
-            table: 'clapcheeks_approval_queue',
-            filter: `user_id=eq.${userId}`,
-          },
-          () => {
-            // Any insert/update/delete on this user's rows -> recount.
-            refreshApprovals()
-          },
-        )
-        .subscribe((status) => {
-          if (status === 'SUBSCRIBED') {
-            realtimeOk = true
-            // Stop polling — realtime is live.
-            if (pollHandle) {
-              clearInterval(pollHandle)
-              pollHandle = null
+        channel
+          .on(
+            'postgres_changes',
+            {
+              event: '*',
+              schema: 'public',
+              table: 'clapcheeks_approval_queue',
+              filter: `user_id=eq.${userId}`,
+            },
+            () => refreshApprovals(),
+          )
+          .subscribe((status) => {
+            if (status === 'SUBSCRIBED') {
+              realtimeOk = true
+              if (pollHandle) {
+                clearInterval(pollHandle)
+                pollHandle = null
+              }
             }
-          }
-        })
+          })
 
-      // Poll fallback: kick off a 30s interval. If realtime SUBSCRIBES first,
-      // the callback above clears it.
-      pollHandle = setInterval(() => {
-        if (!realtimeOk) refreshApprovals()
-      }, 30_000)
-    })()
+        pollHandle = setInterval(() => {
+          if (!realtimeOk) refreshApprovals()
+        }, 60_000)
+      })()
+    }, 3000)
 
     return () => {
       cancelled = true
+      cancelIdle()
       if (pollHandle) clearInterval(pollHandle)
       supabase.removeChannel(channel)
     }
   }, [])
 
   // Live scheduled-messages badge: pending + approved-but-overdue count.
+  // AI-9500: same idle-defer treatment as the approvals badge above.
   useEffect(() => {
     const supabase = createClient()
     let cancelled = false
     let userId: string | null = null
     let pollHandle: ReturnType<typeof setInterval> | null = null
     let realtimeOk = false
+    const channel = supabase.channel('sidebar-scheduled-messages')
 
     async function refreshScheduled() {
       if (!userId || cancelled) return
@@ -167,43 +194,44 @@ export default function AppSidebar() {
       setCounts((c) => ({ ...c, scheduled: count ?? 0 }))
     }
 
-    const channel = supabase.channel('sidebar-scheduled-messages')
+    const cancelIdle = runWhenIdle(() => {
+      ;(async () => {
+        const { data } = await supabase.auth.getUser()
+        userId = data.user?.id ?? null
+        if (!userId || cancelled) return
 
-    ;(async () => {
-      const { data } = await supabase.auth.getUser()
-      userId = data.user?.id ?? null
-      if (!userId) return
+        await refreshScheduled()
 
-      await refreshScheduled()
-
-      channel
-        .on(
-          'postgres_changes',
-          {
-            event: '*',
-            schema: 'public',
-            table: 'clapcheeks_scheduled_messages',
-            filter: `user_id=eq.${userId}`,
-          },
-          () => refreshScheduled(),
-        )
-        .subscribe((status) => {
-          if (status === 'SUBSCRIBED') {
-            realtimeOk = true
-            if (pollHandle) {
-              clearInterval(pollHandle)
-              pollHandle = null
+        channel
+          .on(
+            'postgres_changes',
+            {
+              event: '*',
+              schema: 'public',
+              table: 'clapcheeks_scheduled_messages',
+              filter: `user_id=eq.${userId}`,
+            },
+            () => refreshScheduled(),
+          )
+          .subscribe((status) => {
+            if (status === 'SUBSCRIBED') {
+              realtimeOk = true
+              if (pollHandle) {
+                clearInterval(pollHandle)
+                pollHandle = null
+              }
             }
-          }
-        })
+          })
 
-      pollHandle = setInterval(() => {
-        if (!realtimeOk) refreshScheduled()
-      }, 30_000)
-    })()
+        pollHandle = setInterval(() => {
+          if (!realtimeOk) refreshScheduled()
+        }, 60_000)
+      })()
+    }, 3500)
 
     return () => {
       cancelled = true
+      cancelIdle()
       if (pollHandle) clearInterval(pollHandle)
       supabase.removeChannel(channel)
     }
@@ -216,6 +244,10 @@ export default function AppSidebar() {
     if (href === '/dashboard') return pathname === '/dashboard'
     return pathname === href || pathname.startsWith(`${href}/`)
   }
+
+  // AI-9500: stable callback so memo'd NavLink children don't re-render on
+  // every parent re-render (counts/email state change ticks the parent).
+  const closeMobile = useCallback(() => setMobileOpen(false), [])
 
   return (
     <>
@@ -268,7 +300,7 @@ export default function AppSidebar() {
                 item={item}
                 active={isActive(item.href)}
                 count={item.countKey ? counts[item.countKey] : 0}
-                onClick={() => setMobileOpen(false)}
+                onClick={closeMobile}
               />
             ))}
           </ul>
@@ -281,7 +313,7 @@ export default function AppSidebar() {
                 item={item}
                 active={isActive(item.href)}
                 count={item.countKey ? counts[item.countKey] : 0}
-                onClick={() => setMobileOpen(false)}
+                onClick={closeMobile}
               />
             ))}
           </ul>
@@ -336,7 +368,10 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
   )
 }
 
-function NavLink({
+// AI-9500: memoize NavLink — sidebar renders 19 items, and the parent
+// re-renders on every count/email state change. Without memo, every poll tick
+// re-renders all 19 link rows + their inline SVGs, costing INP on slow phones.
+const NavLink = memo(function NavLink({
   item,
   active,
   count,
@@ -389,7 +424,7 @@ function NavLink({
       </Link>
     </li>
   )
-}
+})
 
 function Logo() {
   return (
