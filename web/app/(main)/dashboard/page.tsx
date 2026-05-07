@@ -354,7 +354,6 @@ export default async function Dashboard() {
       { stage: 'Swipes', value: totals.swipes_right },
       { stage: 'Matches', value: totals.matches },
       { stage: 'Conversations', value: totals.messages },
-      { stage: 'Date-ready', value: Math.round(totals.messages * 0.3) },
       { stage: 'Dates Booked', value: totals.dates },
     ],
   }
