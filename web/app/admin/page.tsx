@@ -33,19 +33,29 @@ export default async function AdminOverviewPage() {
       .select("id, last_seen_at")
       .gte("last_seen_at", new Date(Date.now() - 5 * 60 * 1000).toISOString()),
     supabase.from("profiles").select("subscription_tier"),
-    supabase
-      .from("clapcheeks_analytics_daily")
-      .select("matches")
-      .gte("date", new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split("T")[0]),
+    // AI-9536: this query lived on clapcheeks_analytics_daily; was full-table
+    // scan across users with a date filter. Convex equivalent would require a
+    // global cross-user index that none of our index strategy supports
+    // efficiently. Until we add a cross-user roll-up materialization, return
+    // an empty array — the only consumer is the admin overview "weekly matches"
+    // count which is informational, not load-bearing.
+    Promise.resolve({ data: [] as Array<{ matches: number }> }),
     supabase
       .from("profiles")
       .select("email, created_at, subscription_tier, id")
       .order("created_at", { ascending: false })
       .limit(10),
-    supabase
-      .from("clapcheeks_analytics_daily")
-      .select("platform, swipes_right, swipes_left, matches")
-      .eq("date", new Date().toISOString().split("T")[0]),
+    // AI-9536: cross-user "today" rollup. See note above — informational
+    // dashboard only, no per-user-id key available. Returns empty until a
+    // cross-user analytics rollup is added.
+    Promise.resolve({
+      data: [] as Array<{
+        platform: string
+        swipes_right: number
+        swipes_left: number
+        matches: number
+      }>,
+    }),
   ])
 
   const activeAgents = agents?.length ?? 0
@@ -75,17 +85,34 @@ export default async function AdminOverviewPage() {
     : { data: [] }
   const agentUserIds = new Set((signupAgents ?? []).map((a) => a.user_id))
 
-  // Get today's matches for recent signups
-  const { data: signupAnalytics } = signupIds.length > 0
-    ? await supabase
-        .from("clapcheeks_analytics_daily")
-        .select("user_id, matches")
-        .in("user_id", signupIds)
-        .eq("date", new Date().toISOString().split("T")[0])
-    : { data: [] }
+  // AI-9536: today's matches for each signup — Convex by_user_day index
+  // makes per-user-id reads cheap, so do them in parallel.
+  const todayIso = new Date().toISOString().split("T")[0]
   const matchesByUser: Record<string, number> = {}
-  for (const a of signupAnalytics ?? []) {
-    matchesByUser[a.user_id] = (matchesByUser[a.user_id] ?? 0) + (a.matches ?? 0)
+  const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL || process.env.CONVEX_URL
+  if (convexUrl && signupIds.length > 0) {
+    const { ConvexHttpClient } = await import("convex/browser")
+    const { api } = await import("@/convex/_generated/api")
+    const convex = new ConvexHttpClient(convexUrl)
+    const results = await Promise.allSettled(
+      signupIds.map((uid) =>
+        convex.query(api.telemetry.getDailyForUser, {
+          user_id: uid,
+          since_day_iso: todayIso,
+          until_day_iso: todayIso,
+        }),
+      ),
+    )
+    for (let i = 0; i < signupIds.length; i++) {
+      const r = results[i]
+      if (r.status === "fulfilled") {
+        const total = (r.value as Array<{ matches: number }>).reduce(
+          (s, row) => s + (row.matches ?? 0),
+          0,
+        )
+        matchesByUser[signupIds[i]] = total
+      }
+    }
   }
 
   return (

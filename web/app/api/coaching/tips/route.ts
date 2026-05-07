@@ -1,4 +1,6 @@
 import { NextResponse } from 'next/server'
+import { ConvexHttpClient } from 'convex/browser'
+
 import { createClient } from '@/lib/supabase/server'
 import { getLatestCoaching, generateCoaching } from '@/lib/coaching/generate'
 import {
@@ -7,6 +9,9 @@ import {
   getPositiveInsights,
   type PerformanceMetrics,
 } from '@/lib/coaching/benchmarks'
+import { api } from '@/convex/_generated/api'
+
+// AI-9536 — clapcheeks_analytics_daily migrated to Convex analytics_daily.
 
 export async function GET() {
   const supabase = await createClient()
@@ -21,13 +26,18 @@ export async function GET() {
   since.setDate(since.getDate() - 30)
   const sinceStr = since.toISOString().split('T')[0]
 
-  const [analyticsRes, convoRes] = await Promise.all([
-    supabase
-      .from('clapcheeks_analytics_daily')
-      .select('app, swipes_right, swipes_left, matches, conversations_started, dates_booked, date')
-      .eq('user_id', user.id)
-      .gte('date', sinceStr)
-      .order('date', { ascending: false }),
+  const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL || process.env.CONVEX_URL
+  const convex = convexUrl ? new ConvexHttpClient(convexUrl) : null
+
+  const [analyticsRows, convoRes] = await Promise.all([
+    convex
+      ? convex
+          .query(api.telemetry.getDailyForUser, {
+            user_id: user.id,
+            since_day_iso: sinceStr,
+          })
+          .catch(() => [])
+      : Promise.resolve([]),
     supabase
       .from('clapcheeks_conversation_stats')
       .select('conversations_started, conversations_replied, date')
@@ -35,8 +45,29 @@ export async function GET() {
       .gte('date', sinceStr),
   ])
 
-  const rows = analyticsRes.data || []
-  const convos = convoRes.data || []
+  const rows = (analyticsRows as Array<{
+    app: string
+    day_iso: string
+    swipes_right: number
+    swipes_left: number
+    matches: number
+    conversations_started: number
+    dates_booked: number
+  }>).map((r) => ({
+    app: r.app,
+    swipes_right: r.swipes_right,
+    swipes_left: r.swipes_left,
+    matches: r.matches,
+    conversations_started: r.conversations_started,
+    dates_booked: r.dates_booked,
+    date: r.day_iso,
+  }))
+  type ConvoRow = {
+    conversations_started: number
+    conversations_replied: number
+    date: string
+  }
+  const convos: ConvoRow[] = (convoRes.data as ConvoRow[] | null) ?? []
 
   // Aggregate totals
   const totals = rows.reduce(

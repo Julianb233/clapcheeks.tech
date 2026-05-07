@@ -1,15 +1,19 @@
 import { NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { ConvexHttpClient } from 'convex/browser'
+
+import { api } from '@/convex/_generated/api'
 
 /**
  * AI-8876 — Daemon heartbeat endpoint.
+ * AI-9536 — Migrated from Supabase clapcheeks_device_heartbeats to Convex
+ *           device_heartbeats (high-write path; index-tuned).
  *
  * The clapcheeks daemon on Julian's Mac POSTs to this endpoint every minute
  * to report liveness, version, and last sync time.
  *
  *   POST /api/agent/heartbeat
  *   Headers:
- *     Authorization: Bearer <token from clapcheeks_agent_tokens>
+ *     Authorization: Bearer <token from agent_device_tokens (Convex)>
  *   Body: {
  *     device_id?:     string   // device_name alias
  *     daemon_version?: string
@@ -22,11 +26,6 @@ import { createClient } from '@supabase/supabase-js'
  *   401  { error: 'invalid_token' }
  *   404  { error: 'device_not_found' }
  *   500  { error: 'server_error' }
- *
- * Auth: Bearer token from clapcheeks_agent_tokens.token
- *   Tokens are resolved by device_name. On success, last_seen_at is bumped.
- *   Heartbeat metadata is stored in clapcheeks_device_heartbeats (upserted by
- *   token.id so historical heartbeats can be queried).
  */
 
 function cors(resp: NextResponse) {
@@ -55,37 +54,13 @@ export async function POST(req: Request) {
     )
   }
 
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY
-  if (!url || !key) {
-    return cors(
-      NextResponse.json({ error: 'server_unconfigured' }, { status: 500 }),
-    )
-  }
-
-  const supabase = createClient(url, key, { auth: { persistSession: false } })
-
-  // Resolve token → device row
-  const { data: tokenRows, error: lookupErr } = await supabase
-    .from('clapcheeks_agent_tokens')
-    .select('id, user_id, device_name')
-    .eq('token', token)
-    .limit(1)
-
-  if (lookupErr) {
+  const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL || process.env.CONVEX_URL
+  if (!convexUrl) {
     return cors(
       NextResponse.json(
-        { error: 'server_error', detail: lookupErr.message },
+        { error: 'server_unconfigured', detail: 'CONVEX_URL not set' },
         { status: 500 },
       ),
-    )
-  }
-
-  const tokenRow = tokenRows?.[0]
-  if (!tokenRow) {
-    // 404 when no matching token row (as per spec for no-device-found)
-    return cors(
-      NextResponse.json({ error: 'device_not_found' }, { status: 404 }),
     )
   }
 
@@ -102,33 +77,37 @@ export async function POST(req: Request) {
     // empty / non-JSON body is fine
   }
 
-  const serverTime = new Date().toISOString()
+  const lastSyncMs = body.last_sync_at
+    ? Date.parse(body.last_sync_at)
+    : undefined
 
-  // Bump last_seen_at on the token row
-  void supabase
-    .from('clapcheeks_agent_tokens')
-    .update({ last_seen_at: serverTime })
-    .eq('id', tokenRow.id)
-    .then(() => null)
+  const convex = new ConvexHttpClient(convexUrl)
+  try {
+    const result = await convex.mutation(api.telemetry.recordHeartbeat, {
+      token,
+      device_id: body.device_id,
+      daemon_version: body.daemon_version,
+      last_sync_at: Number.isFinite(lastSyncMs) ? lastSyncMs : undefined,
+      errors_jsonb: body.errors_jsonb ?? undefined,
+    })
 
-  // Upsert heartbeat record in clapcheeks_device_heartbeats
-  void supabase
-    .from('clapcheeks_device_heartbeats')
-    .upsert(
-      {
-        token_id: tokenRow.id,
-        user_id: tokenRow.user_id,
-        device_name: body.device_id ?? tokenRow.device_name,
-        daemon_version: body.daemon_version ?? null,
-        last_sync_at: body.last_sync_at ?? null,
-        errors_jsonb: body.errors_jsonb ?? null,
-        last_heartbeat_at: serverTime,
-      },
-      { onConflict: 'token_id' },
+    const serverIso = new Date(result.server_time_ms).toISOString()
+    return cors(
+      NextResponse.json({ ok: true, server_time: serverIso }, { status: 200 }),
     )
-    .then(() => null)
-
-  return cors(
-    NextResponse.json({ ok: true, server_time: serverTime }, { status: 200 }),
-  )
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    if (msg.includes('invalid_device_token')) {
+      // Mirror prior behavior: 404 when token unknown / revoked.
+      return cors(
+        NextResponse.json({ error: 'device_not_found' }, { status: 404 }),
+      )
+    }
+    return cors(
+      NextResponse.json(
+        { error: 'server_error', detail: msg },
+        { status: 500 },
+      ),
+    )
+  }
 }

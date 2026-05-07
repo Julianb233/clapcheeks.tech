@@ -1555,4 +1555,120 @@ export default defineSchema({
     .index("by_user_status", ["user_id", "status"])
     .index("by_status_expires", ["status", "expires_at"])
     .index("by_legacy_id", ["legacy_id"]),
+
+  // AI-9536 telemetry migration -----------------------------------------
+  //
+  // Replaces 6 Supabase telemetry / report tables. Index strategy is
+  // write-throughput first since agent_events is the hot path.
+
+  // AI-9536 telemetry migration — clapcheeks_analytics_daily
+  analytics_daily: defineTable({
+    user_id: v.string(),
+    day_iso: v.string(),
+    app: v.union(
+      v.literal("tinder"),
+      v.literal("bumble"),
+      v.literal("hinge"),
+    ),
+    swipes_right: v.number(),
+    swipes_left: v.number(),
+    matches: v.number(),
+    conversations_started: v.number(),
+    dates_booked: v.number(),
+    money_spent: v.number(),
+    created_at: v.number(),
+    updated_at: v.number(),
+  })
+    .index("by_user_day", ["user_id", "day_iso"])
+    .index("by_user_app_day", ["user_id", "app", "day_iso"]),
+
+  // AI-9536 telemetry migration — clapcheeks_weekly_reports
+  weekly_reports: defineTable({
+    user_id: v.string(),
+    week_start_ms: v.number(),
+    week_end_ms: v.number(),
+    week_start_iso: v.string(),
+    metrics_snapshot: v.any(),
+    pdf_url: v.optional(v.string()),
+    sent_at: v.optional(v.number()),
+    report_type: v.optional(v.string()),
+    created_at: v.number(),
+  })
+    .index("by_user_week", ["user_id", "week_start_ms"])
+    .index("by_user_week_iso", ["user_id", "week_start_iso"]),
+
+  // AI-9536 telemetry migration — clapcheeks_agent_events (HOT PATH)
+  agent_events: defineTable({
+    user_id: v.string(),
+    event_type: v.string(),
+    platform: v.optional(v.string()),
+    data: v.optional(v.any()),
+    occurred_at: v.optional(v.number()),
+    ts: v.number(),
+  })
+    .index("by_user_ts", ["user_id", "ts"])
+    .index("by_user_type_ts", ["user_id", "event_type", "ts"])
+    .index("by_type_ts", ["event_type", "ts"]),
+
+  // AI-9536 telemetry migration — clapcheeks_usage_daily
+  usage_daily: defineTable({
+    user_id: v.string(),
+    day_iso: v.string(),
+    swipes_used: v.number(),
+    coaching_calls_used: v.number(),
+    ai_replies_used: v.number(),
+    created_at: v.number(),
+    updated_at: v.number(),
+  })
+    .index("by_user_day", ["user_id", "day_iso"]),
+
+  // AI-9536 telemetry migration — clapcheeks_friction_points
+  friction_points: defineTable({
+    user_id: v.string(),
+    title: v.string(),
+    description: v.optional(v.string()),
+    severity: v.union(
+      v.literal("blocker"),
+      v.literal("major"),
+      v.literal("minor"),
+      v.literal("cosmetic"),
+    ),
+    category: v.union(
+      v.literal("swiping"),
+      v.literal("conversation"),
+      v.literal("agent_setup"),
+      v.literal("auth"),
+      v.literal("stripe"),
+      v.literal("dashboard"),
+      v.literal("reports"),
+      v.literal("performance"),
+      v.literal("crash"),
+      v.literal("ux"),
+      v.literal("other"),
+    ),
+    platform: v.optional(v.string()),
+    auto_detected: v.boolean(),
+    context: v.optional(v.any()),
+    resolved: v.boolean(),
+    resolution: v.optional(v.string()),
+    resolved_at: v.optional(v.number()),
+    created_at: v.number(),
+  })
+    .index("by_user_created", ["user_id", "created_at"])
+    .index("by_user_resolved", ["user_id", "resolved"])
+    .index("by_user_severity", ["user_id", "severity"]),
+
+  // AI-9536 telemetry migration — clapcheeks_device_heartbeats
+  device_heartbeats: defineTable({
+    device_token_id: v.id("agent_device_tokens"),
+    user_id: v.string(),
+    device_id: v.optional(v.string()),
+    daemon_version: v.optional(v.string()),
+    last_sync_at: v.optional(v.number()),
+    errors_jsonb: v.optional(v.any()),
+    last_heartbeat_at: v.number(),
+    created_at: v.number(),
+  })
+    .index("by_device", ["device_token_id"])
+    .index("by_user_heartbeat", ["user_id", "last_heartbeat_at"]),
 });

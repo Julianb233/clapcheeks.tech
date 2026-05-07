@@ -1,5 +1,11 @@
 import { createClient } from '@/lib/supabase/server'
+import { ConvexHttpClient } from 'convex/browser'
 import { NextResponse } from 'next/server'
+
+import { api } from '@/convex/_generated/api'
+
+// AI-9536 — clapcheeks_friction_points migrated to Convex friction_points;
+// clapcheeks_dogfood_health stays on Supabase for now (out of scope).
 
 /**
  * GET /api/dogfood/health — fetch dogfood health summary for the current user.
@@ -12,20 +18,28 @@ export async function GET() {
 
   const since = new Date()
   since.setDate(since.getDate() - 14)
+  const sinceIso = since.toISOString().split('T')[0]
 
-  const [healthRes, frictionRes, streakRes] = await Promise.all([
+  const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL || process.env.CONVEX_URL
+  const convex = convexUrl ? new ConvexHttpClient(convexUrl) : null
+
+  const [healthRes, frictionRows, streakRes] = await Promise.all([
     supabase
       .from('clapcheeks_dogfood_health')
       .select('*')
       .eq('user_id', user.id)
-      .gte('date', since.toISOString().split('T')[0])
+      .gte('date', sinceIso)
       .order('date', { ascending: false })
       .limit(14),
-    supabase
-      .from('clapcheeks_friction_points')
-      .select('id, severity, resolved')
-      .eq('user_id', user.id)
-      .eq('resolved', false),
+    convex
+      ? convex
+          .query(api.telemetry.listFrictionForUser, {
+            user_id: user.id,
+            only_unresolved: true,
+            limit: 200,
+          })
+          .catch(() => [])
+      : Promise.resolve([]),
     supabase
       .from('clapcheeks_dogfood_health')
       .select('consecutive_streak')
@@ -36,7 +50,8 @@ export async function GET() {
   ])
 
   const health = healthRes.data || []
-  const unresolved = frictionRes.data || []
+  const unresolved =
+    (frictionRows as Array<{ severity: string; resolved: boolean }> | null) || []
   const currentStreak = streakRes.data?.consecutive_streak || 0
 
   return NextResponse.json({
@@ -44,11 +59,12 @@ export async function GET() {
     health,
     friction: {
       unresolved: unresolved.length,
-      blockers: unresolved.filter(f => f.severity === 'blocker').length,
+      blockers: unresolved.filter((f) => f.severity === 'blocker').length,
     },
     criteria: {
       agentStreak: currentStreak >= 7,
-      noBlockers: unresolved.filter(f => f.severity === 'blocker').length === 0,
+      noBlockers:
+        unresolved.filter((f) => f.severity === 'blocker').length === 0,
     },
   })
 }

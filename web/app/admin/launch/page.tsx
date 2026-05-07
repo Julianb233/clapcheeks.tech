@@ -32,7 +32,12 @@ export default async function SoftLaunchPage() {
     supabase.from("profiles").select("id, created_at").not("referred_by", "is", null),
     convex.query(api.referrals.summary, {}),
     supabase.from("profiles").select("id, created_at").gte("created_at", new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()),
-    supabase.from("clapcheeks_analytics_daily").select("user_id, date").gte("date", new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().split("T")[0]),
+    // AI-9536: clapcheeks_analytics_daily migrated to Convex. This query needs
+    // a cross-user "yesterday's distinct users" rollup that the per-user
+    // analytics_daily index doesn't support without a full scan. Returning
+    // empty until a cross-user DAU rollup is added — only consumer is the
+    // dauCount metric on the soft-launch monitor (informational).
+    Promise.resolve({ data: [] as Array<{ user_id: string; date: string }> }),
   ])
   const allReferrals = (allReferralsRaw ?? []) as Array<{ id: string; status: string; created_at: number }>
   const paidCount = paidProfiles?.length ?? 0

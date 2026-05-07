@@ -250,12 +250,41 @@ export default async function IntelHealthPage() {
         .eq('user_id', user.id)
         .gte('created_at', new Date(Date.now() - SEVEN_DAYS_MS).toISOString())
         .limit(2000),
-      (supabase as any)
-        .from('clapcheeks_usage_daily')
-        .select('date,swipes_used,ai_replies_used')
-        .eq('user_id', user.id)
-        .order('date', { ascending: false })
-        .limit(7),
+      // AI-9536: usage_daily on Convex. Fetch last 7 days by descending date.
+      (async () => {
+        const url =
+          process.env.NEXT_PUBLIC_CONVEX_URL || process.env.CONVEX_URL
+        if (!url) return { data: [] as Array<{ date: string; swipes_used: number; ai_replies_used: number }> }
+        const { ConvexHttpClient } = await import('convex/browser')
+        const { api } = await import('@/convex/_generated/api')
+        const convex = new ConvexHttpClient(url)
+        const today = new Date()
+        const days: string[] = []
+        for (let i = 0; i < 7; i++) {
+          const d = new Date(today)
+          d.setDate(d.getDate() - i)
+          days.push(d.toISOString().split('T')[0])
+        }
+        const rows = await Promise.allSettled(
+          days.map((day_iso) =>
+            convex.query(api.telemetry.getUsageForDay, {
+              user_id: user.id,
+              day_iso,
+            }),
+          ),
+        )
+        const out: Array<{ date: string; swipes_used: number; ai_replies_used: number }> = []
+        for (let i = 0; i < days.length; i++) {
+          const r = rows[i]
+          if (r.status !== 'fulfilled' || !r.value) continue
+          out.push({
+            date: days[i],
+            swipes_used: r.value.swipes_used,
+            ai_replies_used: r.value.ai_replies_used,
+          })
+        }
+        return { data: out }
+      })(),
       supabase
         .from('profiles')
         .select('created_at')

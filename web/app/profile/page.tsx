@@ -30,16 +30,35 @@ export default async function ProfilePage() {
     .eq("user_id", user.id)
     .single()
 
-  // Get aggregate dating stats
+  // AI-9536: clapcheeks_analytics_daily migrated to Convex analytics_daily.
   const since = new Date()
   since.setDate(since.getDate() - 30)
   const sinceStr = since.toISOString().split("T")[0]
 
-  const { data: analytics } = await supabase
-    .from("clapcheeks_analytics_daily")
-    .select("matches, conversations_started, dates_booked")
-    .eq("user_id", user.id)
-    .gte("date", sinceStr)
+  const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL || process.env.CONVEX_URL
+  let analytics: Array<{
+    matches: number
+    conversations_started: number
+    dates_booked: number
+  }> = []
+  if (convexUrl) {
+    try {
+      const { ConvexHttpClient } = await import("convex/browser")
+      const { api } = await import("@/convex/_generated/api")
+      const convex = new ConvexHttpClient(convexUrl)
+      const rows = (await convex.query(api.telemetry.getDailyForUser, {
+        user_id: user.id,
+        since_day_iso: sinceStr,
+      })) as Array<{
+        matches: number
+        conversations_started: number
+        dates_booked: number
+      }>
+      analytics = rows
+    } catch {
+      analytics = []
+    }
+  }
 
   const totalMatches = analytics?.reduce((sum, row) => sum + (row.matches || 0), 0) || 0
   const totalConvos = analytics?.reduce((sum, row) => sum + (row.conversations_started || 0), 0) || 0

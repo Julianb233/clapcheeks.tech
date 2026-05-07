@@ -1,13 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { ConvexHttpClient } from 'convex/browser'
+
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { generateReportData } from '@/lib/reports/generate-report-data'
 import { renderReportPdf } from '@/lib/reports/generate-pdf'
 import { sendReportEmail } from '@/lib/reports/send-report-email'
-import { getConvexServerClient } from '@/lib/convex/server'
 import { api } from '@/convex/_generated/api'
+import type { Id } from '@/convex/_generated/dataModel'
 
-// AI-9537: report_preferences moved to Convex.
+// AI-9536 — clapcheeks_weekly_reports migrated to Convex weekly_reports.
 
 export const maxDuration = 60
 
@@ -76,26 +78,36 @@ export async function POST(request: NextRequest) {
 
     const pdfUrl = urlData?.publicUrl || null
 
-    // Save report record
-    const { error: dbError } = await supabase
-      .from('clapcheeks_weekly_reports')
-      .upsert({
-        user_id: targetUserId,
-        week_start: weekStart.toISOString().split('T')[0],
-        week_end: weekEnd.toISOString().split('T')[0],
-        metrics_snapshot: reportData,
-        pdf_url: pdfUrl,
-      }, { onConflict: 'user_id,week_start' })
-
-    if (dbError) {
-      console.error('DB save error:', dbError)
+    // Save report record (Convex)
+    const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL || process.env.CONVEX_URL
+    if (!convexUrl) {
+      console.error('CONVEX_URL not set — cannot save weekly_report')
+    }
+    const convex = convexUrl ? new ConvexHttpClient(convexUrl) : null
+    let reportRowId: Id<'weekly_reports'> | null = null
+    if (convex) {
+      try {
+        const upsertResult = await convex.mutation(api.reports.upsertWeeklyReport, {
+          user_id: targetUserId,
+          week_start_ms: weekStart.getTime(),
+          week_end_ms: weekEnd.getTime(),
+          week_start_iso: weekStart.toISOString().split('T')[0],
+          metrics_snapshot: reportData,
+          pdf_url: pdfUrl ?? undefined,
+          report_type: 'standard',
+        })
+        reportRowId = upsertResult._id
+      } catch (err) {
+        console.error('Convex weekly_report upsert failed:', err)
+      }
     }
 
     // Send email if user has it enabled
-    const convex = getConvexServerClient()
-    const prefs = await convex.query(api.reportPreferences.getForUser, {
-      user_id: targetUserId,
-    })
+    const { data: prefs } = await supabase
+      .from('clapcheeks_report_preferences')
+      .select('email_enabled')
+      .eq('user_id', targetUserId)
+      .single()
 
     const emailEnabled = prefs?.email_enabled !== false // default true
 
@@ -113,11 +125,12 @@ export async function POST(request: NextRequest) {
           })
 
           // Mark as sent
-          await supabase
-            .from('clapcheeks_weekly_reports')
-            .update({ sent_at: new Date().toISOString() })
-            .eq('user_id', targetUserId)
-            .eq('week_start', weekStart.toISOString().split('T')[0])
+          if (convex && reportRowId) {
+            await convex.mutation(api.reports.markReportSent, {
+              id: reportRowId,
+              pdf_url: pdfUrl ?? undefined,
+            })
+          }
         } catch (emailErr) {
           console.error('Email send failed:', emailErr)
         }

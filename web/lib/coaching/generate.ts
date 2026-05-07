@@ -1,9 +1,10 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { SupabaseClient } from '@supabase/supabase-js'
-import { getConvexServerClient } from '@/lib/convex/server'
+import { ConvexHttpClient } from 'convex/browser'
+
 import { api } from '@/convex/_generated/api'
 
-// AI-9537: coaching_sessions + tip_feedback now live on Convex.
+// AI-9536 — clapcheeks_analytics_daily migrated to Convex analytics_daily.
 
 interface CoachingTip {
   category: 'timing' | 'messaging' | 'platform' | 'general'
@@ -34,31 +35,28 @@ function getWeekStart(): string {
   return monday.toISOString().split('T')[0]
 }
 
-export async function getLatestCoaching(_supabase: SupabaseClient, userId: string) {
+export async function getLatestCoaching(supabase: SupabaseClient, userId: string) {
   const weekStart = getWeekStart()
 
-  const convex = getConvexServerClient()
-  const session = await convex.query(api.coaching.getSessionForWeek, {
-    user_id: userId,
-    week_start: weekStart,
-  })
-  if (!session) return null
+  const { data } = await supabase
+    .from('clapcheeks_coaching_sessions')
+    .select('*')
+    .eq('user_id', userId)
+    .eq('week_start', weekStart)
+    .single()
 
-  const feedback = await convex.query(api.coaching.listFeedbackForSession, {
-    coaching_session_id: session._id,
-  })
+  if (!data) return null
+
+  // Fetch feedback for this session
+  const { data: feedback } = await supabase
+    .from('clapcheeks_tip_feedback')
+    .select('tip_index, helpful')
+    .eq('coaching_session_id', data.id)
+    .eq('user_id', userId)
 
   return {
-    ...session,
-    id: session._id,
-    generated_at:
-      typeof session.generated_at === 'number'
-        ? new Date(session.generated_at).toISOString()
-        : session.generated_at,
-    feedback: (feedback || []).map((f) => ({
-      tip_index: f.tip_index,
-      helpful: f.helpful,
-    })),
+    ...data,
+    feedback: feedback || [],
   }
 }
 
@@ -69,17 +67,49 @@ export async function generateCoaching(supabase: SupabaseClient, userId: string)
   const existing = await getLatestCoaching(supabase, userId)
   if (existing) return existing
 
-  // Fetch last 30 days of analytics
+  // Fetch last 30 days of analytics from Convex
   const since = new Date()
   since.setDate(since.getDate() - 30)
   const sinceStr = since.toISOString().split('T')[0]
 
-  const { data: rows } = await supabase
-    .from('clapcheeks_analytics_daily')
-    .select('app, swipes_right, swipes_left, matches, conversations_started, dates_booked, date')
-    .eq('user_id', userId)
-    .gte('date', sinceStr)
-    .order('date', { ascending: false })
+  const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL || process.env.CONVEX_URL
+  let rows: Array<{
+    app: string
+    swipes_right: number
+    swipes_left: number
+    matches: number
+    conversations_started: number
+    dates_booked: number
+    date: string
+  }> = []
+  if (convexUrl) {
+    try {
+      const convex = new ConvexHttpClient(convexUrl)
+      const result = (await convex.query(api.telemetry.getDailyForUser, {
+        user_id: userId,
+        since_day_iso: sinceStr,
+      })) as Array<{
+        app: string
+        day_iso: string
+        swipes_right: number
+        swipes_left: number
+        matches: number
+        conversations_started: number
+        dates_booked: number
+      }>
+      rows = result.map((r) => ({
+        app: r.app,
+        swipes_right: r.swipes_right,
+        swipes_left: r.swipes_left,
+        matches: r.matches,
+        conversations_started: r.conversations_started,
+        dates_booked: r.dates_booked,
+        date: r.day_iso,
+      }))
+    } catch {
+      rows = []
+    }
+  }
 
   if (!rows || rows.length === 0) {
     return null
@@ -184,30 +214,19 @@ Generate 3 personalized coaching tips for this week.`,
     }
   }
 
-  // Store in Convex
-  const convex = getConvexServerClient()
-  const result = await convex.mutation(api.coaching.upsertSession, {
-    user_id: userId,
-    week_start: weekStart,
-    tips,
-    stats_snapshot: statsSnapshot,
-    generated_at: Date.now(),
-  })
+  // Store in database
+  const { data: session, error } = await supabase
+    .from('clapcheeks_coaching_sessions')
+    .upsert({
+      user_id: userId,
+      week_start: weekStart,
+      tips,
+      stats_snapshot: statsSnapshot,
+    }, { onConflict: 'user_id,week_start' })
+    .select()
+    .single()
 
-  const stored = await convex.query(api.coaching.getSessionForWeek, {
-    user_id: userId,
-    week_start: weekStart,
-  })
-  return {
-    ...(stored ?? {}),
-    id: result.id,
-    user_id: userId,
-    week_start: weekStart,
-    tips,
-    stats_snapshot: statsSnapshot,
-    generated_at: stored?.generated_at
-      ? new Date(stored.generated_at).toISOString()
-      : new Date().toISOString(),
-    feedback: [] as Array<{ tip_index: number; helpful: boolean }>,
-  }
+  if (error) throw error
+
+  return { ...session, feedback: [] }
 }

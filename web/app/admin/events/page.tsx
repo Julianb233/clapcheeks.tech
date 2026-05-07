@@ -1,8 +1,13 @@
 import type { Metadata } from "next"
+import { ConvexHttpClient } from "convex/browser"
+
 import { createAdminClient } from "@/lib/supabase/admin"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Radio } from "lucide-react"
+import { api } from "@/convex/_generated/api"
+
+// AI-9536 — clapcheeks_agent_events migrated to Convex agent_events.
 
 export const metadata: Metadata = { title: 'Agent Events | Admin' }
 
@@ -40,18 +45,35 @@ export default async function AdminEventsPage({
 
   const supabase = createAdminClient()
 
-  // Query events
-  let query = supabase
-    .from("clapcheeks_agent_events")
-    .select("id, created_at, event_type, platform, data, user_id")
-    .order("created_at", { ascending: false })
-    .limit(100)
-
-  if (filterType !== "all") {
-    query = query.eq("event_type", filterType)
+  // Query events from Convex
+  const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL || process.env.CONVEX_URL
+  type EventRow = {
+    _id: string
+    _creationTime: number
+    user_id: string
+    event_type: string
+    platform?: string
+    data?: unknown
+    occurred_at?: number
+    ts: number
   }
-
-  const { data: events } = await query
+  let events: Array<EventRow & { id: string; created_at: string }> = []
+  if (convexUrl) {
+    const convex = new ConvexHttpClient(convexUrl)
+    try {
+      const rows = (await convex.query(api.telemetry.listEventsCrossUser, {
+        event_type: filterType !== "all" ? filterType : undefined,
+        limit: 100,
+      })) as EventRow[]
+      events = rows.map((e) => ({
+        ...e,
+        id: e._id,
+        created_at: new Date(e.ts ?? e._creationTime).toISOString(),
+      }))
+    } catch (err) {
+      console.error("admin/events Convex query failed:", err)
+    }
+  }
 
   // Get user emails for display
   const userIds = [...new Set((events ?? []).map((e) => e.user_id).filter(Boolean))]

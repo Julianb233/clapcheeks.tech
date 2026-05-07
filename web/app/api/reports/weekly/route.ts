@@ -1,13 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import Anthropic from '@anthropic-ai/sdk'
+import { ConvexHttpClient } from 'convex/browser'
+
 import { generateReportData } from '@/lib/reports/generate-report-data'
 import { renderWeeklyReportEmail } from '@/lib/email/weekly-report'
 import { Resend } from 'resend'
-import { getConvexServerClient } from '@/lib/convex/server'
 import { api } from '@/convex/_generated/api'
 
-// AI-9537: subscriptions + report_preferences + coaching_sessions on Convex.
+// AI-9536 — clapcheeks_weekly_reports migrated to Convex weekly_reports.
 
 export const maxDuration = 300
 
@@ -34,23 +35,28 @@ export async function GET(request: NextRequest) {
   const weekEnd = new Date(weekStart)
   weekEnd.setUTCDate(weekEnd.getUTCDate() + 6) // Last Sunday
 
-  // Get all users with active subscriptions (Convex)
-  const convex = getConvexServerClient()
-  const userIds = await convex.query(api.billing.listActiveUserIds, {})
+  // Get all users with active subscriptions
+  const { data: subscribers } = await supabaseAdmin
+    .from('clapcheeks_subscriptions')
+    .select('user_id')
+    .eq('status', 'active')
 
-  if (!userIds || userIds.length === 0) {
+  if (!subscribers || subscribers.length === 0) {
     return NextResponse.json({ message: 'No active subscribers', processed: 0 })
   }
 
-  // Filter by preferences (email_enabled). Defaults to true if no row.
-  const prefs = await convex.query(api.reportPreferences.listEmailEnabledMap, {
-    user_ids: userIds,
-  })
+  // Filter by preferences (email_enabled)
+  const userIds = subscribers.map((s) => s.user_id)
+  const { data: prefs } = await supabaseAdmin
+    .from('clapcheeks_report_preferences')
+    .select('user_id, email_enabled')
+    .in('user_id', userIds)
+
   const disabledUsers = new Set(
-    (prefs || []).filter((p) => p.email_enabled === false).map((p) => p.user_id),
+    (prefs || []).filter((p) => p.email_enabled === false).map((p) => p.user_id)
   )
 
-  const eligibleUserIds = userIds.filter((id: string) => !disabledUsers.has(id))
+  const eligibleUserIds = userIds.filter((id) => !disabledUsers.has(id))
 
   if (eligibleUserIds.length === 0) {
     return NextResponse.json({ message: 'No eligible users', processed: 0 })
@@ -120,20 +126,22 @@ export async function GET(request: NextRequest) {
             throw new Error(`Resend error: ${sendError.message}`)
           }
 
-          // Record in weekly reports table
+          // Record in weekly_reports (Convex)
           const weekStartStr = weekStart.toISOString().split('T')[0]
-          const weekEndStr = weekEnd.toISOString().split('T')[0]
-
-          await supabaseAdmin.from('clapcheeks_weekly_reports').upsert(
-            {
+          const convexUrl =
+            process.env.NEXT_PUBLIC_CONVEX_URL || process.env.CONVEX_URL
+          if (convexUrl) {
+            const convex = new ConvexHttpClient(convexUrl)
+            await convex.mutation(api.reports.upsertWeeklyReport, {
               user_id: userId,
-              week_start: weekStartStr,
-              week_end: weekEndStr,
+              week_start_ms: weekStart.getTime(),
+              week_end_ms: weekEnd.getTime(),
+              week_start_iso: weekStartStr,
               metrics_snapshot: reportData,
-              sent_at: new Date().toISOString(),
-            },
-            { onConflict: 'user_id,week_start' }
-          )
+              sent_at: Date.now(),
+              report_type: 'weekly',
+            })
+          }
 
           processed++
         } catch (err) {
@@ -188,27 +196,18 @@ Stats: ${stats.swipes} swipes (${stats.swipesChange}%), ${stats.matches} matches
 }
 
 async function getFallbackTip(): Promise<string> {
-  // Try to get the latest coaching tip from Convex (AI-9537).
-  // We don't have a user context here; we just want any recent tip.
-  // Falls back to the canned line if no rows exist.
+  // Try to get latest coaching tip from DB
   try {
-    const convex = getConvexServerClient()
-    const userIds = await convex.query(api.billing.listActiveUserIds, {})
-    for (const uid of userIds.slice(0, 25)) {
-      const sessions = await convex.query(api.coaching.listRecentForUser, {
-        user_id: uid,
-        limit: 1,
-      })
-      if (sessions && sessions.length > 0) {
-        const tips = (sessions[0].tips as unknown[]) || []
-        if (Array.isArray(tips) && tips.length > 0) {
-          const tip = tips[0]
-          return typeof tip === 'string'
-            ? tip
-            : (tip as { tip?: string }).tip ||
-                'Keep swiping and stay consistent with your messaging game!'
-        }
-      }
+    const { data } = await supabaseAdmin
+      .from('clapcheeks_coaching_sessions')
+      .select('tips')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .single()
+
+    if (data?.tips && Array.isArray(data.tips) && data.tips.length > 0) {
+      const tip = data.tips[0]
+      return typeof tip === 'string' ? tip : (tip as { tip?: string }).tip || 'Keep swiping and stay consistent with your messaging game!'
     }
   } catch {
     // Ignore
