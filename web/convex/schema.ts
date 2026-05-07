@@ -470,6 +470,43 @@ export default defineSchema({
     // loop on the same revival pattern.
     easy_question_streak: v.optional(v.number()),
 
+    // AI-9500 Wave2 #A — competition-signal score: how much she's juggling.
+    // Computed from reply-time variance + life-event-mention frequency
+    // + ghosting-recovery patterns. 0=she's all-in on you, 1=she's juggling 5+ men.
+    competition_signal_score: v.optional(v.number()),
+    competition_signal_evidence: v.optional(v.string()),
+    competition_signal_computed_at: v.optional(v.number()),
+
+    // AI-9500 Wave2 #C — Tier 2 LLM scoring (computed by enrichCourtshipForOne).
+    flirtation_level: v.optional(v.number()),                  // 0-10 sexual tension reading
+    attachment_style: v.optional(v.union(
+      v.literal("anxious"), v.literal("avoidant"),
+      v.literal("secure"), v.literal("fearful"), v.literal("unclear"),
+    )),
+    love_languages_top2: v.optional(v.array(v.union(
+      v.literal("words_of_affirmation"), v.literal("acts_of_service"),
+      v.literal("receiving_gifts"), v.literal("quality_time"), v.literal("physical_touch"),
+    ))),
+    ask_yes_prob_now: v.optional(v.number()),                  // 0.0-1.0 predicted yes rate if asked now
+
+    // AI-9500 Wave2 #K — pre-date debrief tag system. tags = freeform short
+    // labels operator adds. things_mentioned = LLM-extracted (or operator-added)
+    // memory of what she said matters to her — used to brief Julian before a date.
+    tags: v.optional(v.array(v.string())),
+    things_mentioned: v.optional(v.array(v.object({
+      topic: v.string(),
+      detail: v.optional(v.string()),
+      said_at_ms: v.number(),
+      source_msg_id: v.optional(v.id("messages")),
+      source: v.optional(v.string()),                          // "auto" | "operator"
+    }))),
+
+    // AI-9500 Wave2 #E — cut-workflow lifecycle. Operators can mark a thread
+    // formally archived (different from ghosted — operator-initiated). Auto-cut
+    // detection runs at 30d ghosted.
+    archived_at: v.optional(v.number()),
+    archive_reason: v.optional(v.string()),
+
     // Vibe classification — LLM-driven hint for "is this person in the
     // dating ecosystem?". Computed by convex_runner job classify_conversation_vibe
     // against the last 50 messages. Surfaces in the dashboard as a candidate
@@ -555,6 +592,111 @@ export default defineSchema({
     .index("by_user_archetype", ["user_id", "archetype"]),
 
   // -----------------------------------------------------------------------
+  // AI-9500 Wave2 #F — Operator profile singleton. One row per operator;
+  // captures their north-star (intent, target roster size, etc.) which
+  // shapes every model recommendation. Look up by user_id.
+  // -----------------------------------------------------------------------
+  operator_profile: defineTable({
+    user_id: v.string(),
+    your_dating_intent: v.optional(v.union(
+      v.literal("serious_relationship"),
+      v.literal("serious_with_fwb_openness"),     // Julian's stated goal
+      v.literal("casual_exploration"),
+      v.literal("sexual_variety_only"),
+      v.literal("friendship_pipeline_with_dating"),
+      v.literal("unclear"),
+    )),
+    target_concurrent_active: v.optional(v.number()),  // Julian: 10
+    transparency_rule: v.optional(v.string()),         // e.g. "be honest about wanting relationship when she asks"
+    home_city: v.optional(v.string()),
+    home_tz: v.optional(v.string()),
+    self_dietary_prefs: v.optional(v.array(v.string())),
+    self_drink_style: v.optional(v.string()),
+    operator_notes: v.optional(v.string()),
+    updated_at: v.number(),
+  })
+    .index("by_user", ["user_id"]),
+
+  // -----------------------------------------------------------------------
+  // AI-9500 Wave2 #I — Date logistics checklist. When ask_outcome=yes lands,
+  // a row is auto-created so operator can tick off pre-date logistics.
+  // -----------------------------------------------------------------------
+  date_logistics_checklists: defineTable({
+    user_id: v.string(),
+    person_id: v.id("people"),
+    touch_id: v.optional(v.id("scheduled_touches")),  // the date_ask touch this descends from
+    date_time_ms: v.number(),
+    venue: v.optional(v.string()),
+    items: v.array(v.object({
+      key: v.string(),                         // "reservation_made" | "meeting_place_sent" | "weather_backup" | "drink_pre_order" | "transit_ping_scheduled" | "outfit_set" | "post_date_recovery_plan"
+      label: v.string(),
+      done: v.boolean(),
+      done_at_ms: v.optional(v.number()),
+      notes: v.optional(v.string()),
+    })),
+    status: v.union(
+      v.literal("active"),
+      v.literal("completed"),
+      v.literal("cancelled"),
+    ),
+    created_at: v.number(),
+    updated_at: v.number(),
+  })
+    .index("by_user", ["user_id"])
+    .index("by_person", ["person_id"])
+    .index("by_status", ["status"]),
+
+  // -----------------------------------------------------------------------
+  // AI-9500 Wave2 #M — Cohort retro snapshots. One row per retro run.
+  // Stores the report so the dashboard can show progression over time.
+  // -----------------------------------------------------------------------
+  cohort_retros: defineTable({
+    user_id: v.string(),
+    period_start_ms: v.number(),
+    period_end_ms: v.number(),
+    summary: v.any(),                          // free-form report blob
+    funnel: v.optional(v.object({
+      matched: v.number(),
+      first_message: v.number(),
+      reply: v.number(),
+      ongoing_chat: v.number(),
+      phone_swap: v.number(),
+      first_date_done: v.number(),
+      second_date_done: v.number(),
+      ongoing: v.number(),
+      ended: v.number(),
+      ghosted: v.number(),
+    })),
+    insights: v.optional(v.array(v.string())),  // surprising findings
+    computed_at: v.number(),
+  })
+    .index("by_user", ["user_id"]),
+
+  // -----------------------------------------------------------------------
+  // AI-9500 Wave2 #E13 — Call log. Twilio + iMessage call detection feed
+  // into here. Surfaces in unified thread + on /coach.
+  // -----------------------------------------------------------------------
+  calls: defineTable({
+    user_id: v.string(),
+    person_id: v.optional(v.id("people")),
+    direction: v.union(v.literal("inbound"), v.literal("outbound"), v.literal("missed")),
+    started_at_ms: v.number(),
+    duration_seconds: v.optional(v.number()),
+    handle_value: v.optional(v.string()),       // phone E.164
+    platform: v.optional(v.union(
+      v.literal("imessage_native"),
+      v.literal("facetime"),
+      v.literal("twilio"),
+      v.literal("phone_native"),
+    )),
+    notes: v.optional(v.string()),
+    created_at: v.number(),
+  })
+    .index("by_user", ["user_id"])
+    .index("by_person", ["person_id"])
+    .index("by_user_started", ["user_id", "started_at_ms"]),
+
+  // -----------------------------------------------------------------------
   // AI-9449 — Pending cross-channel link queue.
   //
   // When person_linker.py sees an inbound message but can't match exactly one
@@ -605,6 +747,9 @@ export default defineSchema({
       v.literal("date_check_in"),          // AI-9500 #5 — 30min-before silence check
       v.literal("date_postmortem"),        // next-morning followup
       v.literal("post_date_calibration"),  // AI-9500 #6 — +18h post-date 3-candidate calibrator
+      v.literal("pre_date_debrief"),       // AI-9500 W2 #K — debrief Julian 2h before a date
+      v.literal("soft_no_recovery"),       // AI-9500 W2 #B — +14d re-ask after soft_no
+      v.literal("voice_memo"),             // AI-9500 W2 #G — send a voice memo at high-leverage moment
       v.literal("reengage_low_temp"),      // pattern interrupt at 5+ days silent
       v.literal("easy_question_revival"),  // AI-9500 #1 — low-effort question to revive cooling
       v.literal("birthday_wish"),
