@@ -69,6 +69,8 @@ export default function PersonDossierPage() {
   const params = useParams<{ id: string }>()
   const personId = params.id as Id<"people">
   const dossier = useQuery(api.people.getDossier, { person_id: personId })
+  // AI-9500 W2 E13 — call history for this person
+  const calls = useQuery(api.calls.listForPerson, { person_id: personId, limit: 100 })
   const [tab, setTab] = useState<TabName>("Timeline")
 
   if (dossier === undefined) {
@@ -121,7 +123,7 @@ export default function PersonDossierPage() {
       </div>
 
       <div className="bg-gray-900 border border-gray-800 border-t-0 rounded-b-md p-4 sm:p-6 mb-8">
-        {tab === "Timeline" && <TimelineTab messages={messages} conversations={conversations} personId={personId} />}
+        {tab === "Timeline" && <TimelineTab messages={messages} conversations={conversations} personId={personId} calls={calls ?? []} />}
         {tab === "Memory" && <MemoryTab person={person} />}
         {tab === "Schedule" && <ScheduleTab person={person} touches={scheduled_touches} />}
         {tab === "Media" && <MediaTab uses={media_uses} assets={media_assets} />}
@@ -471,10 +473,59 @@ function platformStyle(p: string) {
 // Per-platform mode: shows only the dossier messages (existing behavior).
 // Toggle hidden when only one platform is present (_handles_summary.length < 2).
 // ---------------------------------------------------------------------------
-function TimelineTab({ messages: dossierMessages, conversations, personId }: {
+// ---------------------------------------------------------------------------
+// CallBubble — single call entry in the timeline (AI-9500 W2 E13)
+// ---------------------------------------------------------------------------
+function CallBubble({ call }: { call: any }) {
+  const isMissed = call.direction === "missed"
+  const isOut = call.direction === "outbound"
+  const icon = isMissed ? "📵" : "📞"
+  const label = isMissed ? "missed call" : isOut ? "outbound call" : "inbound call"
+
+  const durationLabel = (() => {
+    if (call.duration_seconds == null) return ""
+    const m = Math.floor(call.duration_seconds / 60)
+    const s = call.duration_seconds % 60
+    return m === 0 ? ` · ${s}s` : ` · ${m}m${s > 0 ? `${s}s` : ""}`
+  })()
+
+  const platformLabel = call.platform ? ` · ${call.platform.replace("_", " ")}` : ""
+  const ts = new Date(call.started_at_ms).toLocaleString()
+
+  return (
+    <div className={`flex ${isOut ? "justify-end" : "justify-start"}`}>
+      <div className={`rounded-lg px-3 py-2 border text-sm ${
+        isMissed
+          ? "bg-red-900/20 border-red-700/40 text-red-300"
+          : isOut
+          ? "bg-blue-900/20 border-blue-700/40 text-blue-200"
+          : "bg-gray-800 border-gray-700 text-gray-200"
+      }`}>
+        <span className="mr-1">{icon}</span>
+        <span className="font-medium">{label}</span>
+        {durationLabel && <span className="text-xs opacity-70">{durationLabel}</span>}
+        {call.notes && <div className="text-xs opacity-60 mt-0.5 italic">{call.notes}</div>}
+        <div className="text-[10px] text-gray-500 mt-1">{ts}{platformLabel}</div>
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Timeline tab — AI-9500 W2 #D unified cross-platform thread
+//                + AI-9500 W2 E13 call interleaving
+//
+// Unified mode (default): fetches unifiedThreadForPerson from Convex — merges
+// all platforms (iMessage, Hinge, IG, Telegram, email…) into one chronological
+// feed. Call records are interleaved by timestamp.
+// Per-platform mode: shows only the dossier messages (existing behavior).
+// Toggle hidden when only one platform is present (_handles_summary.length < 2).
+// ---------------------------------------------------------------------------
+function TimelineTab({ messages: dossierMessages, conversations, personId, calls }: {
   messages: any[];
   conversations: any[];
   personId: string;
+  calls: any[];
 }) {
   const [mode, setMode] = useState<"unified" | "platform">("unified")
 
@@ -493,13 +544,20 @@ function TimelineTab({ messages: dossierMessages, conversations, personId }: {
     ? (unified?.messages ?? [])
     : [...dossierMessages].reverse()
 
+  // Build unified event list: messages + calls sorted by timestamp
+  const allEvents = useMemo(() => {
+    const msgEvents = activeMessages.map((m: any) => ({ kind: "message" as const, ts: m.sent_at as number, data: m }))
+    const callEvents = calls.map((c: any) => ({ kind: "call" as const, ts: c.started_at_ms as number, data: c }))
+    return [...msgEvents, ...callEvents].sort((a, b) => a.ts - b.ts)
+  }, [activeMessages, calls])
+
   const isLoading = mode === "unified" && unified === undefined
 
   if (isLoading) {
     return <div className="text-gray-500 text-sm">Loading unified thread…</div>
   }
-  if (!activeMessages.length) {
-    return <div className="text-gray-500 text-sm">No messages yet.</div>
+  if (!allEvents.length) {
+    return <div className="text-gray-500 text-sm">No messages or calls yet.</div>
   }
 
   const platforms = Array.from(new Set(conversations.map((c: any) => c.platform)))
@@ -510,6 +568,7 @@ function TimelineTab({ messages: dossierMessages, conversations, personId }: {
       <div className="flex items-center justify-between mb-3">
         <div className="text-xs text-gray-500">
           {activeMessages.length} message{activeMessages.length !== 1 ? "s" : ""}
+          {calls.length > 0 ? ` · ${calls.length} call${calls.length !== 1 ? "s" : ""}` : ""}
           {" · "}
           {mode === "unified"
             ? handlesSummary.join(", ") || platforms.join(", ")
@@ -543,9 +602,13 @@ function TimelineTab({ messages: dossierMessages, conversations, personId }: {
         )}
       </div>
 
-      {/* Message feed */}
+      {/* Message + call feed interleaved */}
       <div className="space-y-2 max-h-[60vh] overflow-y-auto pr-2">
-        {activeMessages.map((m: any, idx: number) => {
+        {allEvents.map((event, idx) => {
+          if (event.kind === "call") {
+            return <CallBubble key={`call-${event.data._id ?? idx}`} call={event.data} />
+          }
+          const m = event.data
           const isOut = m.direction === "outbound"
           const ts = new Date(m.sent_at).toLocaleString()
           const platform: string = m._platform ?? "imessage"

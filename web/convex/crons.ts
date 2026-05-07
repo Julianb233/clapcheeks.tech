@@ -92,6 +92,15 @@ crons.interval(
   { user_id: "fleet-julian" },
 );
 
+// AI-9500 W2 E13 — Enqueue a call sync job every 15 minutes.
+// The Mac Mini daemon picks up sync_calls jobs and polls chat.db for
+// iMessage / FaceTime call events, upserting via calls:upsertCall.
+crons.interval(
+  "enqueue-calls-sync",
+  { minutes: 15 },
+  internal.agent_jobs.enqueueCallsSync,
+);
+
 // AI-9500-C: Enqueue a Hinge message sync job every 5 minutes.
 // The local Mac Mini agent (convex_runner.py) claims and executes the job
 // via hinge_poller.poll_hinge(). Dedup guard inside enqueueHingeSync prevents

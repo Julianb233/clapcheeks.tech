@@ -258,3 +258,198 @@ def _draft_with_template(
 
     # Hardcoded fallback — always safe to send.
     return ["figured I'd just say hey"]
+
+
+# ---------------------------------------------------------------------------
+# AI-9500 W2 E13 — call sync handler
+#
+# Reads call records from chat.db (the message table has item_type=2 for
+# audio/video calls and a non-null audio_files / was_data_detected column on
+# FaceTime calls).  We use the following columns:
+#
+#   message.item_type        — 2 = attachment/call event (audio call)
+#   message.is_from_me       — 1 = outbound, 0 = inbound
+#   message.date             — Apple CoreData timestamp (ns since 2001-01-01)
+#   message.date_delivered   — non-zero for connected calls
+#   message.was_delivered_quietly — sometimes set for missed
+#   handle.id                — phone / iMessage handle
+#   message.service          — "iMessage" or "SMS" (FaceTime shows as iMessage)
+#   message.text             — may contain "FaceTime" for FaceTime audio/video
+#
+# Simpler approach used here:  messages whose `text` IS NULL and `item_type`
+# IN (2, 3) or whose text matches FaceTime-style system text.  We also capture
+# plain audio calls via `message.service` = 'iMessage' and text NULL.
+#
+# We look for:
+#   - "FaceTime Audio" or "FaceTime Video" in the text or cache_has_attachments > 0
+#     with item_type in (2, 3) → platform = "facetime"
+#   - item_type = 2, service = "iMessage", text IS NULL → platform = "imessage_native"
+#
+# Duration: chat.db does NOT store call duration for iMessage/FaceTime natively
+# (it is not surfaced in the SQLite schema the way WhatsApp does it).  We
+# store None and allow a future patch via the upsertCall mutation if Twilio
+# or another source provides it.
+#
+# This handler is registered in agent_jobs as job_type = "sync_calls".
+# The cron at /clapcheeks-local/clapcheeks/agent_jobs.py enqueues it every
+# 15 minutes.
+# ---------------------------------------------------------------------------
+
+import datetime
+import sqlite3
+from pathlib import Path
+from typing import Optional, Any
+
+CHAT_DB_PATH = Path.home() / "Library" / "Messages" / "chat.db"
+
+# Apple's reference epoch: 2001-01-01 00:00:00 UTC
+_APPLE_EPOCH_TS = datetime.datetime(2001, 1, 1, tzinfo=datetime.timezone.utc).timestamp()
+
+# How far back to look on each poll (avoids re-scanning the full DB forever)
+_CALL_LOOKBACK_DAYS = 30
+
+
+def _apple_ns_to_epoch_ms(ns_ts: Optional[int]) -> Optional[int]:
+    """Convert an Apple CoreData nanosecond timestamp to Unix milliseconds."""
+    if ns_ts is None or ns_ts == 0:
+        return None
+    seconds = ns_ts / 1_000_000_000.0
+    return int((_APPLE_EPOCH_TS + seconds) * 1_000)
+
+
+def _handle_sync_calls(
+    convex_client: Any,
+    user_id: str,
+    *,
+    lookback_days: int = _CALL_LOOKBACK_DAYS,
+) -> dict[str, int]:
+    """Poll chat.db for call records and upsert them to Convex.
+
+    Args:
+        convex_client: A convex Python client instance with a ``mutation`` method.
+        user_id: The Convex user_id (typically "fleet-julian").
+        lookback_days: How many days back to scan (default 30).
+
+    Returns:
+        Dict with keys ``scanned``, ``upserted``, ``skipped``.
+    """
+    if not CHAT_DB_PATH.exists():
+        logger.warning("[sync_calls] chat.db not found at %s — skipping", CHAT_DB_PATH)
+        return {"scanned": 0, "upserted": 0, "skipped": 0}
+
+    # Open read-only via URI
+    try:
+        conn = sqlite3.connect(
+            f"file:{CHAT_DB_PATH}?mode=ro",
+            uri=True,
+            timeout=10,
+        )
+        conn.row_factory = sqlite3.Row
+    except sqlite3.OperationalError as exc:
+        logger.warning("[sync_calls] Cannot open chat.db: %s", exc)
+        return {"scanned": 0, "upserted": 0, "skipped": 0}
+
+    # Compute the Apple timestamp for our lookback window
+    now_unix = datetime.datetime.now(datetime.timezone.utc).timestamp()
+    lookback_unix = now_unix - lookback_days * 86400
+    # Convert back to Apple nanoseconds
+    lookback_apple_ns = int((lookback_unix - _APPLE_EPOCH_TS) * 1_000_000_000)
+
+    # Detect calls:
+    # item_type = 2 or 3 in the message table often marks call events.
+    # We also include messages where `text` IS NULL and `service` = 'iMessage'
+    # with an associated audio/video attachment (cache_has_attachments = 1).
+    # Broadest safe filter: item_type IN (2, 3) OR text LIKE '%FaceTime%'
+    CALL_SQL = """
+        SELECT
+            m.ROWID         AS msg_id,
+            m.date          AS apple_date,
+            m.is_from_me    AS is_from_me,
+            m.service       AS service,
+            m.text          AS msg_text,
+            m.item_type     AS item_type,
+            m.was_delivered_quietly AS was_quiet,
+            h.id            AS handle_value
+        FROM message m
+        LEFT JOIN handle h ON h.ROWID = m.handle_id
+        WHERE m.date > ?
+          AND (
+              m.item_type IN (2, 3)
+              OR (m.text IS NOT NULL AND m.text LIKE '%FaceTime%')
+          )
+        ORDER BY m.date ASC
+        LIMIT 2000
+    """
+
+    scanned = 0
+    upserted = 0
+    skipped = 0
+
+    try:
+        cursor = conn.execute(CALL_SQL, (lookback_apple_ns,))
+        rows = cursor.fetchall()
+    except sqlite3.OperationalError as exc:
+        logger.warning("[sync_calls] Query failed: %s", exc)
+        conn.close()
+        return {"scanned": 0, "upserted": 0, "skipped": 0}
+    finally:
+        conn.close()
+
+    for row in rows:
+        scanned += 1
+        started_at_ms = _apple_ns_to_epoch_ms(row["apple_date"])
+        if started_at_ms is None:
+            skipped += 1
+            continue
+
+        # Determine platform
+        msg_text = row["msg_text"] or ""
+        service = row["service"] or ""
+        if "FaceTime" in msg_text:
+            platform = "facetime"
+        elif service.lower() in ("imessage", "iMessage"):
+            platform = "imessage_native"
+        else:
+            platform = "phone_native"
+
+        # Direction: is_from_me=1 → outbound.
+        # "Missed" detection: was_delivered_quietly=1 is sometimes set for missed;
+        # more reliably, item_type=3 often marks a missed FaceTime.
+        is_from_me = bool(row["is_from_me"])
+        was_quiet = bool(row["was_quiet"])
+        item_type = row["item_type"]
+
+        if is_from_me:
+            direction = "outbound"
+        elif item_type == 3 or was_quiet:
+            direction = "missed"
+        else:
+            direction = "inbound"
+
+        handle_value = row["handle_value"] or None
+
+        try:
+            convex_client.mutation(
+                "calls:upsertCall",
+                {
+                    "user_id": user_id,
+                    "direction": direction,
+                    "started_at_ms": started_at_ms,
+                    "handle_value": handle_value,
+                    "platform": platform,
+                },
+            )
+            upserted += 1
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "[sync_calls] upsertCall failed for row %s: %s",
+                row["msg_id"],
+                exc,
+            )
+            skipped += 1
+
+    logger.info(
+        "[sync_calls] done — scanned=%d upserted=%d skipped=%d",
+        scanned, upserted, skipped,
+    )
+    return {"scanned": scanned, "upserted": upserted, "skipped": skipped}
