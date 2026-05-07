@@ -503,6 +503,26 @@ export const fireOne = internalAction({
     }
 
     // -----------------------------------------------------------------------
+    // AI-9500 #5 — Silence check for date_check_in.
+    //
+    // date_check_in fires only if she's been silent >= 60min. If she's been
+    // actively texting, skip — the check-in would feel needy, not caring.
+    // Threshold: last_inbound_at < (now - 60min). Unset = treat as silent.
+    // -----------------------------------------------------------------------
+    if (touch.type === "date_check_in") {
+      const SIXTY_MIN = 60 * 60 * 1000;
+      const lastInbound = (person as any).last_inbound_at as number | undefined;
+      if (lastInbound !== undefined && lastInbound >= Date.now() - SIXTY_MIN) {
+        await ctx.runMutation(internal.touches._markFired, {
+          touch_id: args.touch_id,
+          status: "skipped",
+          skip_reason: "she_is_active",
+        });
+        return { skipped: true, reason: "she_is_active", last_inbound_at: lastInbound };
+      }
+    }
+
+    // -----------------------------------------------------------------------
     // AI-9500 #6 — post_date_calibration special handling.
     //
     // Instead of immediately enqueueing a send job, we generate 3 candidate
@@ -540,6 +560,27 @@ export const fireOne = internalAction({
     await ctx.runMutation(internal.touches._markFired, {
       touch_id: args.touch_id, status: "fired",
     });
+
+    // -----------------------------------------------------------------------
+    // AI-9500 #5 — Auto-schedule anti-flake touches after date_confirm_24h.
+    //
+    // On successful fire of date_confirm_24h, schedule:
+    //   - date_dayof_transit at (date_time - 90min)
+    //   - date_check_in      at (date_time - 30min, silence-conditional)
+    //
+    // date_time is read from prompt_template JSON. Fallback: scheduled_for.
+    // -----------------------------------------------------------------------
+    if (touch.type === "date_confirm_24h") {
+      const dateMeta = _extractDateMetaFromTouch(touch as any);
+      await ctx.runMutation(internal.touches._scheduleAntiFlakeTouches, {
+        user_id: touch.user_id,
+        person_id: touch.person_id,
+        conversation_id: touch.conversation_id,
+        venue: dateMeta.venue,
+        date_time_ms: dateMeta.date_time_ms,
+      });
+    }
+
     return { fired: true, type: touch.type };
   },
 });
