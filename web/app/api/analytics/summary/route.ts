@@ -42,7 +42,8 @@ export async function GET(request: NextRequest) {
     date: string
   }
 
-  const [analyticsRows, convoRes, spendRes] = await Promise.all([
+  // AI-9575: conversation_stats + spending migrated to Convex.
+  const [analyticsRows, convoRows, spendRows] = await Promise.all([
     convex
       ? convex
           .query(api.telemetry.getDailyForUser, {
@@ -51,17 +52,22 @@ export async function GET(request: NextRequest) {
           })
           .catch(() => [])
       : Promise.resolve([]),
-    supabase
-      .from('clapcheeks_conversation_stats')
-      .select('platform, messages_sent, messages_received, conversations_started, conversations_replied, conversations_ghosted, date')
-      .eq('user_id', user.id)
-      .gte('date', fmt(rangeStart))
-      .order('date', { ascending: true }),
-    supabase
-      .from('clapcheeks_spending')
-      .select('amount, category, date')
-      .eq('user_id', user.id)
-      .gte('date', fmt(rangeStart)),
+    convex
+      ? convex
+          .query(api.conversation_stats.listForUser, {
+            user_id: user.id,
+            since_date: fmt(rangeStart),
+          })
+          .catch(() => [])
+      : Promise.resolve([]),
+    convex
+      ? convex
+          .query(api.spending.listForUser, {
+            user_id: user.id,
+            since_date: fmt(rangeStart),
+          })
+          .catch(() => [])
+      : Promise.resolve([]),
   ])
 
   // Convex returns day_iso; map to legacy `date` field name so the
@@ -99,8 +105,9 @@ export async function GET(request: NextRequest) {
     date: string
   }
   type SpendingRow = { amount: number | string; category: string; date: string }
-  const convos: ConvoRow[] = (convoRes.data as ConvoRow[] | null) ?? []
-  const spending: SpendingRow[] = (spendRes.data as SpendingRow[] | null) ?? []
+  // AI-9575: Convex returns typed arrays directly (no .data wrapper).
+  const convos: ConvoRow[] = (convoRows as ConvoRow[]) ?? []
+  const spending: SpendingRow[] = (spendRows as SpendingRow[]) ?? []
 
   // Range aggregates
   const totals = analytics.reduce(
