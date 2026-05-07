@@ -109,21 +109,21 @@ export default function NetworkPage() {
   }
 
   return (
-    <div className="p-8 max-w-7xl">
-      <div className="flex justify-between items-start mb-2">
+    <div className="p-4 sm:p-8 max-w-7xl">
+      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-3 mb-2">
         <div>
-          <h1 className="text-3xl font-bold">Network</h1>
-          <p className="text-gray-400">
+          <h1 className="text-2xl sm:text-3xl font-bold">Network</h1>
+          <p className="text-gray-400 text-sm">
             {filtered.length} of {people.length} people · ranked by hotness × recency
           </p>
         </div>
-        <div className="flex gap-3 items-center">
+        <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
           <input
             type="text"
             value={search}
             placeholder="search name…"
             onChange={(e) => setSearch(e.target.value)}
-            className="bg-gray-950 border border-gray-800 rounded px-3 py-1.5 text-sm w-48"
+            className="bg-gray-950 border border-gray-800 rounded px-3 py-1.5 text-sm w-full sm:w-48"
           />
           <label className="flex items-center gap-2 text-xs text-gray-400 cursor-pointer">
             <input type="checkbox" checked={showAll} onChange={(e) => setShowAll(e.target.checked)} />
@@ -185,9 +185,9 @@ function PersonRow({ p }: { p: any }) {
       href={`/admin/clapcheeks-ops/people/${p._id}`}
       className="block bg-gray-900 border border-gray-800 rounded-lg p-3 hover:border-purple-700 hover:bg-gray-800/60 transition-colors"
     >
-      <div className="flex justify-between items-start gap-4">
+      <div className="flex justify-between items-start gap-2 sm:gap-4">
         <div className="flex-1 min-w-0">
-          <div className="flex items-baseline gap-2 flex-wrap">
+          <div className="flex items-baseline gap-1.5 sm:gap-2 flex-wrap">
             <span className="font-medium">{p.display_name}</span>
             {p.age && <span className="text-gray-500 text-xs">· {p.age}</span>}
             {p.hotness_rating && (
@@ -209,30 +209,37 @@ function PersonRow({ p }: { p: any }) {
               </span>
             )}
             {platforms.length > 0 && (
-              <span className="text-xs text-gray-600">{platforms.join(" · ")}</span>
+              <span className="hidden sm:inline text-xs text-gray-600">{platforms.join(" · ")}</span>
             )}
           </div>
-          <div className="text-xs text-gray-500 mt-1">
+          {/* Secondary metrics — hidden on narrow screens */}
+          <div className="hidden sm:block text-xs text-gray-500 mt-1">
             inbound {lastInbound} · trust {trust} · ask {ttas} · emo {lastEmotion}
             {p.zodiac_sign && <span className="ml-2 capitalize">♈ {p.zodiac_sign}</span>}
           </div>
+          {/* Mobile-only compact metric row */}
+          <div className="sm:hidden text-xs text-gray-500 mt-0.5">
+            {lastInbound} · {lastEmotion}
+          </div>
           {p.next_best_move && (
-            <div className="text-sm text-purple-300 mt-2 line-clamp-1">💡 {p.next_best_move}</div>
+            <div className="text-sm text-purple-300 mt-1.5 line-clamp-1">💡 {p.next_best_move}</div>
           )}
           {p.curiosity_ledger && p.curiosity_ledger.filter((q: any) => q.status === "pending").length > 0 && (
-            <div className="text-xs text-gray-400 mt-1 line-clamp-1">
+            <div className="hidden sm:block text-xs text-gray-400 mt-1 line-clamp-1">
               Q: {p.curiosity_ledger.filter((q: any) => q.status === "pending")[0]?.question}
             </div>
           )}
         </div>
         <div className="text-right text-xs text-gray-500 flex-shrink-0">
-          <div>{p.cadence_profile}</div>
+          <div className="hidden sm:block">{p.cadence_profile}</div>
           <div className={p.whitelist_for_autoreply ? "text-green-400" : "text-gray-600"}>
-            {p.whitelist_for_autoreply ? "✓ whitelisted" : "○ manual"}
+            {p.whitelist_for_autoreply ? "✓" : "○"}
+            <span className="hidden sm:inline"> {p.whitelist_for_autoreply ? "whitelisted" : "manual"}</span>
           </div>
           {p.next_followup_at && (
             <div className="text-amber-400 mt-1">
-              follow-up {new Date(p.next_followup_at).toLocaleDateString()}
+              <span className="hidden sm:inline">follow-up </span>
+              {new Date(p.next_followup_at).toLocaleDateString()}
             </div>
           )}
         </div>

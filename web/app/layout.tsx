@@ -65,10 +65,12 @@ export const metadata: Metadata = {
   },
   appleWebApp: {
     capable: true,
-    statusBarStyle: 'black',
+    title: 'Clapcheeks',
+    statusBarStyle: 'black-translucent',
   },
   other: {
-    'theme-color': '#000000',
+    'theme-color': '#7C3AED',
+    'mobile-web-app-capable': 'yes',
   },
   // Only allow indexing on production deploys. Vercel preview/dev stay noindex.
   robots:

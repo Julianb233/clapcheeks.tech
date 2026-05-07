@@ -2,12 +2,12 @@
   "name": "Clapcheeks — AI Dating Co-Pilot",
   "short_name": "Clapcheeks",
   "description": "Your AI dating co-pilot. Swipes, replies, and date bookings on autopilot.",
-  "start_url": "/dashboard",
+  "start_url": "/admin/clapcheeks-ops",
   "scope": "/",
   "display": "standalone",
   "display_override": ["window-controls-overlay", "standalone", "minimal-ui"],
-  "background_color": "#000000",
-  "theme_color": "#0A0A0A",
+  "background_color": "#030712",
+  "theme_color": "#7C3AED",
   "orientation": "any",
   "categories": ["lifestyle", "productivity", "social"],
   "icons": [
@@ -38,24 +38,24 @@
   ],
   "shortcuts": [
     {
-      "name": "Leads",
-      "short_name": "Leads",
-      "description": "Kanban of every match",
-      "url": "/leads",
+      "name": "Network",
+      "short_name": "Network",
+      "description": "Dating-relevant people ranked by priority",
+      "url": "/admin/clapcheeks-ops/network",
       "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }]
     },
     {
-      "name": "AI Settings",
-      "short_name": "AI",
-      "description": "Persona, drip rules, calendar",
-      "url": "/settings/ai",
+      "name": "Coach",
+      "short_name": "Coach",
+      "description": "Self-coaching dashboard — your patterns",
+      "url": "/admin/clapcheeks-ops/coach",
       "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }]
     },
     {
-      "name": "Dashboard",
-      "short_name": "Home",
-      "description": "Your stats and activity",
-      "url": "/dashboard",
+      "name": "Ops Overview",
+      "short_name": "Ops",
+      "description": "Clapcheeks ops control panel",
+      "url": "/admin/clapcheeks-ops",
       "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }]
     }
   ],
