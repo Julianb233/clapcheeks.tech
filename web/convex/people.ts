@@ -500,6 +500,85 @@ export const linkConversation = mutation({
 // (no handle match OR multiple matches). Inserts a pending_links row the
 // dashboard can surface for manual resolution.
 // ----------------------------------------------------------------------------
+
+// ----------------------------------------------------------------------------
+// listPendingLinks — dashboard /pending-links page reader.
+// Returns hydrated rows with candidates[] resolved to actual person rows.
+// ----------------------------------------------------------------------------
+export const listPendingLinks = query({
+  args: { user_id: v.string(), limit: v.optional(v.number()) },
+  handler: async (ctx, args) => {
+    const rows = await ctx.db
+      .query("pending_links")
+      .withIndex("by_user_status", (q) =>
+        q.eq("user_id", args.user_id).eq("status", "open"),
+      )
+      .order("desc")
+      .take(Math.min(args.limit ?? 100, 500));
+    return await Promise.all(
+      rows.map(async (r) => {
+        const candidates = await Promise.all(
+          (r.candidate_person_ids || []).map((id) => ctx.db.get(id)),
+        );
+        return { ...r, candidates: candidates.filter(Boolean) };
+      }),
+    );
+  },
+});
+
+// ----------------------------------------------------------------------------
+// resolvePendingLink — operator clicked "use this" on a candidate.
+// Sets the conversation + all its messages to the chosen person, marks the
+// pending row resolved.
+// ----------------------------------------------------------------------------
+export const resolvePendingLink = mutation({
+  args: {
+    pending_id: v.id("pending_links"),
+    person_id: v.id("people"),
+  },
+  handler: async (ctx, args) => {
+    const row = await ctx.db.get(args.pending_id);
+    if (!row) return { not_found: true };
+    if (row.status !== "open") return { wrong_status: row.status };
+    // Patch the conversation.
+    await ctx.db.patch(row.conversation_id, { person_id: args.person_id });
+    // Backfill messages on this conversation.
+    const msgs = await ctx.db
+      .query("messages")
+      .withIndex("by_conversation", (q) => q.eq("conversation_id", row.conversation_id))
+      .collect();
+    let patched = 0;
+    for (const m of msgs) {
+      if (!m.person_id) {
+        await ctx.db.patch(m._id, { person_id: args.person_id });
+        patched++;
+      }
+    }
+    await ctx.db.patch(args.pending_id, {
+      status: "resolved",
+      resolved_person_id: args.person_id,
+      updated_at: Date.now(),
+    });
+    return { ok: true, patched_messages: patched };
+  },
+});
+
+// ----------------------------------------------------------------------------
+// ignorePendingLink — operator clicked "ignore" (spam/unknown).
+// ----------------------------------------------------------------------------
+export const ignorePendingLink = mutation({
+  args: { pending_id: v.id("pending_links") },
+  handler: async (ctx, args) => {
+    const row = await ctx.db.get(args.pending_id);
+    if (!row) return { not_found: true };
+    await ctx.db.patch(args.pending_id, {
+      status: "ignored",
+      updated_at: Date.now(),
+    });
+    return { ok: true };
+  },
+});
+
 export const recordPendingLink = mutation({
   args: {
     user_id: v.string(),
