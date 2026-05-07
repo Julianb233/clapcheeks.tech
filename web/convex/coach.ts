@@ -42,9 +42,17 @@ export const getOverPursueList = query({
       last_inbound_at: number | undefined;
     }> = [];
 
+    // AI-9526 — exclude people whose vibe was classified as professional or
+    // platonic so the "you're over-investing" list doesn't suggest cooling
+    // off on Anagha (Script.IQ co-founder) or Colin White (work contact).
+    // We still include vibe=dating, vibe=unclear, or vibe=undefined (sweep
+    // hasn't run yet) — operator judgment kicks in.
+    const datingFilter = (p: any) =>
+      p.vibe_classification !== "professional" &&
+      p.vibe_classification !== "platonic";
     // Limit to first 100 active people to stay within Convex read limits.
     // (260 active people × N messages each can exceed 16MB; 100 is safe.)
-    const peopleSample = people.slice(0, 100);
+    const peopleSample = people.filter(datingFilter).slice(0, 100);
 
     for (const person of peopleSample) {
       // Use by_person_recent index (person_id, sent_at) — properly indexed per person.

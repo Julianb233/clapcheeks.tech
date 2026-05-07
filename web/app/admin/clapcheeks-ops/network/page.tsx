@@ -278,8 +278,12 @@ function PersonRow({ p, showArchiveInfo }: { p: any; showArchiveInfo?: boolean }
           <div className="sm:hidden text-xs text-gray-500 mt-0.5">
             {lastInbound} · {lastEmotion}
           </div>
-          {p.next_best_move && (
+          {p.next_best_move ? (
             <div className="text-sm text-purple-300 mt-1.5 line-clamp-1">💡 {p.next_best_move}</div>
+          ) : (
+            <div className="text-xs text-gray-600 mt-1.5 italic line-clamp-1">
+              💡 Awaiting enrichment — sweep populates next-move every 6h
+            </div>
           )}
           {p.curiosity_ledger && p.curiosity_ledger.filter((q: any) => q.status === "pending").length > 0 && (
             <div className="hidden sm:block text-xs text-gray-400 mt-1 line-clamp-1">
