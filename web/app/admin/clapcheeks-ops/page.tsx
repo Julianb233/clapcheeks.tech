@@ -47,6 +47,21 @@ export default function ClapcheeksOpsOverview() {
         </div>
       </Link>
 
+      {/* AI-9500 W2 #I — Upcoming dates nav card */}
+      <Link href="/admin/clapcheeks-ops/upcoming-dates"
+            className="block mb-4 bg-gradient-to-r from-green-950 to-gray-900 border border-green-800 rounded-xl p-5 hover:border-green-600 transition">
+        <div className="flex items-center gap-3">
+          <span className="text-2xl">📋</span>
+          <div>
+            <div className="font-bold text-lg text-white">Upcoming dates</div>
+            <div className="text-sm text-green-300">
+              Pre-date logistics checklists — auto-created when she says yes
+            </div>
+          </div>
+          <span className="ml-auto text-green-400 text-xl">→</span>
+        </div>
+      </Link>
+
       {/* AI-9500 #7 — Self-coaching nav card */}
       <Link href="/admin/clapcheeks-ops/coach"
             className="block mb-6 bg-gradient-to-r from-purple-950 to-gray-900 border border-purple-800 rounded-xl p-5 hover:border-purple-600 transition">

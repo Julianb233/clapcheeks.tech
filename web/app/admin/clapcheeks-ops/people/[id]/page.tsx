@@ -893,6 +893,11 @@ function ScheduleTab({ person, touches }: { person: any; touches: any[] }) {
   const commitPostDateChoice = useMutation(api.touches.commitPostDateChoice)
   const FLEET_USER_ID = "fleet-julian"
 
+  // AI-9500 W2 #I — date logistics checklists for this person
+  const dateChecklists = useQuery(api.date_logistics.listForPerson, { person_id: person._id })
+  const tickItemMut = useMutation(api.date_logistics.tickItem)
+  const completeChecklistMut = useMutation(api.date_logistics.complete)
+
   const [showDateDoneForm, setShowDateDoneForm] = useState(false)
   const [dateNotesText, setDateNotesText] = useState("")
   const [dateMarkingId, setDateMarkingId] = useState<string | null>(null)
