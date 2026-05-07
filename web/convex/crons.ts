@@ -163,4 +163,14 @@ crons.interval(
   internal.touches.softNoRecoveryDetectorCron,
 );
 
+// AI-9500 Wave2 #K — Pre-date debrief extraction every 24 hours.
+// Runs an LLM over each person's last 30 inbound messages to auto-populate
+// things_mentioned with category tags (food, music, career, family, etc.).
+// Source="auto". Staggered 5s per person, max 20 per sweep.
+crons.interval(
+  "debrief-extraction-sweep",
+  { hours: 24 },
+  internal.debrief.sweepDebriefExtraction,
+);
+
 export default crons;
