@@ -28,6 +28,7 @@ import {
   CoachingSectionLazy,
   IMessageTestPanelLazy,
 } from './components/lazy'
+import DataUnavailable from '@/components/shared/DataUnavailable'
 
 export const metadata: Metadata = {
   title: 'Dashboard — Clapcheeks',
@@ -85,6 +86,14 @@ export default async function Dashboard() {
   const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL || process.env.CONVEX_URL
   const convex = convexUrl ? new ConvexHttpClient(convexUrl) : null
 
+  // AI-9526 F10 — accumulate Convex query failures so we can surface a
+  // DataUnavailable banner when 2+ sources fail in a single load.
+  const convexErrors: string[] = []
+  const trackErr = (label: string, fallback: unknown) => () => {
+    convexErrors.push(label)
+    return fallback
+  }
+
   // AI-9575: conversation_stats + spending migrated to Convex.
   const [analyticsRows, convoRows, spendRows, deviceRes, subRes, profileRes, heartbeatRow, matchCountRes] = await Promise.all([
     convex
@@ -93,7 +102,7 @@ export default async function Dashboard() {
             user_id: getFleetUserId(),
             since_day_iso: sinceStr,
           })
-          .catch(() => [])
+          .catch(trackErr('telemetry', []))
       : Promise.resolve([]),
     convex
       ? convex
@@ -101,7 +110,7 @@ export default async function Dashboard() {
             user_id: getFleetUserId(),
             since_date: sinceStr,
           })
-          .catch(() => [] as Array<{ platform: string; messages_sent: number; conversations_started: number; conversations_replied: number; date: string }>)
+          .catch(trackErr('conversation_stats', [] as Array<{ platform: string; messages_sent: number; conversations_started: number; conversations_replied: number; date: string }>))
       : Promise.resolve([] as Array<{ platform: string; messages_sent: number; conversations_started: number; conversations_replied: number; date: string }>),
     convex
       ? convex
@@ -109,19 +118,19 @@ export default async function Dashboard() {
             user_id: getFleetUserId(),
             since_date: sinceStr,
           })
-          .catch(() => [] as Array<{ amount: number; category: string; date: string }>)
+          .catch(trackErr('spending', [] as Array<{ amount: number; category: string; date: string }>))
       : Promise.resolve([] as Array<{ amount: number; category: string; date: string }>),
     // AI-9537: devices migrated to Convex.
     convex
       ? convex
           .query(api.devices.listForUser, { user_id: getFleetUserId() })
-          .catch(() => [] as Array<{ last_seen_at: number; is_active: boolean }>)
+          .catch(trackErr('devices', [] as Array<{ last_seen_at: number; is_active: boolean }>))
       : Promise.resolve([] as Array<{ last_seen_at: number; is_active: boolean }>),
     // AI-9537: subscriptions migrated to Convex.
     convex
       ? convex
           .query(api.billing.getByUser, { user_id: getFleetUserId() })
-          .catch(() => null as { status: string } | null)
+          .catch(trackErr('billing', null as { status: string } | null))
       : Promise.resolve(null as { status: string } | null),
     supabase
       .from('profiles')
@@ -132,13 +141,13 @@ export default async function Dashboard() {
     convex
       ? convex
           .query(api.telemetry.getLatestHeartbeat, { user_id: getFleetUserId() })
-          .catch(() => null)
+          .catch(trackErr('heartbeat', null))
       : Promise.resolve(null),
     // AI-8926/AI-9534: actual matches count (analytics_daily can be empty
     // for users whose agent does not aggregate per-day yet). Reads from
     // Convex via api.matches.countForUser.
     convex
-      ? convex.query(api.matches.countForUser, { user_id: getFleetUserId() }).catch(() => 0)
+      ? convex.query(api.matches.countForUser, { user_id: getFleetUserId() }).catch(trackErr('matches_count', 0))
       : Promise.resolve(0),
   ])
 
@@ -411,6 +420,8 @@ export default async function Dashboard() {
   return (
     <div className="min-h-screen bg-black px-4 md:px-6 py-6 md:py-8">
       <div className="relative max-w-5xl mx-auto">
+        {/* AI-9526 F10 — surface a banner when 2+ Convex queries failed. */}
+        {convexErrors.length >= 2 && <DataUnavailable errors={convexErrors} />}
         {/* Header — top-nav removed 2026-04-27 (sidebar-audit Fix E):
             the in-page top-nav duplicated the global sidebar with mismatched
             labels ("Conversation AI" vs sidebar "Conversations", "AI Coach"
