@@ -1310,6 +1310,13 @@ export const getDossier = query({
 
 // Schedule a manual touch for a person.
 // "Send a touch now" button → type="reply", scheduled_for=now+5min.
+//
+// AI-9500-G: extended with preview_only flag.
+//   When preview_only=true: inserts a row with is_preview=true + status="scheduled"
+//   but does NOT enqueue a fireOne job. Returns {touch_id, preview:true, draft_body,
+//   template_kind, scheduled_for_iso}.  The draft_body is either the caller-supplied
+//   body or a stock preview generated from the template name.
+//   Commit the previewed touch via commitDraftedTouch() below.
 export const scheduleOne = mutation({
   args: {
     person_id: v.id("people"),
@@ -1317,13 +1324,52 @@ export const scheduleOne = mutation({
     type: v.optional(v.string()),
     draft_body: v.optional(v.string()),
     scheduled_for: v.optional(v.number()),
+    // AI-9500-G: when true, create a preview row only — no fireOne enqueue.
+    preview_only: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     const now = Date.now();
+    const touchType = (args.type ?? "reply") as
+      | "reply" | "nudge" | "callback_reference" | "date_ask"
+      | "date_confirm_24h" | "date_dayof" | "date_postmortem"
+      | "reengage_low_temp" | "birthday_wish" | "event_day_check"
+      | "pattern_interrupt" | "phone_swap_followup" | "first_call_invite"
+      | "morning_text" | "digest_inclusion";
+
+    if (args.preview_only) {
+      // Generate a stock preview body for the template so Julian can edit it
+      // before committing. The Mac Mini Python runner (_draft_with_template)
+      // can update draft_body via a follow-up patch once it processes the row.
+      // TODO(AI-9500-G-followup): wire clapcheeks-local convex_runner to pick
+      // up is_preview=true rows and call _draft_with_template, then patch
+      // draft_body. For now we use a stock opening line per template.
+      const stockDraft = _stockPreviewBody(touchType);
+      const scheduledFor = args.draft_body ? now + 30 * 1000 : now + 5 * 60 * 1000;
+      const touchId = await ctx.db.insert("scheduled_touches", {
+        person_id: args.person_id,
+        user_id: args.user_id,
+        type: touchType,
+        draft_body: args.draft_body ?? stockDraft,
+        status: "scheduled",
+        is_preview: true,
+        scheduled_for: scheduledFor,
+        created_at: now,
+        updated_at: now,
+      });
+      return {
+        touch_id: touchId,
+        preview: true as const,
+        draft_body: args.draft_body ?? stockDraft,
+        template_kind: touchType,
+        scheduled_for_iso: new Date(scheduledFor).toISOString(),
+      };
+    }
+
+    // Normal (non-preview) path — unchanged from pre-G.
     return await ctx.db.insert("scheduled_touches", {
       person_id: args.person_id,
       user_id: args.user_id,
-      type: args.type ?? "reply",
+      type: touchType,
       draft_body: args.draft_body,
       status: "pending",
       scheduled_for: args.scheduled_for ?? now + 5 * 60 * 1000,
@@ -1332,3 +1378,94 @@ export const scheduleOne = mutation({
     });
   },
 });
+
+// AI-9500-G: Commit a previewed touch.
+//   Takes a touch_id (must have is_preview=true + status="scheduled"), sets
+//   the edited body, clears is_preview, and pushes scheduled_for to now+30s
+//   so the existing fireOne machinery picks it up.
+//   D's anti-loop check in fireOne runs normally on commit — no bypass.
+export const commitDraftedTouch = mutation({
+  args: {
+    touch_id: v.id("scheduled_touches"),
+    edited_body: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const touch = await ctx.db.get(args.touch_id);
+    if (!touch) return { not_found: true };
+    if (!touch.is_preview) return { skipped: true, reason: "not_a_preview_touch" };
+    if (touch.status !== "scheduled") {
+      return { skipped: true, reason: `status_${touch.status}` };
+    }
+
+    // Check whitelist brake — person must be whitelisted for autoreply
+    // (digest_inclusion is the one exception that bypasses whitelist in fireOne,
+    // but for manual compose we still require it to prevent accidents).
+    const person = await ctx.db.get(touch.person_id);
+    if (!person) return { skipped: true, reason: "person_not_found" };
+    if (!person.whitelist_for_autoreply) {
+      return { skipped: true, reason: "not_whitelisted" };
+    }
+
+    const now = Date.now();
+    const scheduledFor = now + 30 * 1000; // fire in 30s
+
+    await ctx.db.patch(args.touch_id, {
+      draft_body: args.edited_body,
+      is_preview: false,
+      scheduled_for: scheduledFor,
+      status: "scheduled",
+      updated_at: now,
+    });
+
+    return {
+      committed: true,
+      touch_id: args.touch_id,
+      scheduled_for_iso: new Date(scheduledFor).toISOString(),
+    };
+  },
+});
+
+// ---------------------------------------------------------------------------
+// _stockPreviewBody — returns a template-appropriate opening line so the
+// dashboard compose panel has something editable immediately (before the Mac
+// Mini Python runner patches the actual AI-generated body).
+//
+// TODO(AI-9500-G-followup): remove / override when convex_runner wires
+// _draft_with_template → patch draft_body on is_preview=true rows.
+// ---------------------------------------------------------------------------
+function _stockPreviewBody(type: string): string {
+  switch (type) {
+    case "reply":
+      return "Hey, been thinking about what you said… wanted to follow up on that.";
+    case "nudge":
+      return "Hey you 👋 just checking in — how's your week going?";
+    case "callback_reference":
+      return "Did you end up doing that thing you mentioned? Curious how it went.";
+    case "date_ask":
+      return "Hey, I'd love to actually meet up — are you free this week?";
+    case "date_confirm_24h":
+      return "Just confirming we're still on for tomorrow — looking forward to it.";
+    case "date_dayof":
+      return "Today's the day! See you tonight.";
+    case "date_postmortem":
+      return "Had such a good time last night. Hope you got home safe.";
+    case "reengage_low_temp":
+      return "Hey, it's been a minute — just thinking about you.";
+    case "birthday_wish":
+      return "Happy birthday! Hope your day is as amazing as you are 🎂";
+    case "event_day_check":
+      return "Today's the big day, right? Rooting for you — you've got this.";
+    case "pattern_interrupt":
+      return "Random question out of nowhere… but I have to ask.";
+    case "phone_swap_followup":
+      return "Hey it's Julian from [app] — glad we got each other's numbers!";
+    case "first_call_invite":
+      return "I'm way better on a call than over text — want to chat sometime this week?";
+    case "morning_text":
+      return "Good morning ☀️ Hope you slept well.";
+    case "digest_inclusion":
+      return "Hey, wanted to reach out — what are you up to this week?";
+    default:
+      return "Hey, wanted to reach out.";
+  }
+}

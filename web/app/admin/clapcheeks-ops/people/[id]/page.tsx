@@ -3,7 +3,7 @@
 import { useQuery, useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
-import { use } from "react";
+import { use, useState } from "react";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -20,6 +20,7 @@ import {
   FileText,
   Clock,
   TrendingUp,
+  PenLine,
 } from "lucide-react";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -99,6 +100,16 @@ export default function PersonDossierPage({
 
   const dossier = useQuery(api.people.getDossier, { person_id });
   const scheduleOneFn = useMutation(api.people.scheduleOne);
+  const commitDraftFn = useMutation(api.people.commitDraftedTouch);
+
+  // ── Compose panel state ──────────────────────────────────────────────────
+  type ComposeState = "idle" | "generating" | "drafted" | "sent";
+  const [composeState, setComposeState] = useState<ComposeState>("idle");
+  const [composeTemplate, setComposeTemplate] = useState<string>("reply");
+  const [draftBody, setDraftBody] = useState<string>("");
+  const [touchId, setTouchId] = useState<Id<"scheduled_touches"> | null>(null);
+  const [composeError, setComposeError] = useState<string | null>(null);
+  const [skipReason, setSkipReason] = useState<{ reason: string; colliding_touch_id?: string } | null>(null);
 
   async function handleSendTouchNow() {
     if (!dossier?.person) return;
@@ -108,6 +119,73 @@ export default function PersonDossierPage({
       type: "reply",
       scheduled_for: Date.now() + 5 * 60 * 1000,
     });
+  }
+
+  async function handlePreview() {
+    if (!dossier?.person) return;
+    setComposeError(null);
+    setSkipReason(null);
+    setComposeState("generating");
+    try {
+      const result = await scheduleOneFn({
+        person_id,
+        user_id: "fleet-julian",
+        type: composeTemplate,
+        preview_only: true,
+      }) as { touch_id: Id<"scheduled_touches">; preview: true; draft_body: string; template_kind: string } | Id<"scheduled_touches">;
+
+      // scheduleOne returns {touch_id, preview, draft_body, ...} in preview mode
+      if (result && typeof result === "object" && "preview" in result) {
+        setTouchId(result.touch_id);
+        setDraftBody(result.draft_body ?? "");
+        setComposeState("drafted");
+      } else {
+        setComposeError("Unexpected response from server.");
+        setComposeState("idle");
+      }
+    } catch (e: unknown) {
+      setComposeError(e instanceof Error ? e.message : "Preview failed.");
+      setComposeState("idle");
+    }
+  }
+
+  async function handleSend() {
+    if (!touchId || !draftBody.trim()) return;
+    setComposeError(null);
+    setSkipReason(null);
+    try {
+      const result = await commitDraftFn({
+        touch_id: touchId,
+        edited_body: draftBody,
+      }) as { committed?: boolean; skipped?: boolean; not_found?: boolean; reason?: string };
+
+      if (result?.committed) {
+        setComposeState("sent");
+        setTouchId(null);
+      } else if (result?.skipped) {
+        const reason = result.reason ?? "unknown";
+        if (reason === "anti_loop_collision") {
+          setSkipReason({ reason: "anti_loop_collision" });
+        } else {
+          setComposeError(`Send blocked: ${reason}`);
+        }
+        setComposeState("drafted");
+      } else {
+        setComposeError("Send failed — touch not found.");
+        setComposeState("drafted");
+      }
+    } catch (e: unknown) {
+      setComposeError(e instanceof Error ? e.message : "Send failed.");
+      setComposeState("drafted");
+    }
+  }
+
+  function handleReset() {
+    setComposeState("idle");
+    setDraftBody("");
+    setTouchId(null);
+    setComposeError(null);
+    setSkipReason(null);
   }
 
   if (dossier === undefined) {
@@ -276,6 +354,10 @@ export default function PersonDossierPage({
             <TabsTrigger value="notes" className="flex items-center gap-1.5 text-xs">
               <FileText className="w-3.5 h-3.5" />
               Notes
+            </TabsTrigger>
+            <TabsTrigger value="compose" className="flex items-center gap-1.5 text-xs">
+              <PenLine className="w-3.5 h-3.5" />
+              Compose
             </TabsTrigger>
           </TabsList>
 
@@ -645,6 +727,180 @@ export default function PersonDossierPage({
                 ) : (
                   <p className="text-sm text-gray-500">No notes added yet.</p>
                 )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* ── COMPOSE (AI-9500-G) ── */}
+          <TabsContent value="compose">
+            <Card className="bg-gray-900 border-gray-800 max-w-2xl">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm text-gray-300 flex items-center gap-1.5">
+                  <PenLine className="w-3.5 h-3.5" />
+                  Compose a Touch
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {/* Whitelist brake warning */}
+                {!person.whitelist_for_autoreply && (
+                  <div className="bg-amber-900/20 border border-amber-700/40 rounded-lg px-3 py-2">
+                    <p className="text-xs text-amber-300">
+                      This person is not whitelisted for autoreply.
+                      Preview works — but Send is disabled until you enable{" "}
+                      <code className="text-amber-200">whitelist_for_autoreply</code> in Obsidian.
+                    </p>
+                  </div>
+                )}
+
+                {/* Template picker */}
+                {composeState !== "sent" && (
+                  <div className="space-y-1.5">
+                    <label className="text-xs text-gray-400 font-medium uppercase tracking-wider">
+                      Template
+                    </label>
+                    <select
+                      value={composeTemplate}
+                      onChange={(e) => {
+                        setComposeTemplate(e.target.value);
+                        handleReset();
+                      }}
+                      disabled={composeState === "generating"}
+                      className="w-full bg-gray-800 border border-gray-700 text-gray-100 text-sm rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-purple-500 disabled:opacity-50"
+                    >
+                      <option value="reply">Reply — standard cadence follow-up</option>
+                      <option value="pattern_interrupt">Pattern Interrupt — soft restart</option>
+                      <option value="callback_reference">Callback — "did you end up doing X?"</option>
+                      <option value="digest_inclusion">Digest Inclusion — week check-in</option>
+                      <option value="date_ask">Date Ask — propose meeting</option>
+                      <option value="nudge">Nudge — soft re-engage</option>
+                      <option value="morning_text">Morning Text</option>
+                      <option value="reengage_low_temp">Re-engage (low temp)</option>
+                      <option value="birthday_wish">Birthday Wish</option>
+                      <option value="event_day_check">Event Day Check-in</option>
+                      <option value="phone_swap_followup">Phone Swap Followup</option>
+                      <option value="first_call_invite">First Call Invite</option>
+                      <option value="date_confirm_24h">Date Confirm (T-24h)</option>
+                      <option value="date_dayof">Date Day-Of</option>
+                      <option value="date_postmortem">Date Post-Mortem</option>
+                    </select>
+                  </div>
+                )}
+
+                {/* Anti-loop collision banner */}
+                {skipReason?.reason === "anti_loop_collision" && (
+                  <div className="bg-red-900/20 border border-red-700/40 rounded-lg px-3 py-2">
+                    <p className="text-xs text-red-300 font-medium">
+                      Blocked: anti-loop collision
+                    </p>
+                    <p className="text-xs text-red-400 mt-0.5">
+                      The same message pattern was sent to a different person in the last 7 days.
+                      Edit the draft to make it more unique, then send again.
+                    </p>
+                    {skipReason.colliding_touch_id && (
+                      <p className="text-xs text-red-500 mt-0.5">
+                        Colliding touch: {skipReason.colliding_touch_id}
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                {/* Generic error */}
+                {composeError && (
+                  <div className="bg-red-900/20 border border-red-700/40 rounded-lg px-3 py-2">
+                    <p className="text-xs text-red-300">{composeError}</p>
+                  </div>
+                )}
+
+                {/* Draft textarea — shown after preview */}
+                {(composeState === "drafted" || composeState === "sent") && (
+                  <div className="space-y-1.5">
+                    <label className="text-xs text-gray-400 font-medium uppercase tracking-wider">
+                      Draft Message
+                      {composeState === "drafted" && (
+                        <span className="ml-2 text-purple-400 normal-case">(edit before sending)</span>
+                      )}
+                    </label>
+                    <textarea
+                      value={draftBody}
+                      onChange={(e) => setDraftBody(e.target.value)}
+                      disabled={composeState === "sent"}
+                      rows={5}
+                      className="w-full bg-gray-800 border border-gray-700 text-gray-100 text-sm rounded-lg px-3 py-2.5 focus:outline-none focus:ring-1 focus:ring-purple-500 resize-y disabled:opacity-60"
+                      placeholder="Your message will appear here…"
+                    />
+                  </div>
+                )}
+
+                {/* Sent confirmation */}
+                {composeState === "sent" && (
+                  <div className="bg-green-900/20 border border-green-700/40 rounded-lg px-3 py-2">
+                    <p className="text-xs text-green-300 font-medium">
+                      Touch committed — fires in ~30 seconds.
+                    </p>
+                    <p className="text-xs text-green-400 mt-0.5">
+                      Check the Schedule tab to see it. The fireOne engine (with D&apos;s anti-loop check) handles the actual send.
+                    </p>
+                  </div>
+                )}
+
+                {/* Action buttons */}
+                <div className="flex items-center gap-2 pt-1">
+                  {composeState === "idle" && (
+                    <Button
+                      onClick={handlePreview}
+                      className="bg-purple-700 hover:bg-purple-600 text-white text-xs"
+                      size="sm"
+                    >
+                      <PenLine className="w-3.5 h-3.5 mr-1.5" />
+                      Preview Draft
+                    </Button>
+                  )}
+
+                  {composeState === "generating" && (
+                    <Button disabled className="bg-gray-700 text-gray-400 text-xs" size="sm">
+                      <Clock className="w-3.5 h-3.5 mr-1.5 animate-pulse" />
+                      Generating…
+                    </Button>
+                  )}
+
+                  {composeState === "drafted" && (
+                    <>
+                      <Button
+                        onClick={handleSend}
+                        disabled={!person.whitelist_for_autoreply || !draftBody.trim()}
+                        title={
+                          !person.whitelist_for_autoreply
+                            ? "Enable whitelist_for_autoreply in Obsidian first"
+                            : undefined
+                        }
+                        className="bg-green-700 hover:bg-green-600 disabled:bg-gray-700 disabled:text-gray-500 text-white text-xs"
+                        size="sm"
+                      >
+                        <Send className="w-3.5 h-3.5 mr-1.5" />
+                        Send
+                      </Button>
+                      <Button
+                        onClick={handlePreview}
+                        variant="outline"
+                        className="border-gray-700 text-gray-300 hover:text-white text-xs"
+                        size="sm"
+                      >
+                        Re-generate
+                      </Button>
+                    </>
+                  )}
+
+                  {composeState === "sent" && (
+                    <Button
+                      onClick={handleReset}
+                      variant="outline"
+                      className="border-gray-700 text-gray-300 hover:text-white text-xs"
+                      size="sm"
+                    >
+                      Compose Another
+                    </Button>
+                  )}
+                </div>
               </CardContent>
             </Card>
           </TabsContent>
