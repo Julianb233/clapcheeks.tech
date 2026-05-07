@@ -69,7 +69,7 @@
  */
 
 import { mutation, internalAction, internalMutation, query } from "./_generated/server";
-import { internal } from "./_generated/api";
+import { internal, api } from "./_generated/api";
 import { v } from "convex/values";
 import { Id } from "./_generated/dataModel";
 
@@ -739,6 +739,29 @@ export const fireOne = internalAction({
       return { fired: true, type: touch.type, debrief_generated: true };
     }
 
+    // AI-9526 F4 — respect per-user autonomy mode. If supervised, route to
+    // approval_queue instead of firing directly. auto_send / full_auto / semi_auto
+    // continue through. Default (no row) = auto_send so existing fleets are
+    // unchanged.
+    const autonomyLevel = await ctx.runQuery(internal.touches._getAutonomyLevel, {
+      user_id: touch.user_id,
+    });
+    if (autonomyLevel === "supervised") {
+      await ctx.runMutation(api.queues.enqueueApproval, {
+        user_id: touch.user_id,
+        action_type: `touch:${touch.type}`,
+        match_id: touch.conversation_id,
+        proposed_text: touch.draft_body,
+        proposed_data: { person_id: touch.person_id, touch_id: args.touch_id },
+        confidence: 0.5,
+        ai_reasoning: `Autonomy=supervised; touch ${touch.type} parked for approval`,
+      });
+      await ctx.runMutation(internal.touches._markFired, {
+        touch_id: args.touch_id, status: "skipped", skip_reason: "autonomy_supervised",
+      });
+      return { skipped: true, reason: "autonomy_supervised", queued_for_approval: true };
+    }
+
     // Enqueue an agent_jobs row for the Mac Mini daemon to actually send.
     // (Actual send happens daemon-side because BlueBubbles HTTP is on Mac.)
     // Boundary-checking (Layer 2) runs inside convex_runner._draft_with_template.
@@ -814,6 +837,23 @@ export const _getTouch = internalQuery({
 export const _getPerson = internalQuery({
   args: { person_id: v.id("people") },
   handler: async (ctx, args) => await ctx.db.get(args.person_id),
+});
+
+// AI-9526 F4 — per-user autonomy mode. Returns "auto_send" by default when
+// no row exists so existing fleets keep firing immediately.
+export const _getAutonomyLevel = internalQuery({
+  args: { user_id: v.string() },
+  handler: async (ctx, args) => {
+    const row = await ctx.db
+      .query("autonomy_config")
+      .withIndex("by_user", (q) => q.eq("user_id", args.user_id))
+      .first();
+    return (row?.global_level ?? "auto_send") as
+      | "supervised"
+      | "semi_auto"
+      | "auto_send"
+      | "full_auto";
+  },
 });
 
 // AI-9500D: Query recent fired touches for a user (anti-loop).

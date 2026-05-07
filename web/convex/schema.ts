@@ -1109,6 +1109,22 @@ export default defineSchema({
     .index("by_status_expires", ["status", "expires_at"])
     .index("by_legacy_id", ["legacy_id"]),
 
+  // AI-9526 F4 — Per-user autonomy mode mirror. fireOne reads global_level
+  // before sending: "supervised" routes to approval_queue, "auto_send" fires
+  // through. Kept minimal — full config still lives in Supabase
+  // clapcheeks_autonomy_config. The web /api/autonomy-config route is
+  // responsible for keeping this row in sync.
+  autonomy_config: defineTable({
+    user_id: v.string(),
+    global_level: v.union(
+      v.literal("supervised"),
+      v.literal("semi_auto"),
+      v.literal("auto_send"),
+      v.literal("full_auto"),
+    ),
+    updated_at: v.number(),
+  }).index("by_user", ["user_id"]),
+
   // ==========================================================================
   // AI-9537 billing+misc migration
   // Replaces Supabase tables: clapcheeks_subscriptions, dunning_events,
