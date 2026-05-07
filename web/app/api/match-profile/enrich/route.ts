@@ -1,4 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { api } from '@/convex/_generated/api'
+import type { Id } from '@/convex/_generated/dataModel'
+import { getConvexServerClient } from '@/lib/convex/server'
 import { createClient } from '@/lib/supabase/server'
 import { signFromBirthday, signFromText, getCompatibility, TRAITS, ELEMENTS, MODALITIES, EMOJIS } from '@/lib/match-profile/zodiac'
 import { buildDiscProfile } from '@/lib/match-profile/disc-profiler'
@@ -27,32 +30,46 @@ export async function POST(request: NextRequest) {
   const { profile_id } = await request.json()
   if (!profile_id) return NextResponse.json({ error: 'profile_id required' }, { status: 400 })
 
-  // Fetch the profile
-  const { data: profile, error: fetchError } = await supabase
-    .from('clapcheeks_matches')
-    .select('*')
-    .eq('id', profile_id)
-    .eq('user_id', user.id)
-    .single()
+  // AI-9534 — Convex-backed read/write. profile_id may be a Convex doc id or
+  // legacy Supabase UUID; resolveByAnyId handles both.
+  const convex = getConvexServerClient()
+  const profile = (await convex.query(api.matches.resolveByAnyId, {
+    id: profile_id as string,
+  })) as
+    | (Record<string, unknown> & {
+        _id?: Id<'matches'>
+        user_id?: string
+        match_intel?: Record<string, unknown> | null
+        instagram_intel?: Record<string, unknown> | null
+        bio?: string | null
+        birth_date?: string | null
+      })
+    | null
 
-  if (fetchError || !profile) {
+  if (!profile || !profile._id || profile.user_id !== user.id) {
     return NextResponse.json({ error: 'Profile not found' }, { status: 404 })
   }
+  const profileConvexId = profile._id
 
   const existingIntel: Record<string, unknown> = {
-    ...((profile as any).match_intel ?? {}),
+    ...((profile.match_intel ?? {}) as Record<string, unknown>),
   }
   const existingIgIntel: Record<string, unknown> = {
-    ...((profile as any).instagram_intel ?? {}),
+    ...((profile.instagram_intel ?? {}) as Record<string, unknown>),
   }
 
   // Mark as enriching (partial) before we start
   {
     const partialIntel = { ...existingIntel, enrichment_status: 'partial' }
-    await (supabase as any)
-      .from('clapcheeks_matches')
-      .update({ match_intel: partialIntel })
-      .eq('id', profile_id)
+    try {
+      await convex.mutation(api.matches.patchByUser, {
+        id: profileConvexId,
+        user_id: user.id,
+        match_intel: partialIntel,
+      })
+    } catch {
+      // best-effort; the final write below is what matters
+    }
   }
 
   // Working copies — we'll write them back as a single update at the end.
@@ -61,8 +78,8 @@ export async function POST(request: NextRequest) {
 
   try {
     // 1. Zodiac from birth_date (preferred) or bio text.
-    const birthDate = (profile as any).birth_date as string | null
-    const bio = (profile as any).bio as string | null
+    const birthDate = profile.birth_date ?? null
+    const bio = profile.bio ?? null
     const igBio = (existingIgIntel.bio as string | undefined) ?? null
 
     let zodiacDetail: {
@@ -175,13 +192,20 @@ export async function POST(request: NextRequest) {
     intel.enrichment_error = err instanceof Error ? err.message : 'Unknown error'
   }
 
-  const { error: updateError } = await (supabase as any)
-    .from('clapcheeks_matches')
-    .update({ ...directUpdates, match_intel: intel })
-    .eq('id', profile_id)
-
-  if (updateError) {
-    return NextResponse.json({ error: updateError.message }, { status: 500 })
+  try {
+    await convex.mutation(api.matches.patchByUser, {
+      id: profileConvexId,
+      user_id: user.id,
+      match_intel: intel,
+      ...((directUpdates.zodiac !== undefined
+        ? { zodiac: directUpdates.zodiac as string }
+        : {}) as Record<string, unknown>),
+    })
+  } catch (e) {
+    return NextResponse.json(
+      { error: e instanceof Error ? e.message : 'update failed' },
+      { status: 500 },
+    )
   }
 
   return NextResponse.json({ success: true, enrichment_status: intel.enrichment_status })

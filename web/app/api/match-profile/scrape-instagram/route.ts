@@ -1,4 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { api } from '@/convex/_generated/api'
+import type { Id } from '@/convex/_generated/dataModel'
+import { getConvexServerClient } from '@/lib/convex/server'
 import { createClient } from '@/lib/supabase/server'
 import { parseExtractionResult, profileToAnalysisText } from '@/lib/match-profile/instagram-scraper'
 import { extractInterestsKeyword } from '@/lib/match-profile/interest-extractor'
@@ -26,19 +29,26 @@ export async function POST(request: NextRequest) {
   const { profile_id, extraction_result } = await request.json()
   if (!profile_id) return NextResponse.json({ error: 'profile_id required' }, { status: 400 })
 
-  // Fetch the profile
-  const { data: profile, error: fetchError } = await supabase
-    .from('clapcheeks_matches')
-    .select('*')
-    .eq('id', profile_id)
-    .eq('user_id', user.id)
-    .single()
+  // AI-9534 — Convex-backed read/write.
+  const convex = getConvexServerClient()
+  const profile = (await convex.query(api.matches.resolveByAnyId, {
+    id: profile_id as string,
+  })) as
+    | (Record<string, unknown> & {
+        _id?: Id<'matches'>
+        user_id?: string
+        instagram_handle?: string | null
+        match_intel?: Record<string, unknown> | null
+        instagram_intel?: Record<string, unknown> | null
+        bio?: string | null
+      })
+    | null
 
-  if (fetchError || !profile) {
+  if (!profile || !profile._id || profile.user_id !== user.id) {
     return NextResponse.json({ error: 'Profile not found' }, { status: 404 })
   }
 
-  const instagramHandle = (profile as any).instagram_handle as string | null
+  const instagramHandle = profile.instagram_handle ?? null
   if (!instagramHandle) {
     return NextResponse.json({ error: 'No Instagram handle on this profile' }, { status: 400 })
   }
@@ -49,15 +59,15 @@ export async function POST(request: NextRequest) {
     const analysisText = profileToAnalysisText(parsed)
 
     // Extract interests from IG content
-    const bio = (profile as any).bio as string | null
+    const bio = profile.bio ?? null
     const allText = [bio, analysisText].filter(Boolean).join(' ')
     const extracted = extractInterestsKeyword(allText)
 
     const existingIgIntel: Record<string, unknown> = {
-      ...((profile as any).instagram_intel ?? {}),
+      ...((profile.instagram_intel ?? {}) as Record<string, unknown>),
     }
     const existingMatchIntel: Record<string, unknown> = {
-      ...((profile as any).match_intel ?? {}),
+      ...((profile.match_intel ?? {}) as Record<string, unknown>),
     }
 
     const nextIgIntel: Record<string, unknown> = {
@@ -76,17 +86,19 @@ export async function POST(request: NextRequest) {
       interest_tags: extracted.tags,
     }
 
-    const { error: updateError } = await (supabase as any)
-      .from('clapcheeks_matches')
-      .update({
+    try {
+      await convex.mutation(api.matches.patchByUser, {
+        id: profile._id,
+        user_id: user.id,
         instagram_intel: nextIgIntel,
         match_intel: nextMatchIntel,
         instagram_fetched_at: parsed.scrapedAt,
       })
-      .eq('id', profile_id)
-
-    if (updateError) {
-      return NextResponse.json({ error: updateError.message }, { status: 500 })
+    } catch (e) {
+      return NextResponse.json(
+        { error: e instanceof Error ? e.message : 'update failed' },
+        { status: 500 },
+      )
     }
 
     return NextResponse.json({ success: true, profile: parsed })
