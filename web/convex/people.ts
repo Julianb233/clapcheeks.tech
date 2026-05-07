@@ -324,6 +324,56 @@ export const upsertFromGoogleContacts = mutation({
 // O(N) over the user's people rows because Convex doesn't index inside
 // arrays-of-objects. Fine at human scale (<10k people per user).
 // ----------------------------------------------------------------------------
+// AI-9500 Wave 2.4 Task B — getDossier(person_id)
+//
+// Bundles everything the person dossier deep-dive page needs in a single
+// round trip: person row + last 100 messages (cross-channel via
+// by_person_recent index) + linked conversations + scheduled touches +
+// open pending_links candidates pointing at this person.
+// ----------------------------------------------------------------------------
+export const getDossier = query({
+  args: { person_id: v.id("people") },
+  handler: async (ctx, args) => {
+    const person = await ctx.db.get(args.person_id);
+    if (!person) return null;
+
+    const messages = await ctx.db
+      .query("messages")
+      .withIndex("by_person_recent", (q) => q.eq("person_id", args.person_id))
+      .order("desc")
+      .take(100);
+
+    const conversations = await ctx.db
+      .query("conversations")
+      .withIndex("by_person", (q) => q.eq("person_id", args.person_id))
+      .collect();
+
+    const scheduledTouches = await ctx.db
+      .query("scheduled_touches")
+      .withIndex("by_person_status", (q) => q.eq("person_id", args.person_id))
+      .order("desc")
+      .take(50);
+
+    const allOpenLinks = await ctx.db
+      .query("pending_links")
+      .withIndex("by_user_status", (q) =>
+        q.eq("user_id", person.user_id).eq("status", "open"),
+      )
+      .collect();
+    const pendingLinks = allOpenLinks.filter((l) =>
+      l.candidate_person_ids.includes(args.person_id),
+    );
+
+    return {
+      person,
+      messages,
+      conversations,
+      scheduled_touches: scheduledTouches,
+      pending_links: pendingLinks,
+    };
+  },
+});
+
 export const findByHandle = query({
   args: {
     user_id: v.string(),
