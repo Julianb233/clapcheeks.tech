@@ -16,6 +16,7 @@ export default defineSchema({
       v.literal("tinder"),
       v.literal("bumble"),
       v.literal("imessage"),
+      v.literal("instagram"),
       v.literal("other"),
     ),
     external_match_id: v.string(),        // platform-specific match id
@@ -328,6 +329,101 @@ export default defineSchema({
     next_best_move_confidence: v.optional(v.number()),          // 0.0 - 1.0
     courtship_last_analyzed: v.optional(v.number()),            // unix ms of last enrich_courtship run
 
+    // -----------------------------------------------------------------
+    // FEELS-SEEN-HEARD-UNDERSTOOD intelligence (Julian: "make her feel seen,
+    // heard, understood, and feel like I'm interested in getting to know
+    // them"). Same enrich_courtship pass extracts these. The reply generator
+    // pulls from them so every outbound message references something specific
+    // she's said vs. generic "how's your week".
+    // -----------------------------------------------------------------
+    personal_details: v.optional(v.array(v.object({              // durable facts about her life
+      fact: v.string(),                                          // e.g. "rescue puppy named Beans"
+      source_msg_external_guid: v.optional(v.string()),
+      learned_at: v.number(),
+      validated_by_julian: v.optional(v.boolean()),
+    }))),
+    recent_life_events: v.optional(v.array(v.object({            // events with dates → schedulable touches
+      event: v.string(),                                         // "job interview at Acme"
+      date_mentioned_ms: v.number(),
+      event_date_estimated_ms: v.optional(v.number()),
+      status: v.union(                                           // pending → happened → faded
+        v.literal("pending"), v.literal("happened"), v.literal("missed"), v.literal("faded"),
+      ),
+    }))),
+    topics_that_lit_her_up: v.optional(v.array(v.object({        // topics where engagement spiked
+      topic: v.string(),
+      signal_count: v.number(),
+      last_lit_at_ms: v.number(),
+      signal_strength: v.optional(v.number()),                   // 0..1
+    }))),
+    curiosity_ledger: v.optional(v.array(v.object({              // open questions to ask
+      question: v.string(),
+      topic: v.optional(v.string()),
+      priority: v.number(),                                      // 1=high
+      status: v.union(
+        v.literal("pending"), v.literal("asked"), v.literal("answered"), v.literal("retired"),
+      ),
+      added_at_ms: v.number(),
+      asked_at_ms: v.optional(v.number()),
+    }))),
+    emotional_state_recent: v.optional(v.array(v.object({        // sliding window of inferred state
+      state: v.union(
+        v.literal("stressed"), v.literal("excited"), v.literal("playful"),
+        v.literal("vulnerable"), v.literal("flirty"), v.literal("bored"),
+        v.literal("tired"), v.literal("proud"), v.literal("anxious"), v.literal("neutral"),
+      ),
+      intensity: v.number(),                                     // 0..1
+      observed_at_ms: v.number(),
+      message_external_guid: v.optional(v.string()),
+    }))),
+
+    // -----------------------------------------------------------------
+    // PER-GIRL CADENCE OVERRIDES + ASK-READINESS (Phase A/B/C of the
+    // optimization plan). recalibrate_cadence sweep updates weekly.
+    // -----------------------------------------------------------------
+    cadence_overrides: v.optional(v.object({
+      min_reply_gap_ms: v.optional(v.number()),
+      max_reply_gap_ms: v.optional(v.number()),
+      preferred_send_hour_local: v.optional(v.number()),
+      compliment_throttle_ms: v.optional(v.number()),
+      banter_density_target: v.optional(v.number()),             // 0..1
+      emoji_density_target: v.optional(v.number()),
+      message_length_target: v.optional(v.number()),
+    })),
+    time_to_ask_score: v.optional(v.number()),                   // 0..1 — when crosses 0.7 → schedule date-ask
+    last_ask_attempted_at: v.optional(v.number()),               // unix ms — throttle re-asks
+
+    // -----------------------------------------------------------------
+    // AI-9500 Wave 2.4A — Profile-screenshot import enrichment.
+    // Set when a person row is created via createFromProfileAnalysis
+    // (Julian screenshots a Tinder/Bumble/Hinge/IG profile, AI extracts).
+    // Operator can override any of these via Obsidian frontmatter.
+    // -----------------------------------------------------------------
+    age: v.optional(v.number()),
+    zodiac_sign: v.optional(v.union(
+      v.literal("aries"), v.literal("taurus"), v.literal("gemini"),
+      v.literal("cancer"), v.literal("leo"), v.literal("virgo"),
+      v.literal("libra"), v.literal("scorpio"), v.literal("sagittarius"),
+      v.literal("capricorn"), v.literal("aquarius"), v.literal("pisces"),
+    )),
+    zodiac_analysis: v.optional(v.string()),                     // 2-4 sentences: how to talk to her, what to avoid
+    disc_inference: v.optional(v.string()),                      // composite letter ("D/I", "S/C", etc.) inferred from bio + photos
+    disc_inference_reasoning: v.optional(v.string()),            // 1-2 sentences explaining the inference
+    opener_suggestions: v.optional(v.array(v.string())),         // 3 calibrated openers (zodiac+DISC-aware)
+    location_observed: v.optional(v.string()),                   // city / neighborhood from profile
+    occupation_observed: v.optional(v.string()),                 // job / industry from bio
+    bio_text: v.optional(v.string()),                            // her self-written bio
+    profile_prompts_observed: v.optional(v.array(v.object({       // Hinge-style prompt + answer pairs
+      prompt: v.string(),
+      answer: v.string(),
+    }))),
+    photos_observed: v.optional(v.array(v.string())),            // brief AI description of each photo
+    imported_from_profile_screenshot: v.optional(v.boolean()),
+    imported_from_platform: v.optional(v.union(
+      v.literal("tinder"), v.literal("bumble"), v.literal("hinge"),
+      v.literal("instagram"), v.literal("other"),
+    )),
+
     // Cadence + timing — drives the cadence_runner thread.
     cadence_profile: v.union(
       v.literal("hot"),                             // reply within 5-30m
@@ -408,4 +504,170 @@ export default defineSchema({
   })
     .index("by_user_status", ["user_id", "status"])
     .index("by_conversation", ["conversation_id"]),
+
+  // -----------------------------------------------------------------------
+  // AI-9449 Phase A — scheduled_touches (replaces global polling crons).
+  //
+  // Per-row scheduling: each touch self-schedules via ctx.scheduler.runAt at
+  // exactly the right moment instead of a global cron scanning for due rows.
+  // Powers ask-for-the-date, logistics cascade, ghost-recovery, hot-fast-track,
+  // birthday/event-day, and the daily digest queue.
+  // -----------------------------------------------------------------------
+  scheduled_touches: defineTable({
+    user_id: v.string(),
+    person_id: v.id("people"),
+    conversation_id: v.optional(v.id("conversations")),
+    type: v.union(
+      v.literal("reply"),                  // standard cadence reply
+      v.literal("nudge"),                  // soft re-engage
+      v.literal("callback_reference"),     // "did you end up doing X?"
+      v.literal("date_ask"),               // propose a date
+      v.literal("date_confirm_24h"),       // T-24h confirmation
+      v.literal("date_dayof"),             // T-3h / day-of
+      v.literal("date_postmortem"),        // next-morning followup
+      v.literal("reengage_low_temp"),      // pattern interrupt at 5+ days silent
+      v.literal("birthday_wish"),
+      v.literal("event_day_check"),        // her marathon / interview / etc.
+      v.literal("pattern_interrupt"),      // unique soft restart
+      v.literal("phone_swap_followup"),    // first-call invite 24-72h post-swap
+      v.literal("first_call_invite"),
+      v.literal("morning_text"),
+      v.literal("digest_inclusion"),       // include this person in tomorrow's digest
+    ),
+    scheduled_for: v.number(),             // unix ms — exact fire time
+    status: v.union(
+      v.literal("scheduled"),
+      v.literal("fired"),
+      v.literal("skipped"),                // active-hours / cool-down / boundary
+      v.literal("cancelled"),              // superseded by newer state
+      v.literal("error"),
+    ),
+    draft_body: v.optional(v.string()),    // pre-generated draft (or generate at fire time)
+    generate_at_fire_time: v.optional(v.boolean()),  // if true, defer body generation
+    media_asset_id: v.optional(v.id("media_assets")),
+    prompt_template: v.optional(v.string()),         // which template the AI used
+    urgency: v.optional(v.union(
+      v.literal("hot"), v.literal("warm"), v.literal("cool"),
+    )),
+    generated_by_run_id: v.optional(v.string()),    // trace id of the enrichment that generated this
+    skip_reason: v.optional(v.string()),
+    fired_at: v.optional(v.number()),
+    // Wave 2.4 Task G — preview/compose-from-dashboard touches.
+    // is_preview=true: Mac Mini drafts body asynchronously and writes back.
+    // commit() flips is_preview=false + scheduled_for=now to actually fire.
+    is_preview: v.optional(v.boolean()),
+    // Wave 2.4 Task D — anti-loop pattern hash.
+    // sha256(prompt_template + ":" + first_50_chars(draft_body)) at fire time.
+    // Used by fireOne to detect cross-person template collision in last 7 days.
+    pattern_hash: v.optional(v.string()),
+    created_at: v.number(),
+    updated_at: v.number(),
+  })
+    .index("by_user_status", ["user_id", "status"])
+    .index("by_person_status", ["person_id", "status"])
+    .index("by_due", ["status", "scheduled_for"])
+    .index("by_conversation", ["conversation_id"])
+    // Wave 2.4 Task D — fast 7-day anti-loop scan per user.
+    .index("by_user_fired", ["user_id", "fired_at"]),
+
+  // -----------------------------------------------------------------------
+  // AI-9449 — Media library. Photos / videos / voice memos / memes Julian
+  // has approved for AI to send in context (puppy, beach house, gym selfie,
+  // memes that match her humor, etc.). AI selects from this library based
+  // on conversation signals and a context-hook match.
+  // -----------------------------------------------------------------------
+  media_assets: defineTable({
+    user_id: v.string(),
+    asset_id: v.string(),                              // stable external id (not Convex Id) — survives re-uploads
+    kind: v.union(
+      v.literal("image"), v.literal("video"),
+      v.literal("voice_memo"), v.literal("meme"), v.literal("gif"),
+    ),
+    storage_url: v.string(),                           // Convex storage URL or external CDN
+    thumbnail_url: v.optional(v.string()),
+    file_size_bytes: v.optional(v.number()),
+    mime_type: v.optional(v.string()),
+    caption: v.optional(v.string()),                   // Julian's note: "Tahoe deck at sunset"
+    tags: v.array(v.string()),                         // ["puppy","dog","outdoors"]
+    context_hooks: v.array(v.string()),                // ["she mentions weekends","she likes hiking"]
+    vibe: v.optional(v.union(
+      v.literal("playful"), v.literal("flex"), v.literal("vulnerable"),
+      v.literal("funny"), v.literal("adventurous"), v.literal("romantic"),
+      v.literal("mundane"),
+    )),
+    flex_level: v.optional(v.number()),                // 0..5 — "boat at sunset" = 5
+    smile_detected: v.optional(v.boolean()),
+    with_friends: v.optional(v.boolean()),
+    with_pet: v.optional(v.boolean()),
+    location_taken: v.optional(v.string()),
+    date_taken_ms: v.optional(v.number()),
+    upload_source: v.optional(v.union(
+      v.literal("iphone"), v.literal("google_drive"),
+      v.literal("manual"), v.literal("vps_cli"),
+    )),
+    approval_status: v.union(
+      v.literal("pending"),                            // uploaded but Julian hasn't confirmed tags
+      v.literal("approved"),                           // OK for AI to send
+      v.literal("deprecated"),                         // never send (e.g. ex appears in photo)
+    ),
+    auto_tag_run_id: v.optional(v.string()),           // trace id of the Vision call that tagged it
+
+    // AI-9500 Wave 2.4A — profile-screenshot mode.
+    // When set, this asset is treated as a screenshot of someone's dating-app
+    // profile (Tinder/Bumble/Hinge/IG). media:analyzeAsProfile fires Vision
+    // against it and writes the extracted info here. Dashboard surfaces it
+    // for one-click create-person-row.
+    analysis_kind: v.optional(v.union(
+      v.literal("media"),                              // default — used for AI-attached sends
+      v.literal("profile_screenshot"),                 // analyze as a person's profile
+    )),
+    profile_screenshot_data: v.optional(v.any()),      // structured Vision output (see analyzeAsProfile)
+    profile_imported_to_person_id: v.optional(v.id("people")),  // set after createFromProfileAnalysis fires
+
+    used_count: v.optional(v.number()),
+    last_used_at_ms: v.optional(v.number()),
+    last_used_with_person_id: v.optional(v.id("people")),
+    created_at: v.number(),
+    updated_at: v.number(),
+  })
+    .index("by_user", ["user_id"])
+    .index("by_user_status", ["user_id", "approval_status"])
+    .index("by_asset_id", ["asset_id"]),
+
+  // -----------------------------------------------------------------------
+  // AI-9449 Wave 2.2 — calendar_slots cache. Mac Mini periodically pulls
+  // Julian's gws calendars (primary + CONSULTING + SALES CALLS + Work IN
+  // THE Business) and writes free-busy windows here. Date-ask drafts read
+  // from this so AI never proposes a time Julian's already booked.
+  // -----------------------------------------------------------------------
+  calendar_slots: defineTable({
+    user_id: v.string(),
+    slot_start_ms: v.number(),                       // unix ms — slot window start
+    slot_end_ms: v.number(),                         // unix ms — slot window end
+    slot_kind: v.union(
+      v.literal("free"),                             // proposable
+      v.literal("busy"),                             // booked, do not propose
+      v.literal("date_proposed"),                    // we proposed this to a girl
+      v.literal("date_confirmed"),                   // she said yes
+    ),
+    label_local: v.optional(v.string()),             // e.g. "Thu 7pm Pacific"
+    proposed_to_person_id: v.optional(v.id("people")),
+    fetched_at_ms: v.number(),
+  })
+    .index("by_user_start", ["user_id", "slot_start_ms"])
+    .index("by_user_kind", ["user_id", "slot_kind"]),
+
+  // Tracks asset usage to prevent repeats per girl + cool-down across girls.
+  media_uses: defineTable({
+    user_id: v.string(),
+    asset_id: v.id("media_assets"),
+    person_id: v.id("people"),
+    conversation_id: v.optional(v.id("conversations")),
+    sent_at: v.number(),
+    message_external_guid: v.optional(v.string()),
+    fire_context: v.optional(v.string()),              // e.g. "ghost_recovery", "phone_swap_followup"
+  })
+    .index("by_user_recent", ["user_id", "sent_at"])
+    .index("by_asset", ["asset_id"])
+    .index("by_person", ["person_id"]),
 });
