@@ -390,6 +390,20 @@ export const upsertFromWebhook = mutation({
             ask_outcome: outcome,
             updated_at: Date.now(),
           } as any);
+
+          // AI-9500 W2 #B — Soft-no recovery: schedule a +14d re-ask touch
+          // immediately when we classify ask_outcome=soft_no. Smaller ask, lower
+          // pressure, references something specific she said.
+          // recovery_scheduled_at guard (inside _scheduleSoftNoRecovery) ensures
+          // we don't double-schedule if this branch runs twice.
+          if (outcome === "soft_no") {
+            await ctx.scheduler.runAfter(0, internal.touches._scheduleSoftNoRecovery, {
+              source_touch_id: recentAsk._id,
+              user_id: recentAsk.user_id,
+              person_id: recentAsk.person_id,
+              conversation_id: recentAsk.conversation_id,
+            });
+          }
         }
       }
     }

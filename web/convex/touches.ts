@@ -1133,6 +1133,156 @@ export const autoPick6hCron = internalMutation({
 });
 
 // ---------------------------------------------------------------------------
+// AI-9500 W2 #B — _scheduleSoftNoRecovery (internalMutation)
+//
+// Called immediately after ask_outcome is patched to "soft_no" on a date_ask
+// touch (by upsertFromWebhook in messages.ts, or by the 6h sweep cron).
+//
+// Schedules a soft_no_recovery touch +14 days from now. The draft is a
+// lower-pressure, smaller-ask message that references a specific moment from
+// her recent messages (NOT another "want to grab dinner" — the ask that already
+// got a soft_no). Her topics_that_lit_her_up / things_she_loves fields from
+// the people row are used to personalise the callback reference.
+//
+// Idempotent: if a soft_no_recovery touch is already scheduled for this person
+// (status=scheduled), skips and returns {skipped: true, reason: "already_scheduled"}.
+// Records recovery_scheduled_at on the source date_ask touch so the sweep cron
+// can skip already-processed rows.
+// ---------------------------------------------------------------------------
+export const _scheduleSoftNoRecovery = internalMutation({
+  args: {
+    source_touch_id: v.id("scheduled_touches"),  // the date_ask touch whose outcome=soft_no
+    user_id: v.string(),
+    person_id: v.id("people"),
+    conversation_id: v.optional(v.id("conversations")),
+  },
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    const FOURTEEN_DAYS_MS = 14 * 24 * 60 * 60 * 1000;
+
+    // Idempotency: check for an existing pending soft_no_recovery for this person.
+    const existing = await ctx.db
+      .query("scheduled_touches")
+      .withIndex("by_person_status", (q) =>
+        q.eq("person_id", args.person_id).eq("status", "scheduled"),
+      )
+      .filter((q) => q.eq(q.field("type"), "soft_no_recovery"))
+      .first();
+
+    if (existing) {
+      // Already have a pending recovery — mark source and return.
+      await ctx.db.patch(args.source_touch_id, {
+        recovery_scheduled_at: existing.scheduled_for,
+        updated_at: now,
+      } as any);
+      return { skipped: true, reason: "already_scheduled", existing_touch_id: existing._id };
+    }
+
+    // Fetch person context to personalise the draft.
+    const person = await ctx.db.get(args.person_id);
+    const firstName = (person?.display_name ?? "").split(" ")[0] || "hey";
+
+    // Build a contextual lower-pressure draft:
+    //   - Use her topics_that_lit_her_up[0] or things_she_loves[0] as callback anchor.
+    //   - Smaller ask: coffee / walk / 30 min (NOT another dinner ask).
+    //   - generate_at_fire_time=true so the Mac Mini convex_runner drafts it fresh
+    //     with full conversation context at fire time — the prompt_template carries
+    //     the coaching instructions.
+    const litTopics = (person as any)?.topics_that_lit_her_up ?? [];
+    const thingsSheLoves = (person as any)?.things_she_loves ?? [];
+    const callbackHint =
+      litTopics[0]?.topic ||
+      thingsSheLoves[0] ||
+      null;
+
+    // Prompt template encoding (JSON) — convex_runner._draft_with_template reads this
+    // when job_type=send_imessage + touch_type=soft_no_recovery.
+    const promptTemplate = JSON.stringify({
+      template: "soft_no_recovery",
+      first_name: firstName,
+      callback_hint: callbackHint,
+      small_ask_only: true,          // convex_runner: propose coffee/walk/30min only
+      avoid_repeat_venue: true,      // convex_runner: do NOT repeat the original ask venue
+    });
+
+    const fireAt = now + FOURTEEN_DAYS_MS;
+    const recoveryTouchId = await ctx.db.insert("scheduled_touches", {
+      user_id: args.user_id,
+      person_id: args.person_id,
+      conversation_id: args.conversation_id,
+      type: "soft_no_recovery",
+      scheduled_for: fireAt,
+      status: "scheduled",
+      generate_at_fire_time: true,
+      prompt_template: promptTemplate,
+      urgency: "cool",              // lower urgency than a fresh date_ask
+      created_at: now,
+      updated_at: now,
+    });
+
+    // Self-schedule: Convex fires at scheduled_for ± ~50ms.
+    await ctx.scheduler.runAt(fireAt, internal.touches.fireOne, {
+      touch_id: recoveryTouchId,
+    });
+
+    // Stamp recovery_scheduled_at on the source touch to prevent double-scheduling.
+    await ctx.db.patch(args.source_touch_id, {
+      recovery_scheduled_at: fireAt,
+      updated_at: now,
+    } as any);
+
+    return { scheduled: true, touch_id: recoveryTouchId, fire_at: fireAt };
+  },
+});
+
+// ---------------------------------------------------------------------------
+// AI-9500 W2 #B — softNoRecoveryDetectorCron (internalMutation)
+//
+// Safety-net cron (every 6h) that scans date_ask touches whose ask_outcome
+// is "soft_no" but recovery_scheduled_at is still null (i.e. the real-time
+// path in upsertFromWebhook missed them — process restart, backfill, etc.).
+//
+// For each unprocessed soft_no touch found, calls _scheduleSoftNoRecovery.
+// Processes at most 20 per sweep to avoid timeout; next sweep picks up the rest.
+// ---------------------------------------------------------------------------
+export const softNoRecoveryDetectorCron = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const now = Date.now();
+
+    // Scan recent date_ask fired touches with ask_outcome=soft_no and no recovery yet.
+    // We query by status=fired, then JS-filter for ask_outcome and missing recovery_scheduled_at.
+    // No dedicated index for ask_outcome — the set of fired date_ask touches is small (<500).
+    const candidatesRaw = await ctx.db
+      .query("scheduled_touches")
+      .withIndex("by_due", (q) => q.eq("status", "fired").lte("scheduled_for", now))
+      .filter((q) => q.eq(q.field("type"), "date_ask"))
+      .take(200);
+
+    const unprocessed = candidatesRaw.filter(
+      (t) =>
+        (t as any).ask_outcome === "soft_no" &&
+        (t as any).recovery_scheduled_at === undefined,
+    );
+
+    let scheduled = 0;
+    for (const touch of unprocessed.slice(0, 20)) {
+      // Use scheduler.runAfter(0) so each recovery scheduling runs in its own
+      // mutation (avoids doc-write limits and gives idempotent retry semantics).
+      await ctx.scheduler.runAfter(0, internal.touches._scheduleSoftNoRecovery, {
+        source_touch_id: touch._id,
+        user_id: touch.user_id,
+        person_id: touch.person_id,
+        conversation_id: touch.conversation_id,
+      });
+      scheduled++;
+    }
+
+    return { scanned: candidatesRaw.length, unprocessed: unprocessed.length, scheduled };
+  },
+});
+
+// ---------------------------------------------------------------------------
 // nextHourLocalToUnix — given a tz and an hour 0..23, return the next unix ms
 // when that hour starts in that tz. Used for active-hours rescheduling.
 // ---------------------------------------------------------------------------
