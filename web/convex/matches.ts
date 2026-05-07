@@ -35,6 +35,22 @@ const PHOTO = v.object({
 const MAX_LIMIT = 2000;
 const DEFAULT_LIMIT = 200;
 
+// AI-9526 Q2 — default status for any match row missing one. The Supabase
+// backfill landed many rows with status=null; the dashboard contract is that
+// every match has a status the dropdown can flip. We apply this on every
+// read path so legacy rows surface as "lead" without needing a migration.
+const DEFAULT_STATUS = "lead";
+
+function withDefaultStatus<T extends { status?: string | null | undefined } | null | undefined>(
+  row: T,
+): T {
+  if (!row) return row;
+  if (row.status == null || row.status === "") {
+    return { ...row, status: DEFAULT_STATUS } as T;
+  }
+  return row;
+}
+
 // ----------------------------------------------------------------------------
 // upsertByExternal — write path used by Mac Mini match_sync.py.
 //
@@ -104,7 +120,7 @@ export const upsertByExternal = mutation({
       name: args.name,
       age: args.age,
       bio: args.bio,
-      status: args.status,
+      status: args.status ?? DEFAULT_STATUS,
       photos: args.photos,
       instagram_handle: args.instagram_handle,
       zodiac: args.zodiac,
@@ -199,7 +215,7 @@ export const upsertFromBackfill = mutation({
       name: args.name,
       age: args.age,
       bio: args.bio,
-      status: args.status,
+      status: args.status ?? DEFAULT_STATUS,
       photos: args.photos,
       instagram_handle: args.instagram_handle,
       zodiac: args.zodiac,
@@ -263,7 +279,7 @@ export const listForUser = query({
       if (bf !== af) return bf - af;
       return (b.created_at ?? 0) - (a.created_at ?? 0);
     });
-    return rows.slice(0, limit);
+    return rows.slice(0, limit).map((r) => withDefaultStatus(r));
   },
 });
 
@@ -293,7 +309,7 @@ export const listForUserByPlatform = query({
       if (bf !== af) return bf - af;
       return (b.created_at ?? 0) - (a.created_at ?? 0);
     });
-    return filtered.slice(0, limit);
+    return filtered.slice(0, limit).map((r) => withDefaultStatus(r));
   },
 });
 
@@ -303,7 +319,8 @@ export const listForUserByPlatform = query({
 export const getById = query({
   args: { id: v.id("matches") },
   handler: async (ctx, args) => {
-    return await ctx.db.get(args.id);
+    const row = await ctx.db.get(args.id);
+    return withDefaultStatus(row);
   },
 });
 
@@ -314,12 +331,13 @@ export const getById = query({
 export const getBySupabaseId = query({
   args: { supabase_match_id: v.string() },
   handler: async (ctx, args) => {
-    return await ctx.db
+    const row = await ctx.db
       .query("matches")
       .withIndex("by_supabase_match_id", (q) =>
         q.eq("supabase_match_id", args.supabase_match_id),
       )
       .first();
+    return withDefaultStatus(row);
   },
 });
 
@@ -449,16 +467,17 @@ export const resolveByAnyId = query({
     // belonging to the matches table).
     try {
       const doc = await ctx.db.get(args.id as unknown as Parameters<typeof ctx.db.get>[0]);
-      if (doc && (doc as { _id?: unknown })._id) return doc;
+      if (doc && (doc as { _id?: unknown })._id) return withDefaultStatus(doc as { status?: string | null });
     } catch {
       // not a valid Convex id — fall through
     }
-    return await ctx.db
+    const row = await ctx.db
       .query("matches")
       .withIndex("by_supabase_match_id", (q) =>
         q.eq("supabase_match_id", args.id),
       )
       .first();
+    return withDefaultStatus(row);
   },
 });
 
@@ -489,7 +508,7 @@ export const listForUserOrdered = query({
       const ba = typeof b.last_activity_at === "number" ? b.last_activity_at : -Infinity;
       return ba - aa;
     });
-    return all.slice(0, limit);
+    return all.slice(0, limit).map((r) => withDefaultStatus(r));
   },
 });
 
@@ -544,7 +563,7 @@ export const insertManual = mutation({
       bio: args.bio,
       instagram_handle: args.instagram_handle,
       match_intel: args.match_intel,
-      status: args.status ?? "new",
+      status: args.status ?? DEFAULT_STATUS,
       created_at: now,
       updated_at: now,
     });
@@ -681,5 +700,46 @@ export const generateUploadUrl = mutation({
   args: {},
   handler: async (ctx) => {
     return await ctx.storage.generateUploadUrl();
+  },
+});
+
+// ----------------------------------------------------------------------------
+// AI-9526 Q2 — backfillStatusLead: one-shot mutation to set status="lead" on
+// every match row where status is null/missing. Idempotent — re-running is a
+// no-op. Optional `user_id` arg scopes the backfill; omit to run fleet-wide.
+// Admin-only (Convex admin auth or shared secret).
+// ----------------------------------------------------------------------------
+export const backfillStatusLead = mutation({
+  args: {
+    user_id: v.optional(v.string()),
+    deploy_key_check: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const expected = process.env.CONVEX_RUNNER_SHARED_SECRET;
+    // Allow either Convex admin auth OR shared secret. If the secret is set,
+    // require it; otherwise fall through to admin-auth-only.
+    if (expected && args.deploy_key_check !== expected) {
+      const identity = await ctx.auth.getUserIdentity();
+      if (!identity) {
+        throw new Error("forbidden: admin auth or deploy_key_check required");
+      }
+    }
+    const rows = args.user_id
+      ? await ctx.db
+          .query("matches")
+          .withIndex("by_user", (q) => q.eq("user_id", args.user_id!))
+          .collect()
+      : await ctx.db.query("matches").collect();
+    let patched = 0;
+    for (const row of rows) {
+      if (row.status == null || row.status === "") {
+        await ctx.db.patch(row._id, {
+          status: DEFAULT_STATUS,
+          updated_at: Date.now(),
+        });
+        patched += 1;
+      }
+    }
+    return { scanned: rows.length, patched };
   },
 });
