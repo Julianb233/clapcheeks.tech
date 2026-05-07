@@ -188,17 +188,15 @@ export default function DashboardLive({ initialData, hasAgent }: DashboardLivePr
     { stage: 'Swipes', value: data.totals.swipes_right },
     { stage: 'Matches', value: data.totals.matches },
     { stage: 'Conversations', value: data.totals.conversations || data.totals.messages_sent },
-    { stage: 'Date-ready', value: Math.round((data.totals.conversations || data.totals.messages_sent) * 0.3) },
     { stage: 'Dates Booked', value: data.totals.dates_booked },
   ]
 
-  // Ensure we have 5 stages for the display
+  // Ensure we have 4 stages for the display
   const funnelStages = [
     { label: 'Swipes', value: funnel[0]?.value ?? data.totals.swipes_right },
     { label: 'Matches', value: funnel[1]?.value ?? data.totals.matches },
     { label: 'Conversations', value: funnel[2]?.value ?? data.totals.messages_sent },
-    { label: 'Date-ready', value: funnel[3]?.value ?? Math.round(data.totals.messages_sent * 0.3) },
-    { label: 'Dates Booked', value: funnel[4]?.value ?? data.totals.dates_booked },
+    { label: 'Dates Booked', value: funnel[3]?.value ?? data.totals.dates_booked },
   ]
 
   return (
