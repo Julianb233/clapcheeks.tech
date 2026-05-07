@@ -38,6 +38,8 @@ export default function PersonDossierPage() {
   const params = useParams<{ id: string }>()
   const personId = params.id as Id<"people">
   const dossier = useQuery(api.people.getDossier, { person_id: personId })
+  // AI-9500 W2 E13 — call history for this person
+  const calls = useQuery(api.calls.listForPerson, { person_id: personId, limit: 100 })
   const [tab, setTab] = useState<TabName>("Timeline")
 
   if (dossier === undefined) {
@@ -85,7 +87,7 @@ export default function PersonDossierPage() {
       </div>
 
       <div className="bg-gray-900 border border-gray-800 border-t-0 rounded-b-md p-6 mb-8">
-        {tab === "Timeline" && <TimelineTab messages={messages} conversations={conversations} />}
+        {tab === "Timeline" && <TimelineTab messages={messages} conversations={conversations} calls={calls ?? []} />}
         {tab === "Memory" && <MemoryTab person={person} />}
         {tab === "Schedule" && <ScheduleTab person={person} touches={scheduled_touches} />}
         {tab === "Media" && <MediaTab uses={media_uses} assets={media_assets} />}
@@ -346,19 +348,104 @@ function Select({
 // ---------------------------------------------------------------------------
 // Timeline tab — recent messages, ascending (oldest first within the slice)
 // ---------------------------------------------------------------------------
-function TimelineTab({ messages, conversations }: { messages: any[]; conversations: any[] }) {
-  const ordered = useMemo(() => [...messages].reverse(), [messages]) // newest at bottom
-  if (!ordered.length) {
-    return <div className="text-gray-500 text-sm">No messages yet.</div>
+// ---------------------------------------------------------------------------
+// CallBubble — single call entry in the timeline
+// ---------------------------------------------------------------------------
+function CallBubble({ call }: { call: any }) {
+  const isMissed = call.direction === "missed"
+  const isOut = call.direction === "outbound"
+
+  const icon = isMissed ? "📵" : "📞"
+  const label = isMissed
+    ? "missed call"
+    : isOut
+    ? "outbound call"
+    : "inbound call"
+
+  const durationLabel = (() => {
+    if (call.duration_seconds === undefined || call.duration_seconds === null) return ""
+    const m = Math.floor(call.duration_seconds / 60)
+    const s = call.duration_seconds % 60
+    if (m === 0) return ` · ${s}s`
+    return ` · ${m}m${s > 0 ? `${s}s` : ""}`
+  })()
+
+  const platformLabel = call.platform
+    ? ` · ${call.platform.replace("_", " ")}`
+    : ""
+
+  const ts = new Date(call.started_at_ms).toLocaleString()
+
+  return (
+    <div className={`flex ${isOut ? "justify-end" : "justify-start"}`}>
+      <div className={`rounded-lg px-3 py-2 border text-sm ${
+        isMissed
+          ? "bg-red-900/20 border-red-700/40 text-red-300"
+          : isOut
+          ? "bg-blue-900/20 border-blue-700/40 text-blue-200"
+          : "bg-gray-800 border-gray-700 text-gray-200"
+      }`}>
+        <span className="mr-1">{icon}</span>
+        <span className="font-medium">{label}</span>
+        {durationLabel && <span className="text-xs opacity-70">{durationLabel}</span>}
+        {call.notes && (
+          <div className="text-xs opacity-60 mt-0.5 italic">{call.notes}</div>
+        )}
+        <div className="text-[10px] text-gray-500 mt-1">
+          {ts}{platformLabel}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// TimelineTab — messages + calls interleaved by timestamp
+// ---------------------------------------------------------------------------
+function TimelineTab({
+  messages,
+  conversations,
+  calls,
+}: {
+  messages: any[]
+  conversations: any[]
+  calls: any[]
+}) {
+  // Build a unified event list sorted by timestamp (oldest at top, newest at bottom)
+  const unified = useMemo(() => {
+    const msgEvents = messages.map((m: any) => ({
+      kind: "message" as const,
+      ts: m.sent_at,
+      data: m,
+    }))
+    const callEvents = calls.map((c: any) => ({
+      kind: "call" as const,
+      ts: c.started_at_ms,
+      data: c,
+    }))
+    return [...msgEvents, ...callEvents].sort((a, b) => a.ts - b.ts)
+  }, [messages, calls])
+
+  if (!unified.length) {
+    return <div className="text-gray-500 text-sm">No messages or calls yet.</div>
   }
-  const platforms = Array.from(new Set(conversations.map((c) => c.platform)))
+
+  const platforms = Array.from(new Set(conversations.map((c: any) => c.platform)))
+  const callCount = calls.length
+
   return (
     <div>
       <div className="text-xs text-gray-500 mb-3">
-        {ordered.length} messages across {conversations.length} conversation(s) · {platforms.join(", ")}
+        {messages.length} messages across {conversations.length} conversation(s) ·{" "}
+        {callCount > 0 ? `${callCount} call(s) · ` : ""}
+        {platforms.join(", ")}
       </div>
       <div className="space-y-2 max-h-[60vh] overflow-y-auto pr-2">
-        {ordered.map((m: any) => {
+        {unified.map((event) => {
+          if (event.kind === "call") {
+            return <CallBubble key={`call-${event.data._id}`} call={event.data} />
+          }
+          const m = event.data
           const isOut = m.direction === "outbound"
           const ts = new Date(m.sent_at).toLocaleString()
           return (

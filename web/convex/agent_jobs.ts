@@ -214,3 +214,61 @@ export const reapStuck = internalMutation({
 
 // (Duplicate enqueueHingeSync from main was removed during integration→main merge.
 // The canonical version above accepts an optional user_id arg.)
+
+// ---------------------------------------------------------------------------
+// AI-9500 W2 E13 — enqueueCallsSync
+//
+// Enqueues a sync_calls job for the Mac Mini daemon every 15 minutes.
+// The daemon reads chat.db via _handle_sync_calls in convex_runner.py and
+// upserts records via calls:upsertCall.
+// Dedup guard: skips if a queued or running job already exists.
+// ---------------------------------------------------------------------------
+export const enqueueCallsSync = internalMutation({
+  args: {
+    user_id: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const userId = args.user_id ?? "fleet-julian";
+    const now = Date.now();
+
+    // Skip if one is already queued
+    const existingQueued = await ctx.db
+      .query("agent_jobs")
+      .withIndex("by_user_status", (q) =>
+        q.eq("user_id", userId).eq("status", "queued"),
+      )
+      .filter((q) => q.eq(q.field("job_type"), "sync_calls"))
+      .first();
+
+    if (existingQueued) {
+      return { enqueued: false, reason: "already_queued", job_id: existingQueued._id };
+    }
+
+    // Skip if one is actively running
+    const existingRunning = await ctx.db
+      .query("agent_jobs")
+      .withIndex("by_user_status", (q) =>
+        q.eq("user_id", userId).eq("status", "running"),
+      )
+      .filter((q) => q.eq(q.field("job_type"), "sync_calls"))
+      .first();
+
+    if (existingRunning) {
+      return { enqueued: false, reason: "already_running", job_id: existingRunning._id };
+    }
+
+    const id = await ctx.db.insert("agent_jobs", {
+      user_id: userId,
+      job_type: "sync_calls",
+      payload: { lookback_days: 30 },
+      status: "queued",
+      priority: 0,
+      attempts: 0,
+      max_attempts: 3,
+      created_at: now,
+      updated_at: now,
+    });
+
+    return { enqueued: true, reason: null, job_id: id };
+  },
+});

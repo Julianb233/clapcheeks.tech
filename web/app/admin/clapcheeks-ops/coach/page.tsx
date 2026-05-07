@@ -40,8 +40,10 @@ function daysAgo(ms: number | undefined): string {
 // ---------------------------------------------------------------------------
 // Top summary KPI bar
 // ---------------------------------------------------------------------------
-function SummaryCard({ summary }: { summary: any }) {
+function SummaryCard({ summary, callStats }: { summary: any; callStats: any }) {
   if (!summary) return <div className="text-sm text-gray-500">Loading summary…</div>
+
+  const callsTotal = callStats?.total_30d ?? "—"
 
   const kpis = [
     { label: "Active threads", value: summary.active_threads },
@@ -58,15 +60,17 @@ function SummaryCard({ summary }: { summary: any }) {
     },
     { label: "Kissed (notes)", value: summary.kissed_this_month },
     { label: "Closed (notes)", value: summary.slept_with_this_month },
+    // AI-9500 W2 E13 — call stat
+    { label: "📞 Calls (30d)", value: callsTotal },
   ]
 
   return (
-    <div className="grid grid-cols-3 md:grid-cols-6 gap-3 mb-8">
+    <div className="grid grid-cols-3 md:grid-cols-7 gap-3 mb-8">
       {kpis.map((kpi) => (
         <div
           key={kpi.label}
           className={`bg-gray-900 border rounded-lg p-4 text-center ${
-            kpi.warn ? "border-amber-700" : "border-gray-800"
+            (kpi as any).warn ? "border-amber-700" : "border-gray-800"
           }`}
         >
           <div className="text-2xl font-bold">{kpi.value ?? "—"}</div>
@@ -74,6 +78,60 @@ function SummaryCard({ summary }: { summary: any }) {
         </div>
       ))}
     </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// CallsCard — 30-day call breakdown for /coach
+// AI-9500 W2 E13
+// ---------------------------------------------------------------------------
+function CallsCard({ data }: { data: any }) {
+  if (!data) return <CardShell title="Calls (30d)" loading />
+
+  const { total_30d, by_direction, avg_duration_seconds } = data
+
+  if (total_30d === 0) {
+    return (
+      <CardShell title="📞 Calls (30d)" action="No calls logged this month — consider voice-based check-ins.">
+        <p className="text-sm text-gray-500">Connect a call source or log manually.</p>
+      </CardShell>
+    )
+  }
+
+  const durationLabel = avg_duration_seconds
+    ? (() => {
+        const m = Math.floor(avg_duration_seconds / 60)
+        const s = avg_duration_seconds % 60
+        return m > 0 ? `${m}m${s > 0 ? `${s}s` : ""}` : `${s}s`
+      })()
+    : null
+
+  const action = `${total_30d} calls in 30d — ${by_direction.missed} missed${durationLabel ? `, avg ${durationLabel}` : ""}.`
+
+  return (
+    <CardShell title="📞 Calls (30d)" action={action}>
+      <div className="grid grid-cols-3 gap-3 text-center text-sm">
+        <div>
+          <div className="text-xl font-bold text-blue-400">{by_direction.outbound}</div>
+          <div className="text-xs text-gray-500">outbound</div>
+        </div>
+        <div>
+          <div className="text-xl font-bold text-green-400">{by_direction.inbound}</div>
+          <div className="text-xs text-gray-500">inbound</div>
+        </div>
+        <div>
+          <div className={`text-xl font-bold ${by_direction.missed > 0 ? "text-red-400" : "text-gray-500"}`}>
+            {by_direction.missed}
+          </div>
+          <div className="text-xs text-gray-500">missed</div>
+        </div>
+      </div>
+      {durationLabel && (
+        <div className="mt-3 text-xs text-gray-400 text-center">
+          avg duration: {durationLabel}
+        </div>
+      )}
+    </CardShell>
   )
 }
 
@@ -466,6 +524,8 @@ export default function CoachPage() {
   const cutList = useQuery(api.coach.getCutListCandidates, { user_id: FLEET_USER_ID })
   const stuckInStage = useQuery(api.coach.getStuckInStage, { user_id: FLEET_USER_ID })
   const heatmap = useQuery(api.coach.getTimeOfDayHeatmap, { user_id: FLEET_USER_ID })
+  // AI-9500 W2 E13 — call stats for /coach KPI bar + breakdown card
+  const callStats = useQuery(api.calls.recentForCoach, { user_id: FLEET_USER_ID })
 
   return (
     <div className="p-8 max-w-7xl">
@@ -483,8 +543,8 @@ export default function CoachPage() {
         Your patterns across all active threads — last 30 days. Each card has one thing to do.
       </p>
 
-      {/* KPI Summary */}
-      <SummaryCard summary={summary} />
+      {/* KPI Summary — includes calls (30d) stat */}
+      <SummaryCard summary={summary} callStats={callStats} />
 
       {/* 2-column grid for the cards */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -494,6 +554,8 @@ export default function CoachPage() {
         <OpenerOveruseCard data={openerOveruse} />
         <LateNightCard data={lateNight} />
         <HeatmapCard data={heatmap} />
+        {/* AI-9500 W2 E13 — calls breakdown card */}
+        <CallsCard data={callStats} />
       </div>
     </div>
   )
