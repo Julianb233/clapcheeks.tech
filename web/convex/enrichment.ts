@@ -229,10 +229,15 @@ export const enrichCourtshipForOne = internalAction({
   "current_emotional_intensity": 0.0-1.0,
   "time_to_ask_score": 0.0-1.0,
   "ghosting_risk": 0.0-1.0,
-  "engagement_score": 0.0-1.0
+  "engagement_score": 0.0-1.0,
+  "flirtation_level": 0-10,
+  "attachment_style": "anxious|avoidant|secure|fearful|unclear",
+  "love_languages_top2": ["<primary: words_of_affirmation|acts_of_service|receiving_gifts|quality_time|physical_touch>","<secondary>"],
+  "ask_yes_prob_now": 0.0-1.0
 }` +
       "\n\nRules: be evidence-based, empty arrays are fine, JSON only no markdown. " +
-      "personal_details + curiosity_questions_to_ask are how Julian shows he's been paying attention — every entry must be defensible from the transcript.";
+      "personal_details + curiosity_questions_to_ask are how Julian shows he's been paying attention — every entry must be defensible from the transcript.\n" +
+      "Tier 2: flirtation_level 0=platonic 10=overtly flirty. attachment_style inferred from patterns. love_languages_top2 exactly 2. ask_yes_prob_now probability she'd say yes right now.";
 
     const parsed = await llmJson(system, `Transcript:\n\n${transcript}`, 1400);
     if (!parsed) return { skipped: true, reason: "no_llm_or_failed" };
@@ -292,7 +297,47 @@ export const enrichCourtshipForOne = internalAction({
       next_best_move: parsed.next_best_move ? String(parsed.next_best_move).slice(0, 300) : undefined,
       next_best_move_confidence: clamp01(parsed.next_best_move_confidence),
     });
-    return { person_id: args.person_id, courtship_stage: stage };
+
+    // -----------------------------------------------------------------------
+    // AI-9500 Wave2 #C — Tier 2 scoring (same LLM call, 4 extra dimensions)
+    // -----------------------------------------------------------------------
+    const validAttachmentStyles = new Set(["anxious", "avoidant", "secure", "fearful", "unclear"]);
+    const validLoveLangs = new Set([
+      "words_of_affirmation", "acts_of_service", "receiving_gifts", "quality_time", "physical_touch",
+    ]);
+
+    const rawFl = parsed.flirtation_level;
+    const flirtationLevel: number | undefined = (rawFl !== undefined && rawFl !== null)
+      ? Math.max(0, Math.min(10, Math.round(Number(rawFl)))) : undefined;
+
+    const rawAs = String(parsed.attachment_style ?? "").toLowerCase().trim();
+    const attachmentStyle = validAttachmentStyles.has(rawAs) ? (rawAs as any) : undefined;
+
+    const rawLl: unknown = parsed.love_languages_top2;
+    let loveLanguagesTop2: Array<any> | undefined;
+    if (Array.isArray(rawLl)) {
+      const filtered = rawLl
+        .map((l) => String(l ?? "").toLowerCase().trim())
+        .filter((l) => validLoveLangs.has(l))
+        .slice(0, 2) as any[];
+      if (filtered.length >= 1) loveLanguagesTop2 = filtered;
+    }
+
+    const askYesProbNow = clamp01(parsed.ask_yes_prob_now);
+
+    await ctx.runMutation(internal.people._writeTier2Scores, {
+      person_id: args.person_id,
+      flirtation_level: flirtationLevel,
+      attachment_style: attachmentStyle,
+      love_languages_top2: loveLanguagesTop2,
+      ask_yes_prob_now: askYesProbNow,
+    });
+
+    return {
+      person_id: args.person_id,
+      courtship_stage: stage,
+      tier2: { flirtation_level: flirtationLevel, attachment_style: attachmentStyle, love_languages_top2: loveLanguagesTop2, ask_yes_prob_now: askYesProbNow },
+    };
   },
 });
 
