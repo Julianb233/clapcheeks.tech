@@ -4,6 +4,7 @@ import { redirect } from 'next/navigation'
 import AutonomyDashboard from './components/autonomy-dashboard'
 import { getConvexServerClient } from '@/lib/convex/server'
 import { api } from '@/convex/_generated/api'
+import { getFleetUserId } from '@/lib/fleet-user'
 
 export const metadata: Metadata = {
   title: 'Autonomy Engine — Clapcheeks',
@@ -24,7 +25,7 @@ export default async function AutonomyPage() {
       .eq('user_id', user.id)
       .single(),
     convex.query(api.queues.listApprovalsForUser, {
-      user_id: user.id,
+      user_id: getFleetUserId(),
       status: 'pending',
       limit: 20,
     }),
