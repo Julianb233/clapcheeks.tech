@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { getConvexServerClient } from '@/lib/convex/server'
 import { api } from '@/convex/_generated/api'
+import { getFleetUserId } from '@/lib/fleet-user'
 
 /**
  * GET  /api/memo/[handle]    — fetch the memo content for the current user + handle.
@@ -45,7 +46,7 @@ export async function GET(
   try {
     const convex = getConvexServerClient()
     const row = await convex.query(api.memos.getForContact, {
-      user_id: user.id,
+      user_id: getFleetUserId(),
       contact_handle: handle,
     })
     return NextResponse.json({
@@ -101,7 +102,7 @@ export async function PUT(
   try {
     const convex = getConvexServerClient()
     const result = await convex.mutation(api.memos.upsertMemo, {
-      user_id: user.id,
+      user_id: getFleetUserId(),
       contact_handle: handle,
       content: body.content,
     })

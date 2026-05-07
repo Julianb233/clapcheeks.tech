@@ -4,6 +4,7 @@ import { ConvexHttpClient } from 'convex/browser'
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { api } from '@/convex/_generated/api'
+import { getFleetUserId } from '@/lib/fleet-user'
 
 // AI-9536 — clapcheeks_analytics_daily + clapcheeks_device_heartbeats
 // migrated to Convex.
@@ -89,7 +90,7 @@ export default async function Dashboard() {
     convex
       ? convex
           .query(api.telemetry.getDailyForUser, {
-            user_id: user.id,
+            user_id: getFleetUserId(),
             since_day_iso: sinceStr,
           })
           .catch(() => [])
@@ -97,7 +98,7 @@ export default async function Dashboard() {
     convex
       ? convex
           .query(api.conversation_stats.listForUser, {
-            user_id: user.id,
+            user_id: getFleetUserId(),
             since_date: sinceStr,
           })
           .catch(() => [] as Array<{ platform: string; messages_sent: number; conversations_started: number; conversations_replied: number; date: string }>)
@@ -105,7 +106,7 @@ export default async function Dashboard() {
     convex
       ? convex
           .query(api.spending.listForUser, {
-            user_id: user.id,
+            user_id: getFleetUserId(),
             since_date: sinceStr,
           })
           .catch(() => [] as Array<{ amount: number; category: string; date: string }>)
@@ -113,13 +114,13 @@ export default async function Dashboard() {
     // AI-9537: devices migrated to Convex.
     convex
       ? convex
-          .query(api.devices.listForUser, { user_id: user.id })
+          .query(api.devices.listForUser, { user_id: getFleetUserId() })
           .catch(() => [] as Array<{ last_seen_at: number; is_active: boolean }>)
       : Promise.resolve([] as Array<{ last_seen_at: number; is_active: boolean }>),
     // AI-9537: subscriptions migrated to Convex.
     convex
       ? convex
-          .query(api.billing.getByUser, { user_id: user.id })
+          .query(api.billing.getByUser, { user_id: getFleetUserId() })
           .catch(() => null as { status: string } | null)
       : Promise.resolve(null as { status: string } | null),
     supabase
@@ -130,14 +131,14 @@ export default async function Dashboard() {
     // AI-8926/AI-9536: modern device-presence source on Convex.
     convex
       ? convex
-          .query(api.telemetry.getLatestHeartbeat, { user_id: user.id })
+          .query(api.telemetry.getLatestHeartbeat, { user_id: getFleetUserId() })
           .catch(() => null)
       : Promise.resolve(null),
     // AI-8926/AI-9534: actual matches count (analytics_daily can be empty
     // for users whose agent does not aggregate per-day yet). Reads from
     // Convex via api.matches.countForUser.
     convex
-      ? convex.query(api.matches.countForUser, { user_id: user.id }).catch(() => 0)
+      ? convex.query(api.matches.countForUser, { user_id: getFleetUserId() }).catch(() => 0)
       : Promise.resolve(0),
   ])
 

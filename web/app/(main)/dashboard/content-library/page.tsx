@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/server'
 import ContentLibraryClient from './content-library-client'
 import { getConvexServerClient } from '@/lib/convex/server'
 import { api } from '@/convex/_generated/api'
+import { getFleetUserId } from '@/lib/fleet-user'
 
 export const metadata: Metadata = {
   title: 'Content Library',
@@ -66,10 +67,10 @@ export default async function ContentLibraryPage() {
     const convex = getConvexServerClient()
     const [pending, inProgress] = await Promise.all([
       convex.query(api.queues.listPostsForUser, {
-        user_id: user.id, status: 'pending', limit: 100,
+        user_id: getFleetUserId(), status: 'pending', limit: 100,
       }),
       convex.query(api.queues.listPostsForUser, {
-        user_id: user.id, status: 'in_progress', limit: 100,
+        user_id: getFleetUserId(), status: 'in_progress', limit: 100,
       }),
     ])
     queue = [...(pending ?? []), ...(inProgress ?? [])]

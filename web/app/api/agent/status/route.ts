@@ -3,6 +3,7 @@ import { ConvexHttpClient } from 'convex/browser'
 
 import { createClient } from '@/lib/supabase/server'
 import { api } from '@/convex/_generated/api'
+import { getFleetUserId } from '@/lib/fleet-user'
 
 export async function GET() {
   const supabase = await createClient()
@@ -23,7 +24,7 @@ export async function GET() {
     // AI-9537: devices migrated to Convex.
     convex
       ? convex
-          .query(api.devices.listForUser, { user_id: user.id })
+          .query(api.devices.listForUser, { user_id: getFleetUserId() })
           .catch(() => [] as Array<{ last_seen_at: number; is_active: boolean }>)
       : Promise.resolve([] as Array<{ last_seen_at: number; is_active: boolean }>),
     supabase
@@ -34,7 +35,7 @@ export async function GET() {
       .limit(1),
     convex
       ? convex
-          .query(api.telemetry.getLatestHeartbeat, { user_id: user.id })
+          .query(api.telemetry.getLatestHeartbeat, { user_id: getFleetUserId() })
           .catch(() => null)
       : Promise.resolve(null),
   ])

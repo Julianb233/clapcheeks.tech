@@ -5,6 +5,7 @@ import * as Sentry from '@sentry/nextjs'
 import { getConvexServerClient } from '@/lib/convex/server'
 import { api } from '@/convex/_generated/api'
 import type { Id } from '@/convex/_generated/dataModel'
+import { getFleetUserId } from '@/lib/fleet-user'
 
 const VALID_STATUSES = new Set(['approved', 'rejected'])
 
@@ -43,7 +44,7 @@ export async function PATCH(
     try {
       updated = await getConvexServerClient().mutation(api.queues.decideApproval, {
         id: id as Id<'approval_queue'>,
-        user_id: user.id,
+        user_id: getFleetUserId(),
         status: status as 'approved' | 'rejected',
         edited_text: edited_text ?? undefined,
       })

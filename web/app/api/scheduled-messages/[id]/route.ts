@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/server'
 import { getConvexServerClient } from '@/lib/convex/server'
 import { api } from '@/convex/_generated/api'
 import type { Id } from '@/convex/_generated/dataModel'
+import { getFleetUserId } from '@/lib/fleet-user'
 
 export async function PATCH(
   request: NextRequest,
@@ -35,7 +36,7 @@ export async function PATCH(
       api.outbound.updateScheduled,
       {
         id: id as Id<'outbound_scheduled_messages'>,
-        user_id: user.id,
+        user_id: getFleetUserId(),
         status: status as 'pending' | 'approved' | 'rejected' | 'sent' | 'failed' | undefined,
         rejection_reason: rejection_reason ?? undefined,
         message_text: message_text ?? undefined,
@@ -64,7 +65,7 @@ export async function DELETE(
   try {
     await getConvexServerClient().mutation(api.outbound.cancelScheduled, {
       id: id as Id<'outbound_scheduled_messages'>,
-      user_id: user.id,
+      user_id: getFleetUserId(),
     })
     return NextResponse.json({ ok: true })
   } catch (err) {
