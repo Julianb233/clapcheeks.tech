@@ -173,6 +173,24 @@ export default function MatchDetail({ match, messages, clusterRisk }: Props) {
                 {statusBusy === s.key ? '...' : s.label}
               </button>
             ))}
+            {/* AI-9526 F6 — Profile-tab Call / iMessage shortcut.
+                Renders only when her_phone is on the row (offline + handed-off matches). */}
+            {current.her_phone && (
+              <>
+                <a
+                  href={`tel:${current.her_phone}`}
+                  className="text-xs px-3 py-1.5 rounded-lg border bg-white/5 text-white/70 border-white/10 hover:bg-white/10 transition-all"
+                >
+                  Call
+                </a>
+                <a
+                  href={`imessage://${current.her_phone}`}
+                  className="text-xs px-3 py-1.5 rounded-lg border bg-white/5 text-white/70 border-white/10 hover:bg-white/10 transition-all"
+                >
+                  iMessage
+                </a>
+              </>
+            )}
           </div>
         </div>
 
