@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { getConvexServerClient } from '@/lib/convex/server'
+import { api } from '@/convex/_generated/api'
 
 /**
  * GET  /api/memo/[handle]    — fetch the memo content for the current user + handle.
@@ -9,7 +11,7 @@ import { createClient } from '@/lib/supabase/server'
  *   - E.164 phone (e.g. "+15551234567") for contacts that have exchanged a number
  *   - platform external id (e.g. "tinder:abc123") otherwise
  *
- * RLS on clapcheeks_memos enforces ownership but we also pass user_id explicitly.
+ * AI-9537: migrated from Supabase clapcheeks_memos to Convex memos.
  */
 
 const MAX_CONTENT_LENGTH = 200_000 // ~200 KB markdown ceiling
@@ -40,26 +42,22 @@ export async function GET(
     return NextResponse.json({ error: 'handle required' }, { status: 400 })
   }
 
-  const { data, error } = await (supabase as any)
-    .from('clapcheeks_memos')
-    .select('content, updated_at')
-    .eq('user_id', user.id)
-    .eq('contact_handle', handle)
-    .maybeSingle()
-
-  if (error) {
-    return NextResponse.json(
-      { error: error.message || 'Failed to load memo' },
-      { status: 500 },
-    )
+  try {
+    const convex = getConvexServerClient()
+    const row = await convex.query(api.memos.getForContact, {
+      user_id: user.id,
+      contact_handle: handle,
+    })
+    return NextResponse.json({
+      handle,
+      content: row?.content ?? '',
+      updated_at: row?.updated_at ? new Date(row.updated_at).toISOString() : null,
+      exists: !!row,
+    })
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'Failed to load memo'
+    return NextResponse.json({ error: msg }, { status: 500 })
   }
-
-  return NextResponse.json({
-    handle,
-    content: data?.content ?? '',
-    updated_at: data?.updated_at ?? null,
-    exists: !!data,
-  })
 }
 
 export async function PUT(
@@ -100,32 +98,21 @@ export async function PUT(
     )
   }
 
-  const now = new Date().toISOString()
-
-  const { data, error } = await (supabase as any)
-    .from('clapcheeks_memos')
-    .upsert(
-      {
-        user_id: user.id,
-        contact_handle: handle,
-        content: body.content,
-        updated_at: now,
-      },
-      { onConflict: 'user_id,contact_handle' },
-    )
-    .select('content, updated_at')
-    .single()
-
-  if (error) {
-    return NextResponse.json(
-      { error: error.message || 'Failed to save memo' },
-      { status: 500 },
-    )
+  try {
+    const convex = getConvexServerClient()
+    const result = await convex.mutation(api.memos.upsertMemo, {
+      user_id: user.id,
+      contact_handle: handle,
+      content: body.content,
+    })
+    return NextResponse.json({
+      handle,
+      content: body.content,
+      updated_at: new Date().toISOString(),
+      action: result.action,
+    })
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'Failed to save memo'
+    return NextResponse.json({ error: msg }, { status: 500 })
   }
-
-  return NextResponse.json({
-    handle,
-    content: data?.content ?? body.content,
-    updated_at: data?.updated_at ?? now,
-  })
 }

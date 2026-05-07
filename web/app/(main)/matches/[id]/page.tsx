@@ -4,6 +4,10 @@ import { redirect, notFound } from 'next/navigation'
 import MatchProfileView from './match-profile-view'
 import { getMatchConversationUnified } from '@/lib/matches/conversation'
 import type { ChatMessage } from './conversation-thread'
+import { getConvexServerClient } from '@/lib/convex/server'
+import { api } from '@/convex/_generated/api'
+
+// AI-9537: memos on Convex.
 
 export const metadata: Metadata = {
   title: 'Match Profile - Clapcheeks',
@@ -98,16 +102,17 @@ export default async function MatchDetailPage({
   let memoInitial: { content: string; updated_at: string | null } | null = null
   if (memoHandle) {
     try {
-      const { data: memoRow } = await (supabase as any)
-        .from('clapcheeks_memos')
-        .select('content, updated_at')
-        .eq('user_id', user.id)
-        .eq('contact_handle', memoHandle)
-        .maybeSingle()
+      const convex = getConvexServerClient()
+      const memoRow = await convex.query(api.memos.getForContact, {
+        user_id: user.id,
+        contact_handle: memoHandle,
+      })
       memoInitial = memoRow
         ? {
-            content: (memoRow.content as string) ?? '',
-            updated_at: (memoRow.updated_at as string | null) ?? null,
+            content: memoRow.content ?? '',
+            updated_at: memoRow.updated_at
+              ? new Date(memoRow.updated_at).toISOString()
+              : null,
           }
         : { content: '', updated_at: null }
     } catch {

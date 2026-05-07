@@ -1,47 +1,23 @@
+// AI-9535 — Migrated to Convex outbound_scheduled_messages + followup_sequences.
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { DEFAULT_FOLLOWUP_CONFIG } from '@/lib/followup/types'
+import { getConvexServerClient } from '@/lib/convex/server'
+import { api } from '@/convex/_generated/api'
 import { pickOptimalSendTimeISO } from '@/lib/followup/optimal-timing'
 import { generateFollowupMessage } from '@/lib/followup/generate-content'
 
-/**
- * POST /api/followup-sequences/app-to-text
- *
- * Create a pending "move to text" transition message when conversation warmth
- * has crossed the user's threshold.
- *
- * Body:
- *   - match_name (required)
- *   - platform (required — source platform, e.g. Tinder, Bumble, Hinge)
- *   - warmth_score (required — 0..1)
- *   - message_count (required — total messages so far)
- *   - match_id (optional)
- *   - phone (optional — destination for text)
- *   - conversation_summary / last_message (optional context)
- *   - override_message (optional)
- */
 export async function POST(request: NextRequest) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = await request.json()
-  const {
-    match_name,
-    match_id,
-    platform,
-    phone,
-    warmth_score,
-    message_count,
-    conversation_summary,
-    last_message,
-    override_message,
-  } = body ?? {}
+  const { match_name, match_id, platform, phone, warmth_score, message_count,
+          conversation_summary, last_message, override_message } = body ?? {}
 
   if (!match_name || !platform) {
     return NextResponse.json(
-      { error: 'match_name and platform are required' },
-      { status: 400 },
+      { error: 'match_name and platform are required' }, { status: 400 },
     )
   }
 
@@ -49,30 +25,16 @@ export async function POST(request: NextRequest) {
   const count = Number(message_count)
   if (!Number.isFinite(warmth) || !Number.isFinite(count)) {
     return NextResponse.json(
-      { error: 'warmth_score and message_count must be numbers' },
-      { status: 400 },
+      { error: 'warmth_score and message_count must be numbers' }, { status: 400 },
     )
   }
 
-  let { data: config } = await supabase
-    .from('clapcheeks_followup_sequences')
-    .select('*')
-    .eq('user_id', user.id)
-    .maybeSingle()
-
-  if (!config) {
-    const { data: created } = await supabase
-      .from('clapcheeks_followup_sequences')
-      .insert({ user_id: user.id, ...DEFAULT_FOLLOWUP_CONFIG })
-      .select()
-      .single()
-    config = created
-  }
+  const convex = getConvexServerClient()
+  const config = await convex.mutation(api.drips.getOrCreateConfig, { user_id: user.id })
 
   if (!config?.app_to_text_enabled) {
     return NextResponse.json(
-      { error: 'App-to-text transitions disabled for this user' },
-      { status: 400 },
+      { error: 'App-to-text transitions disabled for this user' }, { status: 400 },
     )
   }
 
@@ -80,8 +42,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       {
         error: 'Warmth below threshold — transition not triggered',
-        warmth_score: warmth,
-        threshold: config.warmth_threshold,
+        warmth_score: warmth, threshold: config.warmth_threshold,
       },
       { status: 409 },
     )
@@ -91,39 +52,33 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       {
         error: 'Not enough messages yet — transition not triggered',
-        message_count: count,
-        required: config.min_messages_before_transition,
+        message_count: count, required: config.min_messages_before_transition,
       },
       { status: 409 },
     )
   }
 
-  // Skip if an app_to_text is already pending/approved for this match.
   if (match_id) {
-    const { data: existing } = await supabase
-      .from('clapcheeks_scheduled_messages')
-      .select('id, status')
-      .eq('user_id', user.id)
-      .eq('match_id', match_id)
-      .eq('sequence_type', 'app_to_text')
-      .in('status', ['pending', 'approved'])
-      .limit(1)
-    if (existing && existing.length > 0) {
+    const existing = await convex.query(
+      api.outbound.findExistingAppToTextForMatch,
+      { user_id: user.id, match_id },
+    )
+    if (existing) {
       return NextResponse.json(
-        { error: 'App-to-text transition already queued', existing: existing[0] },
+        { error: 'App-to-text transition already queued', existing },
         { status: 409 },
       )
     }
   }
 
-  // Deliver in the next preferred window, no long delay.
-  const scheduledAt = pickOptimalSendTimeISO(1, {
+  const scheduledAtIso = pickOptimalSendTimeISO(1, {
     timezone: config.timezone,
     optimal_send_start_hour: config.optimal_send_start_hour,
     optimal_send_end_hour: config.optimal_send_end_hour,
     quiet_hours_start: config.quiet_hours_start,
     quiet_hours_end: config.quiet_hours_end,
   })
+  const scheduledAtMs = new Date(scheduledAtIso).getTime()
 
   const messageText =
     override_message ??
@@ -135,30 +90,25 @@ export async function POST(request: NextRequest) {
       conversationSummary: conversation_summary,
     }))
 
-  const { data: inserted, error } = await supabase
-    .from('clapcheeks_scheduled_messages')
-    .insert({
+  try {
+    const inserted = await convex.mutation(api.outbound.enqueueScheduledMessage, {
       user_id: user.id,
-      match_id: match_id ?? null,
+      match_id: match_id ?? undefined,
       match_name,
       platform,
-      phone: phone ?? null,
+      phone: phone ?? undefined,
       message_text: messageText,
-      scheduled_at: scheduledAt,
+      scheduled_at: scheduledAtMs,
       sequence_type: 'app_to_text',
       sequence_step: 0,
       delay_hours: 1,
-      status: 'pending',
     })
-    .select()
-    .single()
-
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-
-  return NextResponse.json({
-    message: inserted,
-    warmth_score: warmth,
-    threshold: config.warmth_threshold,
-    scheduled_at: scheduledAt,
-  }, { status: 201 })
+    return NextResponse.json({
+      message: inserted, warmth_score: warmth,
+      threshold: config.warmth_threshold, scheduled_at: scheduledAtIso,
+    }, { status: 201 })
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    return NextResponse.json({ error: msg }, { status: 500 })
+  }
 }

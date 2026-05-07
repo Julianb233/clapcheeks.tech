@@ -2,6 +2,8 @@ import type { Metadata } from 'next'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import ContentLibraryClient from './content-library-client'
+import { getConvexServerClient } from '@/lib/convex/server'
+import { api } from '@/convex/_generated/api'
 
 export const metadata: Metadata = {
   title: 'Content Library',
@@ -59,15 +61,30 @@ export default async function ContentLibraryPage() {
     fetchError = (e as Error).message
   }
 
+  // AI-9535 — posting_queue is now Convex.
   try {
-    const { data } = await (supabase as any)
-      .from('clapcheeks_posting_queue')
-      .select('id, content_library_id, scheduled_for, status, posted_at, error')
-      .eq('user_id', user.id)
-      .in('status', ['pending', 'in_progress'])
-      .order('scheduled_for', { ascending: true })
-      .limit(100)
-    if (data) queue = data as QueueRow[]
+    const convex = getConvexServerClient()
+    const [pending, inProgress] = await Promise.all([
+      convex.query(api.queues.listPostsForUser, {
+        user_id: user.id, status: 'pending', limit: 100,
+      }),
+      convex.query(api.queues.listPostsForUser, {
+        user_id: user.id, status: 'in_progress', limit: 100,
+      }),
+    ])
+    queue = [...(pending ?? []), ...(inProgress ?? [])]
+      .map((r) => ({
+        id: String(r._id),
+        content_library_id: r.content_library_id,
+        scheduled_for: new Date(r.scheduled_for).toISOString(),
+        status: r.status,
+        posted_at: r.posted_at ? new Date(r.posted_at).toISOString() : null,
+        error: r.error ?? null,
+      }))
+      .sort(
+        (a, b) => new Date(a.scheduled_for).getTime() - new Date(b.scheduled_for).getTime(),
+      )
+      .slice(0, 100)
   } catch {
     // non-fatal
   }

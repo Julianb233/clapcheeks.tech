@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
+import { getConvexServerClient } from '@/lib/convex/server'
+import { api } from '@/convex/_generated/api'
 
 /**
  * AI-8876 (Y3) — Attachment send proxy.
@@ -143,17 +145,16 @@ export async function POST(
     // non-JSON BB response — still success
   }
 
-  // Record the outbound attachment in the queue for audit
-  void service
-    .from('clapcheeks_queued_replies')
-    .insert({
+  // AI-9535 — Record the outbound attachment in the queue for audit (Convex).
+  void getConvexServerClient()
+    .mutation(api.queues.enqueueReply, {
       user_id: user.id,
       match_name: matchId,
       platform: 'imessage',
       text: `[attachment: ${file.name}]`,
       status: 'sent',
     })
-    .then(() => null)
+    .catch(() => null)
 
   return NextResponse.json(
     {

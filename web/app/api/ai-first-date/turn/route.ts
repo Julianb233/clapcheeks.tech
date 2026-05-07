@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import Anthropic from '@anthropic-ai/sdk'
+import { getConvexServerClient } from '@/lib/convex/server'
+import { api } from '@/convex/_generated/api'
+
+// AI-9537: voice_context now lives on Convex.
 import {
   SEED_QUESTIONS,
   getNextSeedQuestion,
@@ -42,11 +46,8 @@ export async function POST(req: NextRequest) {
     // empty body on the very first turn is fine
   }
 
-  const { data: existing } = await supabase
-    .from('user_voice_context')
-    .select('answers')
-    .eq('user_id', user.id)
-    .maybeSingle()
+  const convex = getConvexServerClient()
+  const existing = await convex.query(api.voice.getContext, { user_id: user.id })
 
   const answers: Record<string, Answer> = (existing?.answers as Record<string, Answer>) || {}
 
@@ -59,14 +60,10 @@ export async function POST(req: NextRequest) {
       purpose: q?.purpose ?? 'adaptive',
     }
 
-    await supabase.from('user_voice_context').upsert(
-      {
-        user_id: user.id,
-        answers,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: 'user_id' },
-    )
+    await convex.mutation(api.voice.upsertContext, {
+      user_id: user.id,
+      answers,
+    })
   }
 
   const answeredIds = Object.keys(answers)

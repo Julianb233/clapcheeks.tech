@@ -1558,26 +1558,13 @@ export default defineSchema({
 
   // AI-9536 telemetry migration -----------------------------------------
   //
-  // Replaces 6 Supabase telemetry / report tables. Each table here is
-  // index-tuned for the high-write paths the Mac Mini agent and the web
-  // dashboard hit constantly. day_iso is "YYYY-MM-DD" so range queries
-  // stay lexicographic; ts is unix ms (float64) for sub-day granularity.
-  //
-  // Source migrations:
-  //   analytics_daily   ← clapcheeks_analytics_daily (rename of analytics_daily, mig 9 + 30002)
-  //   weekly_reports    ← clapcheeks_weekly_reports  (mig 12 / archived 009_reports)
-  //   agent_events      ← clapcheeks_agent_events    (mig 8)
-  //   usage_daily       ← clapcheeks_usage_daily     (mig 12 / archived 008_usage_limits)
-  //   friction_points   ← clapcheeks_friction_points (mig 20260420600000)
-  //   device_heartbeats ← clapcheeks_device_heartbeats (mig 20260428080000)
-  // ---------------------------------------------------------------------
+  // Replaces 6 Supabase telemetry / report tables. Index strategy is
+  // write-throughput first since agent_events is the hot path.
 
   // AI-9536 telemetry migration — clapcheeks_analytics_daily
-  // Per-(user, app, day) rollup of swipes/matches/messages/dates/spend.
-  // Upserted by Mac Mini match_sync.py + dashboard read paths.
   analytics_daily: defineTable({
-    user_id: v.string(),                   // Supabase auth uuid string
-    day_iso: v.string(),                   // "YYYY-MM-DD" (Pacific local convention)
+    user_id: v.string(),
+    day_iso: v.string(),
     app: v.union(
       v.literal("tinder"),
       v.literal("bumble"),
@@ -1588,13 +1575,11 @@ export default defineSchema({
     matches: v.number(),
     conversations_started: v.number(),
     dates_booked: v.number(),
-    money_spent: v.number(),               // USD numeric
-    created_at: v.number(),                // unix ms
-    updated_at: v.number(),                // unix ms
+    money_spent: v.number(),
+    created_at: v.number(),
+    updated_at: v.number(),
   })
-    // by_user_day: dashboard reads "last 30 days for user X"
     .index("by_user_day", ["user_id", "day_iso"])
-    // by_user_app_day: idempotent upsert key
     .index("by_user_app_day", ["user_id", "app", "day_iso"]),
 
   // AI-9536 telemetry migration — clapcheeks_weekly_reports
@@ -1612,7 +1597,7 @@ export default defineSchema({
     .index("by_user_week", ["user_id", "week_start_ms"])
     .index("by_user_week_iso", ["user_id", "week_start_iso"]),
 
-  // AI-9536 telemetry migration — clapcheeks_agent_events
+  // AI-9536 telemetry migration — clapcheeks_agent_events (HOT PATH)
   agent_events: defineTable({
     user_id: v.string(),
     event_type: v.string(),

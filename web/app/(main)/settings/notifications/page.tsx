@@ -4,6 +4,10 @@ import { redirect } from 'next/navigation'
 import NotificationPrefsForm, {
   type NotificationPrefs,
 } from './notification-prefs-form'
+import { getConvexServerClient } from '@/lib/convex/server'
+import { api } from '@/convex/_generated/api'
+
+// AI-9537: notification_prefs on Convex.
 
 export const metadata: Metadata = {
   title: 'Notifications - Clapcheeks',
@@ -29,11 +33,8 @@ export default async function NotificationsSettingsPage() {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/auth')
 
-  const { data: row } = await supabase
-    .from('clapcheeks_notification_prefs')
-    .select('email, phone_e164, channels_per_event, quiet_hours_start, quiet_hours_end')
-    .eq('user_id', user.id)
-    .maybeSingle()
+  const convex = getConvexServerClient()
+  const row = await convex.query(api.notifications.getPrefs, { user_id: user.id })
 
   const initial: NotificationPrefs = {
     email: row?.email ?? user.email ?? '',
