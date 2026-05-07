@@ -212,5 +212,59 @@ export const reapStuck = internalMutation({
   },
 });
 
+// AI-9500 W2 #J — Enqueue a sync_tinder job for the Mac Mini agent.
+// Called by the 5-minute cron in crons.ts.
+// Dedup guard: skips insert if a queued or running sync_tinder job already
+// exists for the user to prevent queue flooding.
+export const enqueueTinderSync = internalMutation({
+  args: {
+    user_id: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const userId = args.user_id ?? "fleet-julian";
+    const now = Date.now();
+
+    // Check for an already-queued job of this type
+    const existingQueued = await ctx.db
+      .query("agent_jobs")
+      .withIndex("by_user_status", (q) =>
+        q.eq("user_id", userId).eq("status", "queued"),
+      )
+      .filter((q) => q.eq(q.field("job_type"), "sync_tinder"))
+      .first();
+
+    if (existingQueued) {
+      return { enqueued: false, reason: "already_queued", job_id: existingQueued._id };
+    }
+
+    // Check for an already-running job of this type
+    const existingRunning = await ctx.db
+      .query("agent_jobs")
+      .withIndex("by_user_status", (q) =>
+        q.eq("user_id", userId).eq("status", "running"),
+      )
+      .filter((q) => q.eq(q.field("job_type"), "sync_tinder"))
+      .first();
+
+    if (existingRunning) {
+      return { enqueued: false, reason: "already_running", job_id: existingRunning._id };
+    }
+
+    const id = await ctx.db.insert("agent_jobs", {
+      user_id: userId,
+      job_type: "sync_tinder",
+      payload: {},
+      status: "queued",
+      priority: 0,
+      attempts: 0,
+      max_attempts: 3,
+      created_at: now,
+      updated_at: now,
+    });
+
+    return { enqueued: true, reason: null, job_id: id };
+  },
+});
+
 // (Duplicate enqueueHingeSync from main was removed during integration→main merge.
 // The canonical version above accepts an optional user_id arg.)
