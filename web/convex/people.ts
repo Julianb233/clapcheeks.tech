@@ -1194,3 +1194,141 @@ export const updateLiveState = mutation({
     await ctx.db.patch(args.person_id, patch);
   },
 });
+
+// ============================================================================
+// WAVE 2.4 — DOSSIER ROUTE (AI-9501)
+// ============================================================================
+
+// Simple list for the /network page. Returns people ordered by most recently
+// updated, filtered by status. Supports all status values from the schema.
+export const list = query({
+  args: {
+    user_id: v.optional(v.string()),
+    status: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const status = (args.status ?? "active") as
+      | "lead"
+      | "active"
+      | "paused"
+      | "ghosted"
+      | "dating"
+      | "ended";
+
+    if (args.user_id) {
+      return await ctx.db
+        .query("people")
+        .withIndex("by_user_status", (q) =>
+          q.eq("user_id", args.user_id!).eq("status", status),
+        )
+        .order("desc")
+        .take(200);
+    }
+    return await ctx.db
+      .query("people")
+      .withIndex("by_user_status", (q) => q.eq("user_id", "fleet-julian").eq("status", status))
+      .order("desc")
+      .take(200);
+  },
+});
+
+// Full dossier — person row + related tables joined in one reactive query.
+// Powers /admin/clapcheeks-ops/people/[id].
+export const getDossier = query({
+  args: { person_id: v.id("people") },
+  handler: async (ctx, args) => {
+    const person = await ctx.db.get(args.person_id);
+    if (!person) return null;
+
+    // Last 100 messages from the conversation(s) linked to this person.
+    // Walk all conversations where person_id matches, or fall back to the
+    // primary imessage handle if person_id isn't set on conversations yet.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const rawMessages: any[] = [];
+
+    // First: try by person_id on conversations (AI-9449 field)
+    const convsByPerson = await ctx.db
+      .query("conversations")
+      .withIndex("by_person", (q) => q.eq("person_id", args.person_id))
+      .take(10);
+
+    // Fallback: match via primary imessage handle
+    let convIds = convsByPerson.map((c) => c._id);
+    if (convIds.length === 0 && person.handles?.length) {
+      const primaryHandle = person.handles.find((h) => h.primary) ?? person.handles[0];
+      if (primaryHandle) {
+        const conv = await ctx.db
+          .query("conversations")
+          .withIndex("by_imessage_handle", (q) =>
+            q.eq("imessage_handle", primaryHandle.value),
+          )
+          .first();
+        if (conv) convIds = [conv._id];
+      }
+    }
+
+    // Collect last 100 messages across matched conversations
+    for (const convId of convIds.slice(0, 3)) {
+      const msgs = await ctx.db
+        .query("messages")
+        .withIndex("by_conversation", (q) => q.eq("conversation_id", convId))
+        .order("desc")
+        .take(100);
+      rawMessages.push(...msgs);
+    }
+    // Sort by sent_at desc, take 100, then reverse for chronological display
+    rawMessages.sort((a, b) => b.sent_at - a.sent_at);
+    const messages = rawMessages.slice(0, 100).reverse();
+
+    // Active + pending scheduled touches
+    const scheduledTouches = await ctx.db
+      .query("scheduled_touches")
+      .withIndex("by_person", (q) => q.eq("person_id", args.person_id))
+      .order("desc")
+      .take(50);
+
+    const pendingTouches = scheduledTouches.filter(
+      (t) => t.status === "pending" || t.status === "approved",
+    );
+
+    // Latest 20 media uses
+    const mediaUses = await ctx.db
+      .query("media_uses")
+      .withIndex("by_person", (q) => q.eq("person_id", args.person_id))
+      .order("desc")
+      .take(20);
+
+    return {
+      person,
+      messages,
+      scheduledTouches,
+      pendingTouches,
+      mediaUses,
+    };
+  },
+});
+
+// Schedule a manual touch for a person.
+// "Send a touch now" button → type="reply", scheduled_for=now+5min.
+export const scheduleOne = mutation({
+  args: {
+    person_id: v.id("people"),
+    user_id: v.string(),
+    type: v.optional(v.string()),
+    draft_body: v.optional(v.string()),
+    scheduled_for: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    return await ctx.db.insert("scheduled_touches", {
+      person_id: args.person_id,
+      user_id: args.user_id,
+      type: args.type ?? "reply",
+      draft_body: args.draft_body,
+      status: "pending",
+      scheduled_for: args.scheduled_for ?? now + 5 * 60 * 1000,
+      created_at: now,
+      updated_at: now,
+    });
+  },
+});
