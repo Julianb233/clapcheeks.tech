@@ -124,7 +124,37 @@ export const upsertFromWebhook = mutation({
     if (matches.length === 1) {
       resolvedPersonId = matches[0]._id;
     }
-    // Multi-match pending_links row is written after convId is known (below).
+
+    // AI-9500 bugfix: when a brand-new sender lands (zero matches), lazy-create
+    // a minimal placeholder person row so the downstream enrichment pipeline
+    // (interpretInboundForOne, cadence engine, ask-outcome classifier) can run
+    // immediately. Operator still sees the pending_links row below and can
+    // merge the placeholder into an existing profile if it turns out to be a
+    // known person under a different handle.
+    //
+    // Inbound only — outbound (from us) shouldn't auto-create unknown people.
+    if (!resolvedPersonId && matches.length === 0 && args.direction === "inbound" && !isEmail) {
+      const now = Date.now();
+      const placeholderName = `Unknown (${args.handle})`;
+      resolvedPersonId = await ctx.db.insert("people", {
+        user_id: args.user_id,
+        display_name: placeholderName,
+        handles: [{ channel: "imessage", value: args.handle, primary: true, verified: false }],
+        status: "lead",
+        cadence_profile: "warm",
+        whitelist_for_autoreply: false,
+        interests: [],
+        goals: [],
+        values: [],
+        created_at: now,
+        updated_at: now,
+        last_inbound_at: args.sent_at,
+        // Lazy-create marker — pending_links row below carries the
+        // dashboard-visible ambiguity. Operator merges or renames.
+        imported_from_profile_screenshot: false,
+      } as any);
+    }
+    // Multi-match / zero-match pending_links row is written after convId is known (below).
 
     // 1. Find or create conversation for this handle
     let convId: Id<"conversations">;
@@ -163,9 +193,19 @@ export const upsertFromWebhook = mutation({
       }
     }
 
-    // 1b. Multi-match -> record once for human disambiguation. Schema requires
-    // conversation_id so this can only run after convId is known.
-    if (ambiguousMatches.length > 0) {
+    // 1b. Multi-match OR no-match -> record once for human disambiguation.
+    // AI-9500 bugfix: previously this only fired on multi-match (ambiguous
+    // candidates). Zero-match orphans (a brand-new sender we've never seen)
+    // were silently dropped — the operator never saw them on the
+    // /pending-links page, and the entire enrichment pipeline downstream
+    // (interpretInboundForOne -> enrich + cadence) skipped them too because
+    // it gates on resolvedPersonId.
+    //
+    // Now: insert a pending_link for both ambiguous and zero-match cases.
+    // Multi-match keeps candidate_person_ids populated; no-match leaves it
+    // empty so the dashboard renders a "no candidates — link manually" state.
+    const needsPendingLink = matches.length === 0 || ambiguousMatches.length > 0;
+    if (needsPendingLink) {
       const existingPending = await ctx.db
         .query("pending_links")
         .withIndex("by_conversation", (q) => q.eq("conversation_id", convId))
@@ -332,9 +372,16 @@ export const upsertFromWebhook = mutation({
       && resolvedPersonId
       && args.sent_at > Date.now() - SEVEN_DAYS_MS;
     if (isFreshInbound) {
+      // AI-9500 bugfix: arg names must match interpretInboundForOne's
+      // validator (person_id + conversation_id required, message_external_guid
+      // optional). Previous code passed `inbound_external_guid` and omitted
+      // conversation_id entirely — runAfter is fire-and-forget so the
+      // arg-validation error was silent and the entire enrichment pipeline
+      // never fired for any inbound message.
       await ctx.scheduler.runAfter(0, internal.inbound.interpretInboundForOne, {
-        person_id: resolvedPersonId,
-        inbound_external_guid: args.external_guid,
+        person_id: resolvedPersonId!,
+        conversation_id: convId,
+        message_external_guid: args.external_guid,
       });
     }
 
