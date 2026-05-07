@@ -37,4 +37,14 @@ crons.interval(
   internal.conversations.reconcile,
 );
 
+// AI-9500-C: Enqueue a Hinge message sync job every 5 minutes.
+// The local Mac Mini agent (convex_runner.py) claims and executes the job
+// via hinge_poller.run_once(). Dedup guard in enqueueHingeSync prevents
+// pile-up if the previous tick has not completed yet.
+crons.interval(
+  "enqueue-hinge-sync",
+  { minutes: 5 },
+  internal.agent_jobs.enqueueHingeSync,
+);
+
 export default crons;
