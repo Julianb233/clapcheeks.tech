@@ -11,10 +11,12 @@
 import type * as agent_jobs from "../agent_jobs.js";
 import type * as backfill from "../backfill.js";
 import type * as calendar from "../calendar.js";
+import type * as calls from "../calls.js";
 import type * as coach from "../coach.js";
+import type * as cohort_retro from "../cohort_retro.js";
 import type * as conversations from "../conversations.js";
 import type * as crons from "../crons.js";
-import type * as date_logistics from "../date_logistics.js";
+import type * as debrief from "../debrief.js";
 import type * as digest from "../digest.js";
 import type * as drip from "../drip.js";
 import type * as enrichment from "../enrichment.js";
@@ -38,10 +40,12 @@ declare const fullApi: ApiFromModules<{
   agent_jobs: typeof agent_jobs;
   backfill: typeof backfill;
   calendar: typeof calendar;
+  calls: typeof calls;
   coach: typeof coach;
+  cohort_retro: typeof cohort_retro;
   conversations: typeof conversations;
   crons: typeof crons;
-  date_logistics: typeof date_logistics;
+  debrief: typeof debrief;
   digest: typeof digest;
   drip: typeof drip;
   enrichment: typeof enrichment;

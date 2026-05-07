@@ -39,10 +39,109 @@ function daysAgo(ms: number | undefined): string {
 }
 
 // ---------------------------------------------------------------------------
+// Roster KPI card
+// ---------------------------------------------------------------------------
+function RosterCard({ kpis }: { kpis: any }) {
+  if (!kpis)
+    return (
+      <CardShell title="Roster KPIs" loading />
+    )
+
+  const capacityColor =
+    kpis.capacity >= 2
+      ? "text-green-400"
+      : kpis.capacity < 0
+        ? "text-red-400"
+        : "text-amber-400"
+
+  const actionLine =
+    kpis.capacity >= 2
+      ? `You have capacity for ${kpis.capacity} more active threads.`
+      : kpis.capacity === 0
+        ? "Roster is full — consider cooling someone."
+        : `You're over capacity by ${Math.abs(kpis.capacity)}. Time to pause or end.`
+
+  return (
+    <CardShell title="Roster KPIs" action={actionLine}>
+      <div className="grid grid-cols-3 gap-4 mb-6">
+        <div className="bg-gray-800 rounded p-4">
+          <div className="text-sm text-gray-400">Target</div>
+          <div className="text-3xl font-bold">{kpis.target}</div>
+        </div>
+        <div className="bg-gray-800 rounded p-4">
+          <div className="text-sm text-gray-400">Active</div>
+          <div className="text-3xl font-bold">{kpis.active}</div>
+        </div>
+        <div className={`bg-gray-800 rounded p-4 ${capacityColor}`}>
+          <div className="text-sm text-gray-400">Capacity</div>
+          <div className="text-3xl font-bold">{kpis.capacity}</div>
+        </div>
+      </div>
+
+      {kpis.top_5_warmest && kpis.top_5_warmest.length > 0 && (
+        <div className="mb-6">
+          <h4 className="text-sm font-semibold text-gray-300 mb-3">
+            Top 5 to move forward
+          </h4>
+          <div className="space-y-2">
+            {kpis.top_5_warmest.map((p: any) => (
+              <Link
+                key={p.person_id}
+                href={`/admin/clapcheeks-ops/people/${p.person_id}`}
+                className="flex items-center justify-between bg-gray-800 hover:bg-gray-750 rounded px-3 py-2 transition"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="text-blue-400 hover:underline">{p.display_name}</div>
+                  <div className="text-xs text-gray-500">
+                    hotness {p.hotness_rating}
+                  </div>
+                </div>
+                <div className="text-xs font-mono text-green-400">
+                  warmth {p.warmth_score}
+                </div>
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {kpis.cooling_threats && kpis.cooling_threats.length > 0 && (
+        <div>
+          <h4 className="text-sm font-semibold text-red-300 mb-3">
+            Cooling threats ({kpis.cooling_threats.length})
+          </h4>
+          <div className="space-y-2">
+            {kpis.cooling_threats.map((p: any) => (
+              <Link
+                key={p.person_id}
+                href={`/admin/clapcheeks-ops/people/${p.person_id}`}
+                className="flex items-center justify-between bg-red-950 hover:bg-red-900 rounded px-3 py-2 transition"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="text-red-300 hover:underline">{p.display_name}</div>
+                  <div className="text-xs text-red-400">
+                    hotness {p.hotness_rating}
+                  </div>
+                </div>
+                <div className="text-xs font-mono text-red-400">
+                  silent {p.days_since_last_inbound}d
+                </div>
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
+    </CardShell>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Top summary KPI bar
 // ---------------------------------------------------------------------------
-function SummaryCard({ summary }: { summary: any }) {
+function SummaryCard({ summary, callStats }: { summary: any; callStats: any }) {
   if (!summary) return <div className="text-sm text-gray-500">Loading summary…</div>
+
+  const callsTotal = callStats?.total_30d ?? "—"
 
   const kpis = [
     { label: "Active threads", value: summary.active_threads },
@@ -59,15 +158,17 @@ function SummaryCard({ summary }: { summary: any }) {
     },
     { label: "Kissed (notes)", value: summary.kissed_this_month },
     { label: "Closed (notes)", value: summary.slept_with_this_month },
+    // AI-9500 W2 E13 — call stat
+    { label: "📞 Calls (30d)", value: callsTotal },
   ]
 
   return (
-    <div className="grid grid-cols-3 md:grid-cols-6 gap-3 mb-8">
+    <div className="grid grid-cols-3 md:grid-cols-7 gap-3 mb-8">
       {kpis.map((kpi) => (
         <div
           key={kpi.label}
           className={`bg-gray-900 border rounded-lg p-4 text-center ${
-            kpi.warn ? "border-amber-700" : "border-gray-800"
+            (kpi as any).warn ? "border-amber-700" : "border-gray-800"
           }`}
         >
           <div className="text-2xl font-bold">{kpi.value ?? "—"}</div>
@@ -75,6 +176,60 @@ function SummaryCard({ summary }: { summary: any }) {
         </div>
       ))}
     </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// CallsCard — 30-day call breakdown for /coach
+// AI-9500 W2 E13
+// ---------------------------------------------------------------------------
+function CallsCard({ data }: { data: any }) {
+  if (!data) return <CardShell title="Calls (30d)" loading />
+
+  const { total_30d, by_direction, avg_duration_seconds } = data
+
+  if (total_30d === 0) {
+    return (
+      <CardShell title="📞 Calls (30d)" action="No calls logged this month — consider voice-based check-ins.">
+        <p className="text-sm text-gray-500">Connect a call source or log manually.</p>
+      </CardShell>
+    )
+  }
+
+  const durationLabel = avg_duration_seconds
+    ? (() => {
+        const m = Math.floor(avg_duration_seconds / 60)
+        const s = avg_duration_seconds % 60
+        return m > 0 ? `${m}m${s > 0 ? `${s}s` : ""}` : `${s}s`
+      })()
+    : null
+
+  const action = `${total_30d} calls in 30d — ${by_direction.missed} missed${durationLabel ? `, avg ${durationLabel}` : ""}.`
+
+  return (
+    <CardShell title="📞 Calls (30d)" action={action}>
+      <div className="grid grid-cols-3 gap-3 text-center text-sm">
+        <div>
+          <div className="text-xl font-bold text-blue-400">{by_direction.outbound}</div>
+          <div className="text-xs text-gray-500">outbound</div>
+        </div>
+        <div>
+          <div className="text-xl font-bold text-green-400">{by_direction.inbound}</div>
+          <div className="text-xs text-gray-500">inbound</div>
+        </div>
+        <div>
+          <div className={`text-xl font-bold ${by_direction.missed > 0 ? "text-red-400" : "text-gray-500"}`}>
+            {by_direction.missed}
+          </div>
+          <div className="text-xs text-gray-500">missed</div>
+        </div>
+      </div>
+      {durationLabel && (
+        <div className="mt-3 text-xs text-gray-400 text-center">
+          avg duration: {durationLabel}
+        </div>
+      )}
+    </CardShell>
   )
 }
 
@@ -493,12 +648,15 @@ function CardShell({
 // ---------------------------------------------------------------------------
 export default function CoachPage() {
   const summary = useQuery(api.coach.getDashboardSummary, { user_id: FLEET_USER_ID })
+  const rosterKpis = useQuery(api.coach.getRosterKPIs, { user_id: FLEET_USER_ID })
   const overPursue = useQuery(api.coach.getOverPursueList, { user_id: FLEET_USER_ID })
   const lateNight = useQuery(api.coach.getLateNightConversion, { user_id: FLEET_USER_ID })
   const openerOveruse = useQuery(api.coach.getSameOpenerOveruse, { user_id: FLEET_USER_ID })
   const cutList = useQuery(api.coach.getCutListCandidates, { user_id: FLEET_USER_ID })
   const stuckInStage = useQuery(api.coach.getStuckInStage, { user_id: FLEET_USER_ID })
   const heatmap = useQuery(api.coach.getTimeOfDayHeatmap, { user_id: FLEET_USER_ID })
+  // AI-9500 W2 E13 — call stats for /coach KPI bar + breakdown card
+  const callStats = useQuery(api.calls.recentForCoach, { user_id: FLEET_USER_ID })
 
   return (
     <div className="p-4 sm:p-8 max-w-7xl">
@@ -516,8 +674,18 @@ export default function CoachPage() {
         Your patterns across all active threads — last 30 days. Each card has one thing to do.
       </p>
 
-      {/* KPI Summary */}
-      <SummaryCard summary={summary} />
+      {/* KPI Summary — includes calls (30d) stat */}
+      <SummaryCard summary={summary} callStats={callStats} />
+
+      {/* Roster KPIs — full width */}
+      <div className="mb-4 sm:mb-6">
+        <RosterCard kpis={rosterKpis} />
+      </div>
+
+      {/* Roster KPIs — full width */}
+      <div className="mb-4 sm:mb-6">
+        <RosterCard kpis={rosterKpis} />
+      </div>
 
       {/* Cards — 1 col on mobile, 2 col on lg+ */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
@@ -527,6 +695,8 @@ export default function CoachPage() {
         <OpenerOveruseCard data={openerOveruse} />
         <LateNightCard data={lateNight} />
         <HeatmapCard data={heatmap} />
+        {/* AI-9500 W2 E13 — calls breakdown card */}
+        <CallsCard data={callStats} />
       </div>
     </div>
   )

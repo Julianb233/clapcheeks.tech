@@ -1145,6 +1145,193 @@ export const patchPerson = mutation({
 });
 
 // ----------------------------------------------------------------------------
+// AI-9500 Wave2 #K — addTag / removeTag
+//
+// Operator manages freeform short labels for a person (e.g. "foodie", "hiker",
+// "dog mom"). Tags are stored deduplicated on the person row and shown as chips
+// in the HeaderCard. Also auto-populated by the debrief extraction sweep.
+// ----------------------------------------------------------------------------
+export const addTag = mutation({
+  args: {
+    person_id: v.id("people"),
+    tag: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const person = await ctx.db.get(args.person_id);
+    if (!person) throw new Error("person not found");
+    const tag = args.tag.trim().toLowerCase().slice(0, 40);
+    if (!tag) return { ok: false, reason: "empty" };
+    const existing = person.tags ?? [];
+    if (existing.includes(tag)) return { ok: true, duplicate: true };
+    await ctx.db.patch(args.person_id, {
+      tags: [...existing, tag],
+      updated_at: Date.now(),
+    });
+    return { ok: true };
+  },
+});
+
+export const removeTag = mutation({
+  args: {
+    person_id: v.id("people"),
+    tag: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const person = await ctx.db.get(args.person_id);
+    if (!person) throw new Error("person not found");
+    const tag = args.tag.trim().toLowerCase();
+    const next = (person.tags ?? []).filter((t) => t !== tag);
+    await ctx.db.patch(args.person_id, { tags: next, updated_at: Date.now() });
+    return { ok: true };
+  },
+});
+
+// ----------------------------------------------------------------------------
+// AI-9500 Wave2 #K — addThingMentioned / removeThingMentioned
+//
+// Operator (or debrief auto-extractor) records specific topics/details she
+// mentioned in conversation. Used to brief Julian before a date.
+// source: "operator" | "auto"
+// ----------------------------------------------------------------------------
+export const addThingMentioned = mutation({
+  args: {
+    person_id: v.id("people"),
+    topic: v.string(),
+    detail: v.optional(v.string()),
+    source: v.optional(v.string()),
+    source_msg_id: v.optional(v.id("messages")),
+  },
+  handler: async (ctx, args) => {
+    const person = await ctx.db.get(args.person_id);
+    if (!person) throw new Error("person not found");
+    const existing = person.things_mentioned ?? [];
+    const newEntry = {
+      topic: args.topic.trim().slice(0, 100),
+      detail: args.detail?.trim().slice(0, 300),
+      said_at_ms: Date.now(),
+      source_msg_id: args.source_msg_id,
+      source: args.source ?? "operator",
+    };
+    await ctx.db.patch(args.person_id, {
+      things_mentioned: [...existing, newEntry],
+      updated_at: Date.now(),
+    });
+    return { ok: true, index: existing.length };
+  },
+});
+
+export const removeThingMentioned = mutation({
+  args: {
+    person_id: v.id("people"),
+    idx: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const person = await ctx.db.get(args.person_id);
+    if (!person) throw new Error("person not found");
+    const next = [...(person.things_mentioned ?? [])];
+    if (args.idx < 0 || args.idx >= next.length) return { ok: false, reason: "out of bounds" };
+    next.splice(args.idx, 1);
+    await ctx.db.patch(args.person_id, { things_mentioned: next, updated_at: Date.now() });
+    return { ok: true };
+  },
+});
+
+// ----------------------------------------------------------------------------
+// AI-9500 Wave2 #K — getDebriefCard
+//
+// Returns a structured pre-date debrief object Julian reads 2h before a date.
+// Pulls from the person's accumulated intelligence:
+//   - top 5 things_mentioned (most recent first)
+//   - all tags
+//   - latest emotional_state
+//   - last 3 topics_that_lit_her_up (by signal_count desc)
+//   - top 3 pending curiosity_ledger questions
+//   - last_known_venue (from the most recent date_logistics checklist)
+//   - dietary_prefs (from operator_profile if available)
+// ----------------------------------------------------------------------------
+export const getDebriefCard = query({
+  args: {
+    person_id: v.id("people"),
+    user_id: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const person = await ctx.db.get(args.person_id);
+    if (!person) return null;
+
+    // Top 5 things_mentioned (most recent first)
+    const thingsMentioned = (person.things_mentioned ?? [])
+      .slice()
+      .sort((a, b) => b.said_at_ms - a.said_at_ms)
+      .slice(0, 5);
+
+    // Tags
+    const tags = person.tags ?? [];
+
+    // Latest emotional state
+    const emotionalStateHistory = person.emotional_state_recent ?? [];
+    const latestEmotionalState = emotionalStateHistory.length
+      ? emotionalStateHistory[emotionalStateHistory.length - 1]
+      : null;
+
+    // Last 3 topics that lit her up (by signal_count desc)
+    const topicsLitUp = (person.topics_that_lit_her_up ?? [])
+      .slice()
+      .sort((a, b) => (b.signal_count ?? 0) - (a.signal_count ?? 0))
+      .slice(0, 3);
+
+    // Top 3 pending curiosity_ledger questions (by priority desc)
+    const curiosityQuestions = (person.curiosity_ledger ?? [])
+      .filter((q) => q.status === "pending")
+      .slice()
+      .sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0))
+      .slice(0, 3);
+
+    // Find last known venue from date_logistics_checklists
+    let lastKnownVenue: string | null = null;
+    const checklists = await ctx.db
+      .query("date_logistics_checklists")
+      .withIndex("by_person", (q) => q.eq("person_id", args.person_id))
+      .order("desc")
+      .take(5);
+    for (const c of checklists) {
+      if (c.venue) { lastKnownVenue = c.venue; break; }
+    }
+
+    // Dietary prefs from operator_profile
+    let dietaryPrefs: string[] | null = null;
+    if (person.user_id) {
+      const opProfile = await ctx.db
+        .query("operator_profile")
+        .withIndex("by_user", (q) => q.eq("user_id", person.user_id))
+        .first();
+      if (opProfile?.self_dietary_prefs?.length) {
+        dietaryPrefs = opProfile.self_dietary_prefs;
+      }
+    }
+
+    return {
+      person_id: args.person_id,
+      display_name: person.display_name,
+      courtship_stage: person.courtship_stage,
+      tags,
+      things_mentioned: thingsMentioned,
+      latest_emotional_state: latestEmotionalState,
+      topics_that_lit_her_up: topicsLitUp,
+      curiosity_questions: curiosityQuestions,
+      last_known_venue: lastKnownVenue,
+      dietary_prefs: dietaryPrefs,
+      // Extra signals for context
+      boundaries_stated: person.boundaries_stated ?? [],
+      things_she_loves: (person.things_she_loves ?? []).slice(0, 5),
+      next_best_move: person.next_best_move,
+      trust_score: person.trust_score,
+      green_flags: (person.green_flags ?? []).slice(0, 3),
+      red_flags: (person.red_flags ?? []).slice(0, 3),
+    };
+  },
+});
+
+// ----------------------------------------------------------------------------
 // updateLiveState
 //
 // Daemon-only writer. Called whenever inbound/outbound activity occurs on
