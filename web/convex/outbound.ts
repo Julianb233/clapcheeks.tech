@@ -279,6 +279,74 @@ export const claimNextDue = internalMutation({
 });
 
 // ------------------------------------------------------------
+// Cron drain — called every 60 s by crons.ts.
+// Finds approved rows whose scheduled_at has passed, enqueues a
+// send_imessage agent_jobs row for each, and marks the row sent to
+// prevent double-fire on the next tick.
+// AI-9598 — fixes the missing auto-fire that was broken because
+// crons.ts pointed at the old scheduled_messages table.
+// ------------------------------------------------------------
+
+export const sendDue = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const now = Date.now();
+    const due = await ctx.db
+      .query("outbound_scheduled_messages")
+      .withIndex("by_status_due", (q) =>
+        q.eq("status", "approved").lte("scheduled_at", now),
+      )
+      .take(25);
+
+    const enqueued: string[] = [];
+    for (const row of due) {
+      if (!row.phone) {
+        // No delivery handle — skip rather than silently drop.
+        await ctx.db.patch(row._id, {
+          status: "failed",
+          rejection_reason: "no phone/handle; cannot deliver",
+          updated_at: now,
+        });
+        continue;
+      }
+
+      // Mark sent first (atomic mutation serialization prevents
+      // a concurrent tick from claiming the same row).
+      await ctx.db.patch(row._id, {
+        status: "sent",
+        sent_at: now,
+        updated_at: now,
+      });
+
+      // Enqueue a send_imessage job for the Mac Mini runner.
+      // Payload mirrors the shape expected by _handle_send_imessage in
+      // agent/clapcheeks/convex_runner.py: { handle, body }.
+      await ctx.db.insert("agent_jobs", {
+        user_id: row.user_id,
+        job_type: "send_imessage",
+        payload: {
+          handle: row.phone,
+          body: row.message_text,
+          outbound_scheduled_message_id: row._id,
+          match_name: row.match_name,
+          source: "outbound_cron",
+        },
+        status: "queued",
+        priority: 1,
+        attempts: 0,
+        max_attempts: 3,
+        created_at: now,
+        updated_at: now,
+      });
+
+      enqueued.push(row._id);
+    }
+
+    return { enqueued_count: enqueued.length, enqueued };
+  },
+});
+
+// ------------------------------------------------------------
 // Backfill helper — used by scripts/backfill_outbound_supabase_to_convex.py.
 // Idempotent: if a row with the same legacy_id already exists, skip.
 // ------------------------------------------------------------
