@@ -142,4 +142,15 @@ crons.interval(
   internal.enrichment.sweepDateAskGhostOuts,
 );
 
+// AI-9500 W2 #B — Soft-no recovery detector (every 6 hours).
+// Safety-net sweep: finds date_ask touches with ask_outcome=soft_no whose
+// recovery_scheduled_at is still unset (e.g. process restart during real-time
+// classification, or backfilled asks). Schedules a soft_no_recovery touch
+// +14d for each unprocessed row. Capped at 20 per sweep.
+crons.interval(
+  "soft-no-recovery-detector",
+  { hours: 6 },
+  internal.touches.softNoRecoveryDetectorCron,
+);
+
 export default crons;

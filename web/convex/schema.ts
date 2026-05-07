@@ -810,6 +810,12 @@ export default defineSchema({
       body: v.string(),
       reasoning: v.optional(v.string()),
     }))),
+    // AI-9500 W2 #B — soft_no recovery tracking. When ask_outcome=soft_no is
+    // patched onto a date_ask touch, _scheduleSoftNoRecovery fires and inserts a
+    // soft_no_recovery touch +14d. This field records the unix ms when that recovery
+    // touch was scheduled (or "skipped" sentinel "-1") so the 6h sweep cron can
+    // detect un-processed soft_no touches without re-querying scheduled_touches.
+    recovery_scheduled_at: v.optional(v.number()),
     created_at: v.number(),
     updated_at: v.number(),
   })
