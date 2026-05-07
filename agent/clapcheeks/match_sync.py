@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -138,11 +139,24 @@ def _log_agent_event(
     event_type: str,
     data: dict | None = None,
 ) -> None:
+    # AI-9536: agent_events migrated to Convex. Dual-write during cutover —
+    # Convex is canonical, Supabase row left for rollback insurance.
+    payload = data or {}
+    try:
+        from clapcheeks.convex_client import mutation as convex_mutation
+        convex_mutation("telemetry:recordEvent", {
+            "user_id": user_id,
+            "event_type": event_type,
+            "data": payload,
+            "occurred_at": int(time.time() * 1000),
+        })
+    except Exception as exc:
+        logger.debug("convex agent_event insert failed: %s", exc)
     try:
         supabase_client.table("clapcheeks_agent_events").insert({
             "user_id": user_id,
             "event_type": event_type,
-            "data": data or {},
+            "data": payload,
         }).execute()
     except Exception as exc:
         logger.debug("agent_event insert failed: %s", exc)
