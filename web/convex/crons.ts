@@ -102,6 +102,18 @@ crons.interval(
   internal.agent_jobs.enqueueHingeSync,
 );
 
+// AI-9500 W2 #J: Enqueue a Tinder match + message sync job every 5 minutes.
+// The local Mac Mini agent (convex_runner.py) claims and executes the job
+// via _handle_sync_tinder(). Dedup guard inside enqueueTinderSync prevents
+// pile-up if the previous tick hasn't completed yet.
+// NOTE: The daemon skips gracefully if ~/.clapcheeks/tinder-auth.json is absent.
+// Julian must run: mitmproxy -s scripts/capture_tinder.py once to capture tokens.
+crons.interval(
+  "enqueue-tinder-sync",
+  { minutes: 5 },
+  internal.agent_jobs.enqueueTinderSync,
+);
+
 // AI-9500-E — Reply-velocity mirror weekly recalibration.
 // Every Monday at 03:00 UTC, refit cadence_overrides for all people with
 // enough recent message volume (total_messages_30d > 30). Staggered 5s
@@ -161,6 +173,15 @@ crons.interval(
   "soft-no-recovery-detector",
   { hours: 6 },
   internal.touches.softNoRecoveryDetectorCron,
+);
+
+// AI-9500 W1 — Competition signal sweep every 12h.
+// Finds dating-relevant people whose competition_signal_computed_at is null or
+// >14 days stale, schedules _computeCompetitionSignal per person staggered 6s.
+crons.interval(
+  "competition-signal-sweep",
+  { hours: 12 },
+  internal.enrichment.sweepCompetitionSignalCandidates,
 );
 
 export default crons;

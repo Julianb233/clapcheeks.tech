@@ -1348,3 +1348,330 @@ export const sweepDateAskGhostOuts = internalMutation({
     return { patched, scanned: firedRows.length };
   },
 });
+
+// =========================================================================
+// AI-9500 W1 — Competition Signal Model
+//
+// Measures how much she's juggling other men using 4 complementary signals:
+//
+//   1. REPLY-TIME VARIANCE (weight 0.30)
+//      Std-dev of her inter-reply-gaps over the last 30 days.
+//      Low variance = she's consistent and attending to you;
+//      high variance = her attention is scattered (other men, busy life).
+//      Normalised against a 0-4h std-dev range.
+//
+//   2. COMPETING-DEMANDS FREQUENCY (weight 0.35)
+//      Count of inbound messages mentioning keywords like "out with friends",
+//      "back from trip", "busy", "another date", "talking to", "guy", "guys",
+//      "seeing someone", "been dating", "dating app", etc. — divided by total
+//      inbound message count to produce a rate.
+//
+//   3. GHOST-RECOVERY COUNT (weight 0.20)
+//      How many times has she gone silent >48h and then come back on her own?
+//      Each recovery is evidence she's juggling: she surfaces when she has a
+//      free slot. Capped at 5 (1 recovery per month in a 5-month window).
+//
+//   4. LATE-EVENING ACTIVE-HOURS OVERLAP (weight 0.15)
+//      During 8–11pm local time, what fraction of her replies arrive within
+//      30 minutes of YOU sending? Low fraction = she's occupied those hours
+//      (other men, dates). Inverted: low overlap → high competition signal.
+//
+// FINAL FORMULA:
+//   raw = 0.30 * variance_score
+//       + 0.35 * competing_demands_rate
+//       + 0.20 * ghost_recovery_score
+//       + 0.15 * (1 - evening_overlap_rate)
+//   score = clamp(raw, 0, 1)
+//
+//   0.00–0.25  → 🎯 #1  (she's focused on you)
+//   0.25–0.55  → ⚖️ middle (some competing demands, normal)
+//   0.55–1.00  → 🚨 juggling (5+ men energy)
+// =========================================================================
+
+const COMP_LOOKBACK_MS = 30 * 24 * 3600_000;  // 30-day window
+const COMP_STALE_DAYS = 14;                     // recompute every 14 days
+
+/** Keywords that hint at competing demands / other men. */
+const COMPETITION_KEYWORDS_RE = /\b(out\s+with\s+(?:friends|girls|the\s+girls)|back\s+from\s+(?:a?\s*trip|vacation|travelling)|(?:been\s+)?(?:so\s+)?busy|another\s+date|going\s+on\s+a\s+date|(?:talking\s+to|dating|seeing)\s+(?:a?\s*guy|some(?:one|body)|another|a\s+few)|(?:this\s+)?guy\s+i|met\s+(?:a|this)\s+guy|multiple\s+guys|dating\s+app|hinge|bumble|tinder|match\.com|apps again|in\s+a\s+talking\s+stage)\b/gi;
+
+/** Evening window: 20:00–23:00 local (hours in 24h format). */
+const EVENING_START_H = 20;
+const EVENING_END_H = 23;
+const QUICK_REPLY_MS = 30 * 60 * 1000;   // 30 min
+const GHOST_GAP_MS = 48 * 3600_000;       // 48h silence = ghost
+const MAX_GHOST_RECOVERIES = 5;           // cap ghost-recovery score at 5
+
+// ---------------------------------------------------------------------------
+// Internal query: fetch raw messages for competition analysis
+// ---------------------------------------------------------------------------
+export const _recentMessagesForCompetition = internalQuery({
+  args: {
+    person_id: v.id("people"),
+    since_ms: v.number(),
+  },
+  handler: async (ctx, args) => {
+    // Primary path via by_person_recent index.
+    let rows = await ctx.db
+      .query("messages")
+      .withIndex("by_person_recent", (q) =>
+        q.eq("person_id", args.person_id).gte("sent_at", args.since_ms),
+      )
+      .order("asc")
+      .collect();
+
+    if (rows.length > 0) return rows;
+
+    // Fallback: iterate conversations.
+    const convs = await ctx.db
+      .query("conversations")
+      .withIndex("by_person", (q) => q.eq("person_id", args.person_id))
+      .collect();
+    const collected: typeof rows = [];
+    for (const c of convs) {
+      const msgs = await ctx.db
+        .query("messages")
+        .withIndex("by_conversation", (q) =>
+          q.eq("conversation_id", c._id).gte("sent_at", args.since_ms),
+        )
+        .order("asc")
+        .collect();
+      collected.push(...msgs);
+    }
+    collected.sort((a, b) => (a.sent_at || 0) - (b.sent_at || 0));
+    return collected;
+  },
+});
+
+// ---------------------------------------------------------------------------
+// Internal mutation: write competition signal fields to person row
+// ---------------------------------------------------------------------------
+export const _writeCompetitionSignal = internalMutation({
+  args: {
+    person_id: v.id("people"),
+    score: v.number(),
+    evidence: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    await ctx.db.patch(args.person_id, {
+      competition_signal_score: args.score,
+      competition_signal_evidence: args.evidence,
+      competition_signal_computed_at: now,
+      updated_at: now,
+    });
+  },
+});
+
+// ---------------------------------------------------------------------------
+// Core action: compute competition signal for one person
+// ---------------------------------------------------------------------------
+export const _computeCompetitionSignal = internalAction({
+  args: { person_id: v.id("people") },
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    const since = now - COMP_LOOKBACK_MS;
+
+    const person: any = await ctx.runQuery(internal.enrichment._getPersonForEnrichment, {
+      person_id: args.person_id,
+    });
+    if (!person) return { skipped: true, reason: "person_not_found" };
+
+    const msgs: any[] = await ctx.runQuery(internal.enrichment._recentMessagesForCompetition, {
+      person_id: args.person_id,
+      since_ms: since,
+    });
+
+    if (msgs.length < 6) {
+      return { skipped: true, reason: "insufficient_data", msg_count: msgs.length };
+    }
+
+    const inbound = msgs.filter((m) => m.direction === "inbound");
+    const outbound = msgs.filter((m) => m.direction === "outbound");
+
+    // -------------------------------------------------------------------
+    // SIGNAL 1: Reply-time variance
+    // Compute std-dev of her inter-reply-gap times.
+    // Build the same outbound→inbound reply pairs used in cadence analysis.
+    // -------------------------------------------------------------------
+    const replyGaps: number[] = [];
+    for (let i = 0; i < msgs.length - 1; i++) {
+      if (msgs[i].direction !== "outbound") continue;
+      const outAt = msgs[i].sent_at as number;
+      for (let j = i + 1; j < msgs.length; j++) {
+        if (msgs[j].direction === "inbound") {
+          const gap = (msgs[j].sent_at as number) - outAt;
+          // Filter to genuine reply pairs: >60s and <24h
+          if (gap > 60_000 && gap < 24 * 3600_000) {
+            replyGaps.push(gap);
+          }
+          break;
+        }
+        if (msgs[j].direction === "outbound") break;
+      }
+    }
+
+    let varianceScore = 0;
+    if (replyGaps.length >= 3) {
+      const mean = replyGaps.reduce((s, g) => s + g, 0) / replyGaps.length;
+      const variance = replyGaps.reduce((s, g) => s + (g - mean) ** 2, 0) / replyGaps.length;
+      const stdDev = Math.sqrt(variance);
+      // Normalise: a std-dev of 0 = totally predictable (score 0);
+      // 4 hours std-dev = highly erratic (score 1).
+      varianceScore = Math.min(1, stdDev / (4 * 3600_000));
+    }
+
+    // -------------------------------------------------------------------
+    // SIGNAL 2: Competing-demands keyword frequency
+    // Count inbound messages with competition keywords / total inbound.
+    // -------------------------------------------------------------------
+    let competingMentionCount = 0;
+    const competingSnippets: string[] = [];
+    for (const m of inbound) {
+      const body = (m.body || "") as string;
+      const matches = body.match(COMPETITION_KEYWORDS_RE);
+      if (matches && matches.length > 0) {
+        competingMentionCount++;
+        competingSnippets.push(`"${body.slice(0, 60)}"`);
+      }
+    }
+    const competingDemandsRate = inbound.length > 0
+      ? Math.min(1, competingMentionCount / inbound.length)
+      : 0;
+
+    // -------------------------------------------------------------------
+    // SIGNAL 3: Ghost-recovery count
+    // Scan inbound messages for gaps >48h followed by a re-engagement.
+    // Each such gap counts as one ghost-then-recovery event.
+    // -------------------------------------------------------------------
+    let ghostRecoveries = 0;
+    let lastInboundAt: number | null = null;
+    for (const m of inbound) {
+      const at = m.sent_at as number;
+      if (lastInboundAt !== null && at - lastInboundAt > GHOST_GAP_MS) {
+        ghostRecoveries++;
+      }
+      lastInboundAt = at;
+    }
+    // Normalise: cap at MAX_GHOST_RECOVERIES recoveries = score 1
+    const ghostRecoveryScore = Math.min(1, ghostRecoveries / MAX_GHOST_RECOVERIES);
+
+    // -------------------------------------------------------------------
+    // SIGNAL 4: Late-evening active-hours overlap (8–11pm local)
+    // For each outbound sent in 8-11pm window, check if she replied within 30 min.
+    // Low overlap = she's busy those hours.
+    // -------------------------------------------------------------------
+    const tz = (person.active_hours_local?.tz) || "UTC";
+    const hrFmt = new Intl.DateTimeFormat("en-US", {
+      timeZone: tz, hour: "numeric", hour12: false,
+    });
+
+    let eveningOutboundCount = 0;
+    let eveningQuickReplyCount = 0;
+
+    for (let i = 0; i < msgs.length; i++) {
+      const m = msgs[i];
+      if (m.direction !== "outbound") continue;
+      const sendAt = m.sent_at as number;
+      // Check if this outbound falls in the 8-11pm local window.
+      let localHour = -1;
+      try {
+        const h = hrFmt.format(new Date(sendAt));
+        localHour = parseInt(h, 10);
+      } catch { /* skip */ }
+      if (localHour < EVENING_START_H || localHour >= EVENING_END_H) continue;
+
+      eveningOutboundCount++;
+      // Did she reply within 30 min?
+      for (let j = i + 1; j < msgs.length; j++) {
+        if (msgs[j].direction === "inbound") {
+          const replyAt = msgs[j].sent_at as number;
+          if (replyAt - sendAt <= QUICK_REPLY_MS) {
+            eveningQuickReplyCount++;
+          }
+          break;
+        }
+        if (msgs[j].direction === "outbound") break;
+      }
+    }
+
+    const eveningOverlapRate = eveningOutboundCount > 0
+      ? eveningQuickReplyCount / eveningOutboundCount
+      : 0.5; // neutral when no evening data
+
+    // -------------------------------------------------------------------
+    // COMBINE: weighted sum
+    //   0.30 * variance_score
+    //   0.35 * competing_demands_rate
+    //   0.20 * ghost_recovery_score
+    //   0.15 * (1 - evening_overlap_rate)
+    // -------------------------------------------------------------------
+    const raw =
+      0.30 * varianceScore +
+      0.35 * competingDemandsRate +
+      0.20 * ghostRecoveryScore +
+      0.15 * (1 - eveningOverlapRate);
+    const score = Math.max(0, Math.min(1, raw));
+
+    // Build human-readable evidence string.
+    const evidenceParts: string[] = [
+      `reply-time std-dev score=${varianceScore.toFixed(2)} (${replyGaps.length} pairs)`,
+      `competing-mentions=${competingMentionCount}/${inbound.length} msgs (rate=${competingDemandsRate.toFixed(2)})`,
+      `ghost-recoveries=${ghostRecoveries} (score=${ghostRecoveryScore.toFixed(2)})`,
+      `evening-overlap=${eveningQuickReplyCount}/${eveningOutboundCount} (rate=${eveningOverlapRate.toFixed(2)})`,
+    ];
+    if (competingSnippets.length > 0) {
+      evidenceParts.push(`samples: ${competingSnippets.slice(0, 3).join("; ")}`);
+    }
+    const evidence = evidenceParts.join(" | ");
+
+    // Write back to Convex.
+    await ctx.runMutation(internal.enrichment._writeCompetitionSignal, {
+      person_id: args.person_id,
+      score,
+      evidence,
+    });
+
+    return {
+      person_id: args.person_id,
+      score,
+      variance_score: varianceScore,
+      competing_demands_rate: competingDemandsRate,
+      ghost_recovery_score: ghostRecoveryScore,
+      evening_overlap_rate: eveningOverlapRate,
+      evidence,
+    };
+  },
+});
+
+// ---------------------------------------------------------------------------
+// Sweep: find dating-relevant people whose competition_signal_computed_at is
+// null or >14 days stale, schedule _computeCompetitionSignal per person.
+// Staggered 6s apart to spread LLM/DB load.
+// ---------------------------------------------------------------------------
+export const sweepCompetitionSignalCandidates = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const now = Date.now();
+    const staleBefore = now - COMP_STALE_DAYS * 24 * 3600_000;
+
+    const all = await ctx.db.query("people").collect();
+    const eligible = all.filter((p) => isDatingRelevant(p, now));
+    const candidates = eligible
+      .filter((p) =>
+        !p.competition_signal_computed_at || p.competition_signal_computed_at < staleBefore,
+      )
+      .slice(0, MAX_PER_SWEEP);
+
+    let scheduled = 0;
+    for (let i = 0; i < candidates.length; i++) {
+      await ctx.scheduler.runAfter(
+        i * 6_000,
+        internal.enrichment._computeCompetitionSignal,
+        { person_id: candidates[i]._id },
+      );
+      scheduled++;
+    }
+
+    return { scheduled, eligible: eligible.length, total_people: all.length };
+  },
+});

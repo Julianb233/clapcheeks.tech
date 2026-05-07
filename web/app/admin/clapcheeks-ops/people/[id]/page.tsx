@@ -106,6 +106,44 @@ export default function PersonDossierPage() {
 // ---------------------------------------------------------------------------
 // Header card
 // ---------------------------------------------------------------------------
+/** AI-9500 W1: competition signal badge — shown in HeaderCard */
+function CompetitionBadge({ score, evidence }: { score: number | undefined; evidence?: string }) {
+  const [showTip, setShowTip] = useState(false)
+
+  if (score === undefined) return null
+
+  let label: string
+  let colorClass: string
+  if (score < 0.25) {
+    label = `🎯 #1 (${score.toFixed(2)})`
+    colorClass = "bg-emerald-900/60 text-emerald-300 border border-emerald-700/50"
+  } else if (score < 0.55) {
+    label = `⚖️ middle (${score.toFixed(2)})`
+    colorClass = "bg-amber-900/60 text-amber-300 border border-amber-700/50"
+  } else {
+    label = `🚨 juggling (${score.toFixed(2)})`
+    colorClass = "bg-red-900/60 text-red-300 border border-red-700/50"
+  }
+
+  return (
+    <div className="relative inline-block">
+      <span
+        className={`text-xs px-2 py-0.5 rounded cursor-help font-mono ${colorClass}`}
+        onMouseEnter={() => setShowTip(true)}
+        onMouseLeave={() => setShowTip(false)}
+      >
+        {label}
+      </span>
+      {showTip && evidence && (
+        <div className="absolute z-50 left-0 top-full mt-1 w-80 bg-gray-950 border border-gray-700 rounded-md p-3 text-xs text-gray-300 shadow-xl whitespace-pre-wrap">
+          <div className="text-gray-400 uppercase tracking-wider text-[10px] mb-1">Competition Signal Evidence</div>
+          {evidence}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function HeaderCard({ person }: { person: any }) {
   const lastInbound = person.last_inbound_at
     ? `${Math.round((Date.now() - person.last_inbound_at) / 3600000)}h ago`
@@ -130,6 +168,11 @@ function HeaderCard({ person }: { person: any }) {
             }`}>
               {person.whitelist_for_autoreply ? "✓ whitelisted" : "○ manual only"}
             </span>
+            {/* AI-9500 W1: competition signal badge */}
+            <CompetitionBadge
+              score={person.competition_signal_score}
+              evidence={person.competition_signal_evidence}
+            />
           </div>
           <div className="text-sm text-gray-400 mt-1">
             {person.location_observed || person.company || "—"}
@@ -614,19 +657,27 @@ function MemoryTab({ person }: { person: any }) {
 }
 
 // ---------------------------------------------------------------------------
-// Schedule tab — pending touches, post-date calibration, and recent fires
+// Schedule tab — pending touches, post-date calibration, voice memos, and recent fires
 // ---------------------------------------------------------------------------
 function ScheduleTab({ person, touches }: { person: any; touches: any[] }) {
   const cancelMut = useMutation(api.touches.cancelOne)
   const markDateDone = useMutation(api.touches.markDateDone)
   const commitPostDateChoice = useMutation(api.touches.commitPostDateChoice)
+  const markVoiceMemoSent = useMutation(api.touches.markVoiceMemoSent)
   const FLEET_USER_ID = "fleet-julian"
+
+  // AI-9500 W2 #I — date logistics checklists for this person
+  const dateChecklists = useQuery(api.date_logistics.listForPerson, { person_id: person._id })
+  const tickItemMut = useMutation(api.date_logistics.tickItem)
+  const completeChecklistMut = useMutation(api.date_logistics.complete)
 
   const [showDateDoneForm, setShowDateDoneForm] = useState(false)
   const [dateNotesText, setDateNotesText] = useState("")
   const [dateMarkingId, setDateMarkingId] = useState<string | null>(null)
   const [markingBusy, setMarkingBusy] = useState(false)
   const [choiceError, setChoiceError] = useState<string | null>(null)
+  // AI-9500 W2 #G — voice memo state
+  const [voiceBusy, setVoiceBusy] = useState<string | null>(null)   // touch_id being marked
 
   const upcoming = touches.filter((t) => t.status === "scheduled" && !t.is_preview)
   const fired = touches.filter((t) => t.status === "fired").slice(0, 10)
@@ -637,10 +688,25 @@ function ScheduleTab({ person, touches }: { person: any; touches: any[] }) {
     (t: any) => t.type === "post_date_calibration" && t.candidate_drafts?.length > 0 && !t.draft_body
   )
 
+  // AI-9500 W2 #G — voice_memo touches awaiting operator action.
+  const pendingVoiceMemos = upcoming.filter((t: any) => t.type === "voice_memo")
+
   // Date-ask or date-dayof touches that could be "marked done".
   const dateCandidates = [...upcoming, ...fired].filter(
     (t: any) => t.type === "date_ask" || t.type === "date_dayof" || t.type === "date_confirm_24h"
   ).slice(0, 5)
+
+  // AI-9500 W2 #G — mark a voice_memo touch as sent (operator recorded + sent on phone).
+  async function handleVoiceMemoSent(touchId: string) {
+    setVoiceBusy(touchId)
+    try {
+      await markVoiceMemoSent({ touch_id: touchId as any })
+    } catch (e: any) {
+      alert("Error: " + (e?.message ?? String(e)))
+    } finally {
+      setVoiceBusy(null)
+    }
+  }
 
   async function handleMarkDateDone(sourceTouchId?: string) {
     setMarkingBusy(true)
@@ -732,6 +798,89 @@ function ScheduleTab({ person, touches }: { person: any; touches: any[] }) {
               </button>
             </div>
           ))}
+        </Section>
+      )}
+
+      {/* ------------------------------------------------------------------ */}
+      {/* AI-9500 W2 #I — Date logistics checklists                           */}
+      {/* ------------------------------------------------------------------ */}
+      {dateChecklists && dateChecklists.length > 0 && (
+        <Section title={`Date logistics (${dateChecklists.length})`}>
+          <div className="space-y-6">
+            {dateChecklists.map((cl: any) => {
+              const allDone = cl.items.every((it: any) => it.done)
+              const doneCnt = cl.items.filter((it: any) => it.done).length
+              const dateLabel = new Date(cl.date_time_ms).toLocaleDateString(undefined, {
+                weekday: "short", month: "short", day: "numeric",
+              })
+              return (
+                <div
+                  key={cl._id}
+                  className={`rounded-lg border p-4 ${
+                    allDone
+                      ? "border-green-700 bg-green-950/20"
+                      : "border-purple-800/50 bg-purple-950/10"
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-3">
+                    <div>
+                      <span className="text-sm font-semibold text-purple-300">
+                        Date: {dateLabel}
+                      </span>
+                      {cl.venue && (
+                        <span className="ml-2 text-xs text-gray-400">@ {cl.venue}</span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className={`text-xs font-mono ${allDone ? "text-green-400" : "text-gray-500"}`}>
+                        {doneCnt}/{cl.items.length}
+                      </span>
+                      {!allDone && (
+                        <button
+                          onClick={() => completeChecklistMut({ checklist_id: cl._id })}
+                          className="text-xs px-2 py-0.5 rounded bg-green-800 hover:bg-green-700 text-white"
+                        >
+                          Mark all done
+                        </button>
+                      )}
+                      {allDone && (
+                        <span className="text-xs text-green-400 font-semibold">All done!</span>
+                      )}
+                    </div>
+                  </div>
+                  <ul className="space-y-2">
+                    {cl.items.map((item: any) => (
+                      <li key={item.key} className="flex items-start gap-2">
+                        <input
+                          type="checkbox"
+                          checked={item.done}
+                          onChange={(e) => tickItemMut({
+                            checklist_id: cl._id,
+                            key: item.key,
+                            done: e.target.checked,
+                          })}
+                          className="mt-0.5 accent-green-500 cursor-pointer"
+                        />
+                        <div className="flex-1">
+                          <span className={`text-sm ${item.done ? "line-through text-gray-500" : "text-gray-200"}`}>
+                            {item.label}
+                          </span>
+                          {item.done_at_ms && (
+                            <span className="ml-2 text-xs text-gray-600">
+                              {new Date(item.done_at_ms).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}
+                            </span>
+                          )}
+                          {item.notes && (
+                            <div className="text-xs text-gray-500 italic mt-0.5">{item.notes}</div>
+                          )}
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )
+            })}
+          </div>
         </Section>
       )}
 
