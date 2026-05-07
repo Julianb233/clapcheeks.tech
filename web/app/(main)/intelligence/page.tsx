@@ -94,10 +94,11 @@ export default function IntelligencePage() {
   }
 
   const funnel = stats?.stage_funnel || { opened: 0, replied: 0, date_ready: 0, booked: 0 }
+  // AI-9526 F8 — drop the lingering "Date-ready" funnel stage. It was a
+  // fabricated bucket that doesn't map to any real Convex/Supabase signal.
   const funnelSteps = [
     { label: 'Opened', value: funnel.opened },
     { label: 'Replied', value: funnel.replied },
-    { label: 'Date-ready', value: funnel.date_ready },
     { label: 'Booked', value: funnel.booked },
   ]
 
