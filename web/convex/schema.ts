@@ -373,6 +373,23 @@ export default defineSchema({
     // for daemon to autoreply. Default false.
     whitelist_for_autoreply: v.boolean(),
 
+    // -----------------------------------------------------------------
+    // DOSSIER FIELDS (AI-9501 — Wave 2.4 Task B)
+    // Populated by profile-screenshot importer (Task A) or manual entry.
+    // -----------------------------------------------------------------
+    ask_readiness: v.optional(v.number()),              // 0-100 model confidence for date ask
+    vibe: v.optional(v.string()),                       // free-text vibe summary (distinct from vibe_classification)
+    personal_details: v.optional(v.any()),              // {key, value, noted_at}[] — personal context ledger
+    curiosity_ledger: v.optional(v.any()),              // {topic, asked_at?}[] — topics to explore
+    recent_life_events: v.optional(v.any()),            // {event, date?}[]
+    emotional_state_recent: v.optional(v.any()),        // {state, ts}[]
+    zodiac_sign: v.optional(v.string()),
+    zodiac_analysis: v.optional(v.any()),               // full zodiac wisdom block (zodiac_block from Task A)
+    disc_inference: v.optional(v.any()),                // {d,i,s,c, primary, tactics[]} from profile importer
+    opener_suggestions: v.optional(v.any()),            // string[] — AI-generated openers (from Task A)
+    notes: v.optional(v.string()),                      // freeform Julian notes
+    imported_from_profile_screenshot: v.optional(v.string()), // media_assets _id if imported via Task A
+
     created_at: v.number(),
     updated_at: v.number(),
   })
@@ -408,4 +425,53 @@ export default defineSchema({
   })
     .index("by_user_status", ["user_id", "status"])
     .index("by_conversation", ["conversation_id"]),
+
+  // -----------------------------------------------------------------------
+  // AI-9501 — Wave 2.4 Task B: Dossier route tables.
+  // -----------------------------------------------------------------------
+
+  // Scheduled or fired outbound touches — one row per touch attempt.
+  // "touch" = any AI or manual outbound message to a person (opener, ping,
+  // pattern_interrupt, reply, date_ask, etc.).
+  // Also used by Tasks D, E, F, G.
+  scheduled_touches: defineTable({
+    person_id: v.id("people"),
+    user_id: v.string(),
+    type: v.string(),                         // 'opener' | 'ping' | 'pattern_interrupt' | 'reply' | 'date_ask'
+    template_name: v.optional(v.string()),
+    draft_body: v.optional(v.string()),       // AI-generated draft (before approval)
+    final_body: v.optional(v.string()),       // body that was actually sent
+    status: v.union(
+      v.literal("pending"),
+      v.literal("approved"),
+      v.literal("fired"),
+      v.literal("cancelled"),
+      v.literal("skipped"),
+    ),
+    skip_reason: v.optional(v.string()),
+    scheduled_for: v.number(),               // unix ms
+    fired_at: v.optional(v.number()),
+    message_id: v.optional(v.id("messages")), // links back to the Convex message row after send
+    created_at: v.number(),
+    updated_at: v.number(),
+  })
+    .index("by_person", ["person_id", "scheduled_for"])
+    .index("by_status_due", ["status", "scheduled_for"])
+    .index("by_user", ["user_id", "status"]),
+
+  // Tracks which media assets have been sent to which person and when.
+  // Prevents the same photo being sent twice to the same girl.
+  media_uses: defineTable({
+    person_id: v.id("people"),
+    user_id: v.string(),
+    asset_id: v.optional(v.string()),         // media_assets _id (string — may live in Supabase / Convex)
+    asset_url: v.optional(v.string()),        // resolved URL of the asset
+    asset_label: v.optional(v.string()),      // human label for the asset
+    touch_id: v.optional(v.id("scheduled_touches")),
+    message_id: v.optional(v.id("messages")),
+    sent_at: v.number(),
+    notes: v.optional(v.string()),
+  })
+    .index("by_person", ["person_id", "sent_at"])
+    .index("by_asset", ["asset_id"]),
 });
