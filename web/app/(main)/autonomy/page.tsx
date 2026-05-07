@@ -2,6 +2,8 @@ import type { Metadata } from 'next'
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import AutonomyDashboard from './components/autonomy-dashboard'
+import { getConvexServerClient } from '@/lib/convex/server'
+import { api } from '@/convex/_generated/api'
 
 export const metadata: Metadata = {
   title: 'Autonomy Engine — Clapcheeks',
@@ -13,20 +15,19 @@ export default async function AutonomyPage() {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/auth')
 
-  // Fetch initial data in parallel
-  const [configRes, queueRes, actionsRes, modelRes, swipesCountRes] = await Promise.all([
+  // AI-9535 — approval_queue is now Convex; everything else stays on Supabase.
+  const convex = getConvexServerClient()
+  const [configRes, queueData, actionsRes, modelRes, swipesCountRes] = await Promise.all([
     supabase
       .from('clapcheeks_autonomy_config')
       .select('*')
       .eq('user_id', user.id)
       .single(),
-    supabase
-      .from('clapcheeks_approval_queue')
-      .select('*')
-      .eq('user_id', user.id)
-      .eq('status', 'pending')
-      .order('created_at', { ascending: false })
-      .limit(20),
+    convex.query(api.queues.listApprovalsForUser, {
+      user_id: user.id,
+      status: 'pending',
+      limit: 20,
+    }),
     supabase
       .from('clapcheeks_auto_actions')
       .select('*')
@@ -80,7 +81,31 @@ export default async function AutonomyPage() {
 
         <AutonomyDashboard
           initialConfig={config}
-          initialQueue={queueRes.data ?? []}
+          initialQueue={((queueData ?? []) as Array<{
+            _id: string
+            action_type: string
+            match_name?: string
+            platform?: string
+            proposed_text?: string
+            proposed_data?: unknown
+            confidence?: number
+            ai_reasoning?: string
+            status: string
+            created_at: number
+            expires_at: number
+          }>).map((q) => ({
+            id: String(q._id),
+            action_type: q.action_type,
+            match_name: q.match_name ?? '',
+            platform: q.platform ?? null,
+            proposed_text: q.proposed_text ?? null,
+            proposed_data: (q.proposed_data ?? {}) as Record<string, unknown>,
+            confidence: q.confidence ?? null,
+            ai_reasoning: q.ai_reasoning ?? null,
+            status: q.status,
+            created_at: new Date(q.created_at).toISOString(),
+            expires_at: new Date(q.expires_at).toISOString(),
+          }))}
           initialActions={actionsRes.data ?? []}
           initialModel={modelRes.data ?? { version: 0, training_size: 0, accuracy: null, weights: {} }}
           totalSwipeDecisions={swipesCountRes.count ?? 0}
