@@ -1,345 +1,959 @@
-import { internalAction, internalQuery } from "./_generated/server";
-import { internal, api } from "./_generated/api";
+/**
+ * AI-9449 — Convex-resident enrichment + auto-responder logic.
+ *
+ * Replaces the Mac-Mini-side convex_runner Python module for the LLM-driven
+ * jobs that don't need filesystem / iMessage-send access:
+ *
+ *   - classifyConversationVibeForOne — dating | platonic | professional | unclear
+ *   - enrichCourtshipForOne          — trust + courtship-stage + next_best_move
+ *   - sweepCourtshipCandidates       — find CC TECH people due for analysis
+ *   - sweepVibeCandidates            — find people with iMessage activity due for vibe re-score
+ *
+ * Mac Mini still owns: actually sending iMessage / Hinge messages (BB Server),
+ * chat.db backfill, presence gating. Those run as Convex agent_jobs the local
+ * daemon picks up.
+ *
+ * LLM provider cascade: GEMINI_API_KEY -> DEEPSEEK_API_KEY -> XAI_API_KEY
+ * (set via `npx convex env set ...`). Anthropic dropped from cloud cascade
+ * because the legacy keys ran out of credits.
+ */
+
+import { internalAction, internalMutation, internalQuery } from "./_generated/server";
+import { internal } from "./_generated/api";
 import { v } from "convex/values";
 
-// AI-9449 — Enrichment sweeps: courtship intelligence, fatigue detection.
-//
-// All functions here are internalAction (not exposed to clients) so they can
-// issue Convex queries + mutations safely from within server-side logic.
-//
-// Linear: AI-9449 / AI-9500-F (conversation-fatigue + pattern-interrupt scheduler)
+// -------------------------------------------------------------------------
+// LLM provider abstraction (Convex-Action side, pure fetch — no SDK)
+// -------------------------------------------------------------------------
+type LLMResult = Record<string, unknown> | null;
 
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
-/** ms in 3 days — silence threshold for fatigue detection */
-const SILENCE_THRESHOLD_MS = 3 * 24 * 60 * 60 * 1000;
-
-/** Minimum engagement slope to consider "declining". Negative means declining.
- *  Units: engagement_score (0-1) change per message position (1-5). */
-const FATIGUE_SLOPE_THRESHOLD = -0.05;
-
-/** How far back (ms) to look for "CC TECH" people whose last inbound was silent */
-const SWEEP_LOOKBACK_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
-
-// ---------------------------------------------------------------------------
-// DISC → sub-style mapping
-// ---------------------------------------------------------------------------
-// Pattern-interrupt sub-styles and when to use them:
-//
-//  callback          — references something she said earlier; universal safe choice.
-//                      Best for: neutral/unknown DISC, ongoing/pre_date stage.
-//  meme_reference    — playful, culture-hook; re-establishes fun vibe.
-//                      Best for: high-I (Influence), early_chat / phone_swap stage.
-//  low_pressure_check_in — super-soft, gives her an easy on-ramp back.
-//                      Best for: high-S (Steadiness), ghosted/dormant, sensitive stage.
-//  bold_direct       — direct, confident re-opener; slight challenge energy.
-//                      Best for: high-D (Dominance), first_date_done / ongoing.
-//  seasonal_hook     — ties into a current season, event, or holiday; feels timely.
-//                      Best for: high-C (Conscientiousness), cold/cool conversations.
-//
-// DISC primary codes: D=Dominance, I=Influence, S=Steadiness, C=Conscientiousness
-
-const SUBSTYLE_BY_DISC: Record<string, string> = {
-  D: "bold_direct",
-  I: "meme_reference",
-  S: "low_pressure_check_in",
-  C: "seasonal_hook",
-};
-
-/** Courtship-stage override — some stages call for a specific style
- *  regardless of DISC. These take priority over the DISC map. */
-const SUBSTYLE_BY_STAGE: Record<string, string> = {
-  ghosted: "low_pressure_check_in",
-  ended:   "low_pressure_check_in",
-  matched: "meme_reference",          // early low-stakes re-opener
-};
-
-/**
- * Determine the best pattern-interrupt sub-style for a person.
- *
- * Resolution order:
- *   1. courtship_stage override (ghosted/ended/matched → fixed style)
- *   2. disc_primary → DISC map
- *   3. disc_inference field (optional, string like "D/I" or "I")
- *   4. default → "callback"
- */
-function _pickSubstyle(person: Record<string, unknown>): string {
-  const stage = (person.courtship_stage as string | undefined) ?? "";
-  if (stage in SUBSTYLE_BY_STAGE) {
-    return SUBSTYLE_BY_STAGE[stage]!;
+async function llmJson(systemPrompt: string, userPrompt: string, maxTokens = 180): Promise<LLMResult> {
+  // Try Gemini first
+  const gemKey = process.env.GEMINI_API_KEY;
+  if (gemKey) {
+    const r = await tryGemini(gemKey, systemPrompt, userPrompt, maxTokens);
+    if (r) return r;
   }
-
-  // DISC primary from operator-set or inferred field
-  const disc =
-    (person.disc_primary as string | undefined) ||
-    (person.disc_inference as string | undefined) || "";
-  const discUpper = disc.toUpperCase().trim();
-
-  // Handle composite "D/I" → take first letter
-  const primary = discUpper.length > 0 ? discUpper[0]! : "";
-  if (primary in SUBSTYLE_BY_DISC) {
-    return SUBSTYLE_BY_DISC[primary]!;
+  // Then DeepSeek
+  const dsKey = process.env.DEEPSEEK_API_KEY;
+  if (dsKey) {
+    const r = await tryOpenAICompat(
+      "https://api.deepseek.com/chat/completions", dsKey, "deepseek-chat",
+      systemPrompt, userPrompt, maxTokens,
+    );
+    if (r) return r;
   }
-
-  return "callback";
+  // Then Grok
+  const grokKey = process.env.XAI_API_KEY;
+  if (grokKey) {
+    const r = await tryOpenAICompat(
+      "https://api.x.ai/v1/chat/completions", grokKey, "grok-2-latest",
+      systemPrompt, userPrompt, maxTokens,
+    );
+    if (r) return r;
+  }
+  return null;
 }
 
-// ---------------------------------------------------------------------------
-// Linear slope computation
-// ---------------------------------------------------------------------------
-
-/**
- * Fit a simple linear slope on `y` values (one per index 0..N-1).
- * Uses least-squares regression.
- * Returns the slope (dy/d_position). Negative = declining.
- *
- * With N=5 and positions 0-4 this is very fast — no library needed.
- */
-function _linearSlope(y: number[]): number {
-  const n = y.length;
-  if (n < 2) return 0;
-  const xs = y.map((_, i) => i);
-  const xMean = xs.reduce((a, b) => a + b, 0) / n;
-  const yMean = y.reduce((a, b) => a + b, 0) / n;
-  let num = 0;
-  let den = 0;
-  for (let i = 0; i < n; i++) {
-    num += (xs[i]! - xMean) * (y[i]! - yMean);
-    den += (xs[i]! - xMean) ** 2;
+async function tryGemini(key: string, system: string, user: string, maxTokens: number): Promise<LLMResult> {
+  const model = process.env.CC_VIBE_MODEL_GEMINI ?? "gemini-2.0-flash";
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`;
+  try {
+    const r = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: `${system}\n\n${user}` }] }],
+        generationConfig: { responseMimeType: "application/json", temperature: 0.1, maxOutputTokens: maxTokens },
+      }),
+    });
+    if (!r.ok) {
+      console.warn(`gemini http ${r.status}`);
+      return null;
+    }
+    const j: any = await r.json();
+    const text = j?.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (!text) return null;
+    return JSON.parse(text);
+  } catch (e) {
+    console.warn(`gemini err: ${String(e).slice(0, 200)}`);
+    return null;
   }
-  return den === 0 ? 0 : num / den;
 }
 
-// ---------------------------------------------------------------------------
-// sweepFatigueDetection
-// ---------------------------------------------------------------------------
+async function tryOpenAICompat(
+  url: string, key: string, model: string,
+  system: string, user: string, maxTokens: number,
+): Promise<LLMResult> {
+  try {
+    const r = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+      body: JSON.stringify({
+        model, max_tokens: maxTokens,
+        response_format: { type: "json_object" },
+        messages: [
+          { role: "system", content: system },
+          { role: "user", content: user },
+        ],
+      }),
+    });
+    if (!r.ok) {
+      console.warn(`${model} http ${r.status}`);
+      return null;
+    }
+    const j: any = await r.json();
+    const text = j?.choices?.[0]?.message?.content;
+    if (!text) return null;
+    return JSON.parse(text);
+  } catch (e) {
+    console.warn(`${model} err: ${String(e).slice(0, 200)}`);
+    return null;
+  }
+}
 
-/**
- * AI-9500-F — Conversation-fatigue detection sweep.
- *
- * Scans the `people` table for CC TECH members who:
- *   (a) have been silent for >3 days (last_inbound_at older than now − 3d), AND
- *   (b) show a declining engagement trend over their last 5 messages
- *       (linear slope of engagement_score < FATIGUE_SLOPE_THRESHOLD), OR
- *       their last 5 messages have declining word-count if engagement_score is unset.
- *
- * For each qualifying person, enqueues an agent_job of type `send_imessage`
- * with prompt_template=pattern_interrupt and the sub-style chosen by
- * _pickSubstyle(). Skips persons that already have a pending `send_imessage`
- * agent_job in the queue (anti-spam).
- *
- * Runs every 12h via crons.ts.
- */
-export const sweepFatigueDetection = internalAction({
-  args: {},
-  handler: async (ctx): Promise<{
-    scanned: number;
-    qualified: number;
-    scheduled: number;
-    skipped_pending: number;
-  }> => {
-    const now = Date.now();
-    const silenceCutoff = now - SILENCE_THRESHOLD_MS;
-    const lookbackCutoff = now - SWEEP_LOOKBACK_MS;
+// -------------------------------------------------------------------------
+// Internal queries used by actions (actions can't query the DB directly)
+// -------------------------------------------------------------------------
+export const _getPersonForEnrichment = internalQuery({
+  args: { person_id: v.id("people") },
+  handler: async (ctx, args) => await ctx.db.get(args.person_id),
+});
 
-    // Collect all "active" / "paused" people (skip ghosted/ended who are terminal).
-    // We filter CC TECH membership in-loop since Convex can't filter inside arrays.
-    const people = await ctx.runQuery(internal.enrichment._listPeopleForFatigueSweep, {
-      lookback_cutoff: lookbackCutoff,
+export const _recentMessagesForPerson = internalQuery({
+  args: { person_id: v.id("people"), limit: v.optional(v.number()) },
+  handler: async (ctx, args) => {
+    const limit = Math.min(args.limit ?? 100, 500);
+    let rows = await ctx.db
+      .query("messages")
+      .withIndex("by_person_recent", (q) => q.eq("person_id", args.person_id))
+      .order("desc")
+      .take(limit);
+    if (rows.length === 0) {
+      const convs = await ctx.db
+        .query("conversations")
+        .withIndex("by_person", (q) => q.eq("person_id", args.person_id))
+        .collect();
+      const collected: typeof rows = [];
+      for (const c of convs) {
+        const msgs = await ctx.db
+          .query("messages")
+          .withIndex("by_conversation", (q) => q.eq("conversation_id", c._id))
+          .order("desc")
+          .take(limit);
+        collected.push(...msgs);
+      }
+      collected.sort((a, b) => (b.sent_at || 0) - (a.sent_at || 0));
+      rows = collected.slice(0, limit);
+    }
+    return rows;
+  },
+});
+
+// -------------------------------------------------------------------------
+// classifyConversationVibeForOne
+// -------------------------------------------------------------------------
+export const classifyConversationVibeForOne = internalAction({
+  args: { person_id: v.id("people") },
+  handler: async (ctx, args) => {
+    const recent: any[] = await ctx.runQuery(internal.enrichment._recentMessagesForPerson, {
+      person_id: args.person_id, limit: 50,
+    });
+    if (recent.length < 4) return { skipped: true, reason: "not_enough_messages" };
+
+    const transcript = recent
+      .reverse()
+      .map((m) => `${m.direction === "outbound" ? "You" : "Them"}: ${(m.body || "").slice(0, 240)}`)
+      .join("\n");
+    const system =
+      "Classify a 1:1 transcript into: dating | platonic | professional | unclear.\n" +
+      'Output ONLY JSON: {"classification":"...","confidence":0..1,"evidence":"<one sentence>"}';
+    const parsed = await llmJson(system, `Transcript:\n\n${transcript}`, 180);
+    if (!parsed) return { skipped: true, reason: "no_llm_or_failed" };
+
+    const valid = new Set(["dating", "platonic", "professional", "unclear"]);
+    let cls = String(parsed.classification ?? "unclear").toLowerCase();
+    if (!valid.has(cls)) cls = "unclear";
+    const conf = Math.max(0, Math.min(1, Number(parsed.confidence ?? 0)));
+    const ev = String(parsed.evidence ?? "").slice(0, 300) || undefined;
+
+    await ctx.runMutation(internal.people._updateVibeInternal, {
+      person_id: args.person_id,
+      vibe_classification: cls as any,
+      vibe_confidence: conf,
+      vibe_evidence: ev,
+    });
+    return { person_id: args.person_id, classification: cls, confidence: conf };
+  },
+});
+
+// -------------------------------------------------------------------------
+// enrichCourtshipForOne
+// -------------------------------------------------------------------------
+export const enrichCourtshipForOne = internalAction({
+  args: { person_id: v.id("people") },
+  handler: async (ctx, args) => {
+    const recent: any[] = await ctx.runQuery(internal.enrichment._recentMessagesForPerson, {
+      person_id: args.person_id, limit: 100,
+    });
+    if (recent.length < 6) return { skipped: true, reason: "not_enough_messages" };
+
+    const transcript = recent
+      .reverse()
+      .map((m) => `${m.direction === "outbound" ? "You" : "Her"}: ${(m.body || "").slice(0, 280)}`)
+      .join("\n");
+    const system =
+      "You are a dating coach analyzing a 1:1 iMessage thread between Julian (You) and a woman (Her). " +
+      "Extract STRUCTURED SIGNALS that help him build trust, court her, AND make her feel seen, heard, and understood. " +
+      "Output ONLY JSON. Use [] when nothing applies; do NOT invent data not in the transcript.\n\n" +
+      `{
+  "trust_score": 0.0-1.0,
+  "courtship_stage": "matched|early_chat|phone_swap|pre_date|first_date_done|ongoing|exclusive|ghosted|ended",
+  "trust_signals_observed": [...],
+  "trust_signals_missing": [...],
+  "things_she_loves": [...],
+  "things_she_dislikes": [...],
+  "boundaries_stated": [...],
+  "green_flags": [...],
+  "red_flags": [...],
+  "compliments_that_landed": [...],
+  "references_to_callback": [...],
+  "her_love_languages": ["words_of_affirmation|quality_time|receiving_gifts|acts_of_service|physical_touch", ...],
+  "next_best_move": "<one concrete next message or move, <=140 chars>",
+  "next_best_move_confidence": 0.0-1.0,
+  "personal_details": [<short factual strings ONLY from transcript: "rescue puppy named Beans", "sister Maya getting married Sept", etc.>],
+  "recent_life_events": [{"event":"<thing happening in her world>","iso_date_or_estimate":"YYYY-MM-DD","status":"future|past"}],
+  "topics_that_lit_her_up": [<topics where her engagement spiked: longer messages, asking questions back, emoji uptick>],
+  "curiosity_questions_to_ask": [<5-8 specific questions Julian could ask to deepen knowledge of her — must reference something specific to her, NOT generic "how was your day">],
+  "current_emotional_state": "stressed|excited|playful|vulnerable|flirty|bored|tired|proud|anxious|neutral",
+  "current_emotional_intensity": 0.0-1.0,
+  "time_to_ask_score": 0.0-1.0,
+  "ghosting_risk": 0.0-1.0,
+  "engagement_score": 0.0-1.0
+}` +
+      "\n\nRules: be evidence-based, empty arrays are fine, JSON only no markdown. " +
+      "personal_details + curiosity_questions_to_ask are how Julian shows he's been paying attention — every entry must be defensible from the transcript.";
+
+    const parsed = await llmJson(system, `Transcript:\n\n${transcript}`, 1400);
+    if (!parsed) return { skipped: true, reason: "no_llm_or_failed" };
+
+    const validStages = new Set([
+      "matched", "early_chat", "phone_swap", "pre_date",
+      "first_date_done", "ongoing", "exclusive", "ghosted", "ended",
+    ]);
+    let stage = String(parsed.courtship_stage ?? "").toLowerCase();
+    if (!validStages.has(stage)) stage = "early_chat";
+
+    const clamp01 = (x: any) => {
+      const n = Number(x);
+      return Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : undefined;
+    };
+    const strs = (x: any): string[] | undefined =>
+      Array.isArray(x) ? x.map((s) => String(s).slice(0, 200)).filter(Boolean).slice(0, 20) : undefined;
+
+    // Feels-seen extras: append directly to person row.
+    const personalDetails = strs(parsed.personal_details) ?? [];
+    const curiosityQs = strs(parsed.curiosity_questions_to_ask) ?? [];
+    const litTopics = strs(parsed.topics_that_lit_her_up) ?? [];
+    const lifeEvents: any[] = Array.isArray(parsed.recent_life_events)
+      ? parsed.recent_life_events.slice(0, 10) : [];
+    const validStates = new Set([
+      "stressed","excited","playful","vulnerable","flirty","bored","tired","proud","anxious","neutral",
+    ]);
+    const emotionalState = validStates.has(String(parsed.current_emotional_state ?? "").toLowerCase())
+      ? String(parsed.current_emotional_state).toLowerCase() : undefined;
+
+    await ctx.runMutation(internal.enrichment._appendCourtshipExtras, {
+      person_id: args.person_id,
+      personal_details: personalDetails,
+      curiosity_questions: curiosityQs,
+      lit_topics: litTopics,
+      life_events: lifeEvents,
+      emotional_state: emotionalState,
+      emotional_intensity: clamp01(parsed.current_emotional_intensity),
+      time_to_ask_score: clamp01(parsed.time_to_ask_score),
+      engagement_score: clamp01(parsed.engagement_score),
     });
 
-    let scanned = 0;
-    let qualified = 0;
-    let scheduled = 0;
-    let skippedPending = 0;
+    await ctx.runMutation(internal.people._updateCourtshipInternal, {
+      person_id: args.person_id,
+      courtship_stage: stage as any,
+      trust_score: clamp01(parsed.trust_score),
+      trust_signals_observed: strs(parsed.trust_signals_observed),
+      trust_signals_missing: strs(parsed.trust_signals_missing),
+      things_she_loves: strs(parsed.things_she_loves),
+      things_she_dislikes: strs(parsed.things_she_dislikes),
+      boundaries_stated: strs(parsed.boundaries_stated),
+      green_flags: strs(parsed.green_flags),
+      red_flags: strs(parsed.red_flags),
+      compliments_that_landed: strs(parsed.compliments_that_landed),
+      references_to_callback: strs(parsed.references_to_callback),
+      her_love_languages: strs(parsed.her_love_languages),
+      next_best_move: parsed.next_best_move ? String(parsed.next_best_move).slice(0, 300) : undefined,
+      next_best_move_confidence: clamp01(parsed.next_best_move_confidence),
+    });
+    return { person_id: args.person_id, courtship_stage: stage };
+  },
+});
 
-    for (const person of people) {
+// -------------------------------------------------------------------------
+// _appendCourtshipExtras — append the feels-seen fields (personal_details,
+// curiosity_ledger, lit_topics, recent_life_events, emotional_state).
+// Called from enrichCourtshipForOne in addition to _updateCourtshipInternal.
+// -------------------------------------------------------------------------
+export const _appendCourtshipExtras = internalMutation({
+  args: {
+    person_id: v.id("people"),
+    personal_details: v.array(v.string()),
+    curiosity_questions: v.array(v.string()),
+    lit_topics: v.array(v.string()),
+    life_events: v.array(v.any()),
+    emotional_state: v.optional(v.string()),
+    emotional_intensity: v.optional(v.number()),
+    time_to_ask_score: v.optional(v.number()),
+    engagement_score: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const p = await ctx.db.get(args.person_id);
+    if (!p) return;
+    const now = Date.now();
+
+    // personal_details — dedup by case-insensitive fact string.
+    const existingPD = p.personal_details ?? [];
+    const seenPD = new Set(existingPD.map((d: any) => (d.fact ?? "").toLowerCase()));
+    const newPD = args.personal_details
+      .filter((f) => !seenPD.has(f.toLowerCase()))
+      .map((f) => ({ fact: f, learned_at: now, validated_by_julian: false }));
+    const personal_details = [...existingPD, ...newPD].slice(-100);
+
+    // curiosity_ledger — append new pending questions. Cap at 30.
+    const existingCL = p.curiosity_ledger ?? [];
+    const seenCL = new Set(existingCL.map((q: any) => (q.question ?? "").toLowerCase()));
+    const newCL = args.curiosity_questions
+      .filter((q) => !seenCL.has(q.toLowerCase()))
+      .map((q, i) => ({
+        question: q, priority: 1 + i, status: "pending" as const, added_at_ms: now,
+      }));
+    const curiosity_ledger = [...existingCL, ...newCL].slice(-30);
+
+    // lit_topics — increment count or insert.
+    const litList = [...(p.topics_that_lit_her_up ?? [])];
+    for (const topic of args.lit_topics) {
+      const idx = litList.findIndex((t: any) => (t.topic ?? "").toLowerCase() === topic.toLowerCase());
+      if (idx >= 0) {
+        litList[idx] = { ...litList[idx], signal_count: (litList[idx].signal_count ?? 0) + 1, last_lit_at_ms: now };
+      } else {
+        litList.push({ topic, signal_count: 1, last_lit_at_ms: now, signal_strength: 0.6 });
+      }
+    }
+    const topics_that_lit_her_up = litList.slice(-50);
+
+    // life_events — dedup by event string.
+    const evList = [...(p.recent_life_events ?? [])];
+    const seenEv = new Set(evList.map((e: any) => (e.event ?? "").toLowerCase()));
+    for (const e of args.life_events) {
+      const ek = String(e.event ?? "").toLowerCase();
+      if (!ek || seenEv.has(ek)) continue;
+      const eDate = Date.parse(String(e.iso_date_or_estimate ?? ""));
+      evList.push({
+        event: String(e.event).slice(0, 200),
+        date_mentioned_ms: now,
+        event_date_estimated_ms: Number.isFinite(eDate) ? eDate : undefined,
+        status: e.status === "past" ? "happened" as const : "pending" as const,
+      });
+      seenEv.add(ek);
+    }
+    const recent_life_events = evList.slice(-30);
+
+    // emotional_state — append if provided.
+    let emotional_state_recent = p.emotional_state_recent ?? [];
+    if (args.emotional_state) {
+      emotional_state_recent = [
+        ...emotional_state_recent,
+        {
+          state: args.emotional_state as any,
+          intensity: args.emotional_intensity ?? 0.5,
+          observed_at_ms: now,
+        },
+      ].slice(-10);
+    }
+
+    const patch: Record<string, unknown> = {
+      personal_details, curiosity_ledger, topics_that_lit_her_up,
+      recent_life_events, emotional_state_recent, updated_at: now,
+    };
+    if (args.time_to_ask_score !== undefined) patch.time_to_ask_score = args.time_to_ask_score;
+    if (args.engagement_score !== undefined) patch.engagement_score = args.engagement_score;
+    await ctx.db.patch(args.person_id, patch);
+  },
+});
+
+// -------------------------------------------------------------------------
+// Sweeps — run by cron, schedule per-person enrichment with rate limiting
+// -------------------------------------------------------------------------
+const ENRICH_STALE_DAYS = 7;          // re-run courtship every 7 days
+const VIBE_STALE_DAYS = 30;           // re-run vibe every 30 days
+const MAX_PER_SWEEP = 10;             // throttle to avoid LLM rate limits + cost
+
+export const sweepCourtshipCandidates = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const now = Date.now();
+    const staleBefore = now - ENRICH_STALE_DAYS * 24 * 60 * 60 * 1000;
+
+    const all = await ctx.db.query("people").collect();
+    const candidates = all
+      .filter((p) => (p.google_contacts_labels ?? []).includes("CC TECH"))
+      .filter((p) => !p.courtship_last_analyzed || p.courtship_last_analyzed < staleBefore)
+      .slice(0, MAX_PER_SWEEP);
+
+    let scheduled = 0;
+    for (let i = 0; i < candidates.length; i++) {
+      const p = candidates[i];
+      // Stagger the calls 6 seconds apart to spread LLM API load
+      await ctx.scheduler.runAfter(i * 6000, internal.enrichment.enrichCourtshipForOne, {
+        person_id: p._id,
+      });
+      scheduled++;
+    }
+    return { scheduled, total_cc_tech: all.filter((p) => (p.google_contacts_labels ?? []).includes("CC TECH")).length };
+  },
+});
+
+// -------------------------------------------------------------------------
+// sweepAskCandidates — fires people whose time_to_ask_score crossed
+// threshold AND haven't been asked in the last 14d. Schedules a date_ask
+// touch to fire 30-90 minutes from now (warm-up window so it doesn't fire
+// in the middle of an active reply burst).
+// -------------------------------------------------------------------------
+const ASK_THRESHOLD = 0.7;
+const ASK_COOLDOWN_DAYS = 14;
+const MAX_ASKS_PER_SWEEP = 5;
+
+import { api } from "./_generated/api";
+export const sweepAskCandidates = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const now = Date.now();
+    const cooldown = now - ASK_COOLDOWN_DAYS * 24 * 60 * 60 * 1000;
+
+    const all = await ctx.db.query("people").collect();
+    const candidates = all
+      .filter((p) => (p.google_contacts_labels ?? []).includes("CC TECH"))
+      .filter((p) => p.whitelist_for_autoreply === true)
+      .filter((p) => p.status === "active")
+      .filter((p) => (p.time_to_ask_score ?? 0) >= ASK_THRESHOLD)
+      .filter((p) => !p.last_ask_attempted_at || p.last_ask_attempted_at < cooldown)
+      .filter((p) => p.courtship_stage !== "ended" && p.courtship_stage !== "ghosted")
+      .sort((a, b) => (b.time_to_ask_score ?? 0) - (a.time_to_ask_score ?? 0))
+      .slice(0, MAX_ASKS_PER_SWEEP);
+
+    let scheduled = 0;
+    for (let i = 0; i < candidates.length; i++) {
+      const p = candidates[i];
+      // Stagger 30-90 min from now to avoid stacking.
+      const offsetMs = (30 + i * 12) * 60 * 1000;
+      // Fire scheduleOne via runAfter to chain into touches engine.
+      await ctx.scheduler.runAfter(0, internal.enrichment._scheduleAskFor, {
+        person_id: p._id,
+        user_id: p.user_id,
+        scheduled_for: now + offsetMs,
+      });
+      // Throttle marker so re-sweeps don't double-schedule.
+      await ctx.db.patch(p._id, {
+        last_ask_attempted_at: now, updated_at: now,
+      });
+      scheduled++;
+    }
+    return { scheduled, eligible: candidates.length };
+  },
+});
+
+// Internal helper — wraps the public api.touches.scheduleOne so we can call
+// it from a scheduled context inside the sweep.
+import { internalAction as ia2 } from "./_generated/server";
+export const _scheduleAskFor = ia2({
+  args: {
+    person_id: v.id("people"),
+    user_id: v.string(),
+    scheduled_for: v.number(),
+  },
+  handler: async (ctx, args) => {
+    await ctx.runMutation(api.touches.scheduleOne, {
+      user_id: args.user_id,
+      person_id: args.person_id,
+      type: "date_ask",
+      scheduled_for: args.scheduled_for,
+      generate_at_fire_time: true,
+      urgency: "warm",
+      prompt_template: "date_ask_three_options",
+      generated_by_run_id: `ask-sweep-${Date.now()}`,
+    } as any);
+  },
+});
+
+export const sweepVibeCandidates = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const now = Date.now();
+    const staleBefore = now - VIBE_STALE_DAYS * 24 * 60 * 60 * 1000;
+
+    const all = await ctx.db.query("people").collect();
+    // For vibe: focus on people with conversations attached (so there's something to classify).
+    const withConvs = new Set<string>();
+    const convs = await ctx.db.query("conversations").collect();
+    for (const c of convs) if (c.person_id) withConvs.add(c.person_id);
+
+    const candidates = all
+      .filter((p) => withConvs.has(p._id))
+      .filter((p) => !p.vibe_classified_at || p.vibe_classified_at < staleBefore)
+      .slice(0, MAX_PER_SWEEP);
+
+    let scheduled = 0;
+    for (let i = 0; i < candidates.length; i++) {
+      await ctx.scheduler.runAfter(i * 6000, internal.enrichment.classifyConversationVibeForOne, {
+        person_id: candidates[i]._id,
+      });
+      scheduled++;
+    }
+    return { scheduled, with_convs: withConvs.size };
+  },
+});
+
+// -------------------------------------------------------------------------
+// AI-9500-E — Reply-velocity mirror + active-hours auto-tune
+//
+// recalibrateCadenceForOne: fits her median reply-gap from the last 30d of
+// messages and updates cadence_overrides on the person row. Also computes
+// her active-hours histogram (active_hours_computed) from observed message
+// timestamps (inbound messages, bucketed by local hour).
+//
+// Algorithm:
+//   1. Fetch last 30d of messages for the person (both directions).
+//   2. Build reply-pair list: for each outbound message, find the next
+//      inbound message. Record gap_ms = inbound.sent_at - outbound.sent_at.
+//      Only pairs where gap < 24h (genuine replies, not "she came back 3 days
+//      later") and gap > 30s (not automated instant-reply artifacts).
+//   3. If < MIN_REPLY_PAIRS pairs, return {skipped: true, reason: "insufficient_data"}.
+//   4. Sort gaps, pick median. Clamp min/max to [30s, 6h].
+//      min_reply_gap_ms = clamp(median * 0.7, 30s, 6h)
+//      max_reply_gap_ms = clamp(median * 1.4, 30s, 6h)
+//   5. Active-hours: bucket inbound messages by local hour (using person.timezone
+//      or UTC fallback). Mark hours where count > 1/3 of peak count.
+//   6. Patch the person row with cadence_overrides + active_hours_computed.
+// -------------------------------------------------------------------------
+
+const MIN_REPLY_PAIRS = 10;             // require at least 10 pairs to fit
+const MAX_PAIR_GAP_MS = 24 * 3600_000; // ignore gaps >24h (left conversation, not a reply)
+const MIN_PAIR_GAP_MS = 30_000;        // ignore gaps <30s (bot, read-receipt, sync artifact)
+const CLAMP_MIN_MS = 30_000;           // absolute floor: 30 seconds
+const CLAMP_MAX_MS = 6 * 3600_000;     // absolute ceiling: 6 hours
+
+// Internal query: fetch last 30d of messages for a person, newest first.
+export const _recentMessagesForCadence = internalQuery({
+  args: {
+    person_id: v.id("people"),
+    since_ms: v.number(),
+  },
+  handler: async (ctx, args) => {
+    // Primary path: use the by_person_recent index if it exists on messages.
+    const rows = await ctx.db
+      .query("messages")
+      .withIndex("by_person_recent", (q) =>
+        q.eq("person_id", args.person_id).gte("sent_at", args.since_ms),
+      )
+      .order("asc")
+      .collect();
+
+    if (rows.length > 0) return rows;
+
+    // Fallback: iterate conversations linked to person and collect.
+    const convs = await ctx.db
+      .query("conversations")
+      .withIndex("by_person", (q) => q.eq("person_id", args.person_id))
+      .collect();
+    const collected: typeof rows = [];
+    for (const c of convs) {
+      const msgs = await ctx.db
+        .query("messages")
+        .withIndex("by_conversation", (q) =>
+          q.eq("conversation_id", c._id).gte("sent_at", args.since_ms),
+        )
+        .order("asc")
+        .collect();
+      collected.push(...msgs);
+    }
+    collected.sort((a, b) => (a.sent_at || 0) - (b.sent_at || 0));
+    return collected;
+  },
+});
+
+// Internal mutation: write computed cadence fields back to the person row.
+export const _writeCadenceOverrides = internalMutation({
+  args: {
+    person_id: v.id("people"),
+    cadence_overrides: v.object({
+      min_reply_gap_ms: v.number(),
+      max_reply_gap_ms: v.number(),
+      computed_at: v.number(),
+      sample_pairs: v.number(),
+    }),
+    active_hours_computed: v.array(v.float64()),
+  },
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    await ctx.db.patch(args.person_id, {
+      cadence_overrides: args.cadence_overrides,
+      active_hours_computed: args.active_hours_computed,
+      updated_at: now,
+    });
+  },
+});
+
+// Main action: compute and write cadence overrides for one person.
+export const recalibrateCadenceForOne = internalAction({
+  args: { person_id: v.id("people") },
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    const since = now - 30 * 24 * 3600_000;  // last 30 days
+
+    // Fetch person for timezone + validation.
+    const person: any = await ctx.runQuery(internal.enrichment._getPersonForEnrichment, {
+      person_id: args.person_id,
+    });
+    if (!person) return { skipped: true, reason: "person_not_found" };
+
+    const msgs: any[] = await ctx.runQuery(internal.enrichment._recentMessagesForCadence, {
+      person_id: args.person_id,
+      since_ms: since,
+    });
+
+    if (msgs.length < 4) {
+      return { skipped: true, reason: "insufficient_data", msg_count: msgs.length };
+    }
+
+    // -----------------------------------------------------------------------
+    // Step 1: Build reply-pair gaps
+    // A "reply pair" is: outbound[i] -> inbound[j] where j is the first
+    // inbound message after outbound[i], and the gap is within bounds.
+    // -----------------------------------------------------------------------
+    const replyGaps: number[] = [];
+    for (let i = 0; i < msgs.length - 1; i++) {
+      if (msgs[i].direction !== "outbound") continue;
+      const outboundAt = msgs[i].sent_at as number;
+      // Find the next inbound after this outbound.
+      for (let j = i + 1; j < msgs.length; j++) {
+        if (msgs[j].direction === "inbound") {
+          const inboundAt = msgs[j].sent_at as number;
+          const gap = inboundAt - outboundAt;
+          if (gap >= MIN_PAIR_GAP_MS && gap <= MAX_PAIR_GAP_MS) {
+            replyGaps.push(gap);
+          }
+          // Whether or not gap was in bounds, stop looking for a reply to
+          // this outbound (she replied; we already captured or discarded it).
+          break;
+        }
+        // If another outbound comes before an inbound, this outbound never
+        // got a direct reply — skip it.
+        if (msgs[j].direction === "outbound") break;
+      }
+    }
+
+    if (replyGaps.length < MIN_REPLY_PAIRS) {
+      return {
+        skipped: true,
+        reason: "insufficient_data",
+        reply_pairs: replyGaps.length,
+        needed: MIN_REPLY_PAIRS,
+      };
+    }
+
+    // -----------------------------------------------------------------------
+    // Step 2: Median reply gap
+    // -----------------------------------------------------------------------
+    replyGaps.sort((a, b) => a - b);
+    const mid = Math.floor(replyGaps.length / 2);
+    const median = replyGaps.length % 2 === 0
+      ? (replyGaps[mid - 1] + replyGaps[mid]) / 2
+      : replyGaps[mid];
+
+    const clamp = (v: number) => Math.max(CLAMP_MIN_MS, Math.min(CLAMP_MAX_MS, v));
+    const minGap = clamp(median * 0.7);
+    const maxGap = clamp(median * 1.4);
+
+    // -----------------------------------------------------------------------
+    // Step 3: Active-hours histogram (inbound messages by local hour)
+    // -----------------------------------------------------------------------
+    const tz = (person.active_hours_local?.tz) || "UTC";
+    const hourCounts = new Array<number>(24).fill(0);
+    const fmt = new Intl.DateTimeFormat("en-US", {
+      timeZone: tz,
+      hour: "numeric",
+      hour12: false,
+    });
+
+    for (const m of msgs) {
+      if (m.direction !== "inbound") continue;
+      try {
+        const hourStr = fmt.format(new Date(m.sent_at as number));
+        const h = parseInt(hourStr, 10);
+        if (h >= 0 && h < 24) hourCounts[h]++;
+      } catch {
+        // non-critical; skip malformed timestamps
+      }
+    }
+
+    const peakCount = Math.max(...hourCounts);
+    const activeHours: number[] = [];
+    if (peakCount > 0) {
+      const threshold = peakCount / 3;
+      for (let h = 0; h < 24; h++) {
+        if (hourCounts[h] > threshold) activeHours.push(h);
+      }
+    }
+
+    // -----------------------------------------------------------------------
+    // Step 4: Write back
+    // -----------------------------------------------------------------------
+    const cadenceOverrides = {
+      min_reply_gap_ms: minGap,
+      max_reply_gap_ms: maxGap,
+      computed_at: now,
+      sample_pairs: replyGaps.length,
+    };
+
+    await ctx.runMutation(internal.enrichment._writeCadenceOverrides, {
+      person_id: args.person_id,
+      cadence_overrides: cadenceOverrides,
+      active_hours_computed: activeHours,
+    });
+
+    return {
+      person_id: args.person_id,
+      reply_pairs: replyGaps.length,
+      median_reply_gap_ms: median,
+      min_reply_gap_ms: minGap,
+      max_reply_gap_ms: maxGap,
+      active_hours: activeHours,
+    };
+  },
+});
+
+// -------------------------------------------------------------------------
+// recalibrateCadenceSweep — weekly cron target. Lists all people whose
+// total_messages_30d > 30 and queues recalibrateCadenceForOne for each.
+// Staggered 5s apart to spread load.
+// -------------------------------------------------------------------------
+const CADENCE_SWEEP_MIN_MSGS = 30;
+const CADENCE_STAGGER_MS = 5_000;
+
+export const recalibrateCadenceSweep = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const all = await ctx.db.query("people").collect();
+    const candidates = all.filter(
+      (p) => (p.total_messages_30d ?? 0) > CADENCE_SWEEP_MIN_MSGS,
+    );
+
+    let scheduled = 0;
+    for (let i = 0; i < candidates.length; i++) {
+      await ctx.scheduler.runAfter(
+        i * CADENCE_STAGGER_MS,
+        internal.enrichment.recalibrateCadenceForOne,
+        { person_id: candidates[i]._id },
+      );
+      scheduled++;
+    }
+    return {
+      scheduled,
+      total_people: all.length,
+      eligible: candidates.length,
+    };
+  },
+});
+
+// -------------------------------------------------------------------------
+// sweepFatigueDetection — AI-9500-F
+//
+// Identifies people whose engagement is declining and schedules a
+// pattern_interrupt touch to re-spark the conversation.
+//
+// Selection criteria (ALL must be true):
+//   - status in ["lead", "active", "dating"]
+//   - whitelist_for_autoreply === true
+//   - last 5 messages have a negative engagement slope (< -0.2)
+//   - last inbound message > 3 days ago
+//   - no pattern_interrupt touch scheduled in the last 14 days
+//
+// Engagement score per message: uses the stored engagement_score if the
+// message has it; otherwise applies a quick heuristic:
+//   score = clamp01(length/200 * 0.5 + questions/3 * 0.3 + emojis/3 * 0.2)
+//
+// Slope: simple linear regression slope = (y[n-1] - y[0]) / (n - 1)
+// over the sorted 5-point series. Negative = engagement trending down.
+//
+// Scheduled touch fires within the person's active_hours_local window,
+// jittered 0-6h from now.
+// -------------------------------------------------------------------------
+
+const FATIGUE_STATUSES = new Set(["lead", "active", "dating"]);
+const FATIGUE_SLOPE_THRESHOLD = -0.2;
+const FATIGUE_SILENCE_DAYS = 3;
+const FATIGUE_INTERRUPT_COOLDOWN_DAYS = 14;
+const FATIGUE_ENGAGE_WINDOW = 5;     // last N messages for slope
+const MAX_FATIGUE_SWEEP = 20;
+const FATIGUE_JITTER_MS = 6 * 60 * 60 * 1000; // max 6h jitter
+
+/** Heuristic engagement score when no stored score available. */
+function _msgEngagementScore(body: string): number {
+  const len = Math.min(body.length, 300);
+  const questions = (body.match(/\?/g) || []).length;
+  // Count basic emoji ranges (BMP + supplementary)
+  const emojis = (body.match(/[\u{1F300}-\u{1FAFF}]|\p{Emoji_Presentation}/gu) || []).length;
+  const s = (len / 200) * 0.5 + Math.min(questions, 3) / 3 * 0.3 + Math.min(emojis, 3) / 3 * 0.2;
+  return Math.max(0, Math.min(1, s));
+}
+
+/** Simple slope: (last - first) / (n-1). Returns 0 for single-point series. */
+function _engagementSlope(scores: number[]): number {
+  if (scores.length < 2) return 0;
+  return (scores[scores.length - 1] - scores[0]) / (scores.length - 1);
+}
+
+export const sweepFatigueDetection = internalAction({
+  args: {},
+  handler: async (ctx) => {
+    const now = Date.now();
+    const silenceCutoff = now - FATIGUE_SILENCE_DAYS * 24 * 60 * 60 * 1000;
+    const interruptCooloff = now - FATIGUE_INTERRUPT_COOLDOWN_DAYS * 24 * 60 * 60 * 1000;
+
+    // 1. Load candidate people.
+    const all: any[] = await ctx.runQuery(internal.enrichment._fatigueListPeople, {});
+    const eligible = all
+      .filter((p) => FATIGUE_STATUSES.has(p.status))
+      .filter((p) => p.whitelist_for_autoreply === true)
+      .slice(0, MAX_FATIGUE_SWEEP);
+
+    let scanned = 0;
+    let scheduled = 0;
+    let skipped_already_scheduled = 0;
+
+    for (const person of eligible) {
       scanned++;
 
-      // 1. Must be a CC TECH member.
-      const labels: string[] = (person.google_contacts_labels as string[] | undefined) ?? [];
-      if (!labels.includes("CC TECH")) {
-        continue;
-      }
+      // 2. Pull last 5 messages (all directions) for engagement scoring.
+      const msgs: any[] = await ctx.runQuery(internal.enrichment._recentMessagesForPerson, {
+        person_id: person._id,
+        limit: FATIGUE_ENGAGE_WINDOW,
+      });
+      if (msgs.length < 2) continue;
 
-      // 2. Must be silent > 3d.
-      const lastInbound = (person.last_inbound_at as number | undefined) ?? 0;
-      if (lastInbound > silenceCutoff) {
-        // Inbound is recent enough — not fatigued yet.
-        continue;
-      }
-
-      // 3. Compute engagement slope over last 5 messages.
-      const personId = person._id as string;
-      const recentMsgs = await ctx.runQuery(
-        internal.enrichment._recentMessagesForPerson,
-        { person_id: personId, limit: 5 },
+      // Sort oldest-first for slope direction.
+      const sorted = [...msgs].sort((a, b) => (a.sent_at || 0) - (b.sent_at || 0));
+      const scores = sorted.map((m) =>
+        typeof m.engagement_score === "number"
+          ? m.engagement_score
+          : _msgEngagementScore(m.body || ""),
       );
 
-      if (recentMsgs.length < 2) {
-        // Not enough history to compute slope — still check plain silence criterion.
-        // 5+ days of silence (stricter) counts even without slope.
-        const EXTENDED_SILENCE_MS = 5 * 24 * 60 * 60 * 1000;
-        if (lastInbound > now - EXTENDED_SILENCE_MS) {
-          continue;
-        }
-        // Falls through to scheduling.
-      } else {
-        // Build the y-series: prefer engagement_score, fall back to word count.
-        const ySeries = recentMsgs.map((m) => {
-          const es = m.engagement_score as number | undefined;
-          if (es != null && es >= 0) return es;
-          const body = (m.body as string | undefined) ?? "";
-          return body.trim().split(/\s+/).filter(Boolean).length;
-        });
-        // Normalise word counts to [0,1] range so slope threshold is comparable.
-        const useEngagement = recentMsgs.some(
-          (m) => (m.engagement_score as number | undefined) != null,
-        );
-        let yNorm = ySeries;
-        if (!useEngagement) {
-          const maxLen = Math.max(...ySeries, 1);
-          yNorm = ySeries.map((v) => v / maxLen);
-        }
-        const slope = _linearSlope(yNorm);
-        if (slope >= FATIGUE_SLOPE_THRESHOLD) {
-          // Trending flat or positive — conversation is healthy.
-          continue;
-        }
-      }
+      const slope = _engagementSlope(scores);
+      if (slope >= FATIGUE_SLOPE_THRESHOLD) continue;
 
-      // 4. Skip if a pending touch (agent_job) already exists for this person.
-      const hasPending = await ctx.runQuery(
-        internal.enrichment._hasPendingTouchForPerson,
-        { person_id: personId },
+      // 3. Check last inbound silence.
+      const lastInbound = (person.last_inbound_at ?? 0);
+      if (lastInbound > silenceCutoff) continue; // she replied recently — not fatigued
+
+      // 4. Check pattern_interrupt cooldown via scheduled_touches.
+      const recentInterrupt: boolean = await ctx.runQuery(
+        internal.enrichment._hasRecentPatternInterrupt,
+        { person_id: person._id, since: interruptCooloff },
       );
-      if (hasPending) {
-        skippedPending++;
+      if (recentInterrupt) {
+        skipped_already_scheduled++;
         continue;
       }
 
-      // 5. Pick the sub-style and enqueue.
-      qualified++;
-      const substyle = _pickSubstyle(person as Record<string, unknown>);
+      // 5. Schedule the touch.
+      const jitterMs = Math.floor(Math.random() * FATIGUE_JITTER_MS);
+      const scheduledFor = now + jitterMs;
 
-      await ctx.runMutation(api.agent_jobs.enqueue, {
-        user_id: person.user_id as string,
-        job_type: "send_imessage",
-        payload: {
-          person_id: personId,
-          prompt_template: "pattern_interrupt",
-          template_id: substyle,        // sub-style selection carried through to _draft_with_template
-          touch_type: "pattern_interrupt",
-          generate_at_fire_time: true,  // draft at job-claim time using latest context
-          fatigue_sweep: true,          // tag for analytics / audit
-          fatigue_slope_substyle: substyle,
-        },
-        priority: 1,       // slightly elevated — these are time-sensitive re-engagements
-        max_attempts: 2,
+      await ctx.runAction(internal.enrichment._schedulePatternInterruptFor, {
+        person_id: person._id,
+        user_id: person.user_id,
+        scheduled_for: scheduledFor,
+        style_profile: person.style_profile ?? null,
+        courtship_stage: person.courtship_stage ?? "early_chat",
+        disc_primary: person.disc_primary ?? null,
       });
       scheduled++;
     }
 
-    return { scanned, qualified, scheduled, skipped_pending: skippedPending };
+    return { scanned, scheduled, skipped_already_scheduled };
   },
 });
 
-// ---------------------------------------------------------------------------
-// Helper queries (called via ctx.runQuery from sweepFatigueDetection above)
-// ---------------------------------------------------------------------------
+// Query: list all people for fatigue sweep (internalQuery so action can call it).
+export const _fatigueListPeople = internalQuery({
+  args: {},
+  handler: async (ctx) => ctx.db.query("people").collect(),
+});
 
-/**
- * Returns people rows that are candidates for fatigue detection:
- * - status in (active, paused, lead) — not ghosted/ended
- * - last_inbound_at is non-null and within the lookback window
- *   (people who never had an inbound are out-of-scope)
- *
- * CC TECH label filter is applied in the calling action because Convex
- * can't query inside array fields.
- */
-export const _listPeopleForFatigueSweep = internalQuery({
-  args: { lookback_cutoff: v.number() },
+// Query: check if a pattern_interrupt touch was scheduled in the last N ms.
+export const _hasRecentPatternInterrupt = internalQuery({
+  args: {
+    person_id: v.id("people"),
+    since: v.number(),
+  },
   handler: async (ctx, args) => {
-    // Collect active/paused/lead people. The by_next_followup index doesn't
-    // cover all status values, so we scan by user status and filter.
-    // At human-scale (<10k rows) this is fine.
-    const active = await ctx.db
-      .query("people")
-      .withIndex("by_user_status", (q) => q.eq("status", "active"))
+    const rows = await ctx.db
+      .query("scheduled_touches")
+      .withIndex("by_person_status", (q) =>
+        q.eq("person_id", args.person_id),
+      )
       .collect();
-    const paused = await ctx.db
-      .query("people")
-      .withIndex("by_user_status", (q) => q.eq("status", "paused"))
-      .collect();
-    const leads = await ctx.db
-      .query("people")
-      .withIndex("by_user_status", (q) => q.eq("status", "lead"))
-      .collect();
-
-    return [...active, ...paused, ...leads].filter(
-      (p) =>
-        p.last_inbound_at != null &&
-        (p.last_inbound_at as number) > args.lookback_cutoff,
+    return rows.some(
+      (r) =>
+        r.type === "pattern_interrupt" &&
+        r.created_at !== undefined &&
+        r.created_at >= args.since,
     );
   },
 });
 
-/**
- * Returns the N most recent messages associated with a person, sorted
- * oldest-first (so index 0 is oldest, index N-1 is most recent).
- *
- * Uses the by_person_recent index added in AI-9449.
- */
-export const _recentMessagesForPerson = internalQuery({
+// Pick a pattern_interrupt sub_style from the person's DISC profile.
+// Exported so convex_runner.py can mirror the same logic.
+export function pickPatternInterruptSubStyle(discPrimary: string | null | undefined): string {
+  switch ((discPrimary ?? "").toUpperCase()) {
+    case "D": return "bold_direct";
+    case "I": return "meme_reference";
+    case "S": return "low_pressure_check_in";
+    case "C": return "callback";
+    default:  return "seasonal_hook";
+  }
+}
+
+// Internal action: wraps api.touches.scheduleOne for pattern_interrupt.
+import { internalAction as ia3 } from "./_generated/server";
+export const _schedulePatternInterruptFor = ia3({
   args: {
-    person_id: v.string(),
-    limit: v.number(),
+    person_id: v.id("people"),
+    user_id: v.string(),
+    scheduled_for: v.number(),
+    style_profile: v.any(),
+    courtship_stage: v.string(),
+    disc_primary: v.union(v.string(), v.null()),
   },
   handler: async (ctx, args) => {
-    // by_person_recent index: ["person_id", "sent_at"]
-    // Take the last N by sent_at descending, then reverse so oldest-first.
-    const rows = await ctx.db
-      .query("messages")
-      .withIndex("by_person_recent", (q) =>
-        q.eq("person_id", args.person_id as any),
-      )
-      .order("desc")
-      .take(args.limit);
-    return rows.reverse(); // oldest first for slope computation
-  },
-});
-
-/**
- * Returns true if there is already a pending/running send_imessage or
- * pattern_interrupt agent_job for this person in the queue.
- * Prevents the sweep from double-scheduling.
- */
-export const _hasPendingTouchForPerson = internalQuery({
-  args: { person_id: v.string() },
-  handler: async (ctx, args) => {
-    // Scan queued + running jobs for this person_id in the payload.
-    // We can't index by payload contents — scan recent queued jobs and filter.
-    const queued = await ctx.db
-      .query("agent_jobs")
-      .withIndex("by_status_priority", (q) => q.eq("status", "queued"))
-      .order("desc")
-      .take(100);
-    const running = await ctx.db
-      .query("agent_jobs")
-      .withIndex("by_status_priority", (q) => q.eq("status", "running"))
-      .order("desc")
-      .take(20);
-
-    const allPending = [...queued, ...running];
-    return allPending.some((job) => {
-      const p = job.payload as Record<string, unknown> | undefined;
-      return (
-        (job.job_type === "send_imessage" || job.job_type === "pattern_interrupt") &&
-        p?.person_id === args.person_id &&
-        p?.touch_type === "pattern_interrupt"
-      );
-    });
+    const subStyle = pickPatternInterruptSubStyle(args.disc_primary);
+    await ctx.runMutation(api.touches.scheduleOne, {
+      user_id: args.user_id,
+      person_id: args.person_id,
+      type: "pattern_interrupt",
+      scheduled_for: args.scheduled_for,
+      generate_at_fire_time: true,
+      urgency: "cool",
+      prompt_template: `pattern_interrupt_${subStyle}`,
+      generated_by_run_id: `fatigue-sweep-${Date.now()}`,
+    } as any);
   },
 });
