@@ -1515,13 +1515,6 @@ function nextHourLocalToUnix(tz: string, hour: number): number {
 //
 // sweepVoiceMemoCandidates — internalMutation called every 6h via cron.
 //
-
-const VOICE_MEMO_COOLDOWN_MS = 7 * 24 * 60 * 60 * 1000;          // 7d
-const VOICE_MEMO_PHONE_SWAP_WINDOW_MS = 4 * 24 * 60 * 60 * 1000;  // 4d active window
-const VOICE_MEMO_MAX_SWEEP = 30;
-
-/** Build the 1-2 sentence voice-memo script for a given trigger. */
-=======
 // Three high-leverage triggers:
 //   1. Phone-swap +24h  — courtship_stage="phone_swap", active last 4d,
 //      last_outbound_at at least 24h ago, no voice_memo yet.
@@ -1532,8 +1525,8 @@ const VOICE_MEMO_MAX_SWEEP = 30;
 // urgency="warm". Does NOT auto-fire — operator records voice memo manually.
 // ===========================================================================
 
-const VOICE_MEMO_COOLDOWN_MS = 7 * 24 * 60 * 60 * 1000;
-const VOICE_MEMO_PHONE_SWAP_WINDOW_MS = 4 * 24 * 60 * 60 * 1000;
+const VOICE_MEMO_COOLDOWN_MS = 7 * 24 * 60 * 60 * 1000;          // 7d
+const VOICE_MEMO_PHONE_SWAP_WINDOW_MS = 4 * 24 * 60 * 60 * 1000;  // 4d active window
 const VOICE_MEMO_MAX_SWEEP = 30;
 
 function _voiceMemoScript(

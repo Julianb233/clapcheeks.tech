@@ -1557,3 +1557,59 @@ export const _writeTier2Scores = internalMutation({
     await ctx.db.patch(person_id, patch);
   },
 });
+
+// ----------------------------------------------------------------------------
+// AI-9500 W2 #F follow-up — operator profile (W12 missed shipping these).
+// Singleton row per user. Drives /coach Roster KPI panel + Settings page.
+// ----------------------------------------------------------------------------
+export const getOperatorProfile = query({
+  args: { user_id: v.string() },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("operator_profile")
+      .withIndex("by_user", (q) => q.eq("user_id", args.user_id))
+      .first();
+  },
+});
+
+export const upsertOperatorProfile = mutation({
+  args: {
+    user_id: v.string(),
+    your_dating_intent: v.optional(v.union(
+      v.literal("serious_relationship"),
+      v.literal("serious_with_fwb_openness"),
+      v.literal("casual_exploration"),
+      v.literal("sexual_variety_only"),
+      v.literal("friendship_pipeline_with_dating"),
+      v.literal("unclear"),
+    )),
+    target_concurrent_active: v.optional(v.number()),
+    transparency_rule: v.optional(v.string()),
+    home_city: v.optional(v.string()),
+    home_tz: v.optional(v.string()),
+    self_dietary_prefs: v.optional(v.array(v.string())),
+    self_drink_style: v.optional(v.string()),
+    operator_notes: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    const existing = await ctx.db
+      .query("operator_profile")
+      .withIndex("by_user", (q) => q.eq("user_id", args.user_id))
+      .first();
+    const { user_id, ...rest } = args;
+    if (existing) {
+      const patch: Record<string, unknown> = { updated_at: now };
+      for (const [k, v_] of Object.entries(rest)) {
+        if (v_ !== undefined) patch[k] = v_;
+      }
+      await ctx.db.patch(existing._id, patch);
+      return existing._id;
+    }
+    return await ctx.db.insert("operator_profile", {
+      user_id,
+      updated_at: now,
+      ...rest,
+    });
+  },
+});
