@@ -373,9 +373,10 @@ export const decideApproval = mutation({
     const row = await ctx.db.get(args.id);
     if (!row) throw new Error("Not found");
     if (row.user_id !== args.user_id) throw new Error("Forbidden");
+    const now = Date.now();
     const updates: Record<string, unknown> = {
       status: args.status,
-      decided_at: Date.now(),
+      decided_at: now,
     };
     if (
       args.status === "approved" &&
@@ -385,6 +386,40 @@ export const decideApproval = mutation({
       updates.proposed_text = args.edited_text.trim();
     }
     await ctx.db.patch(args.id, updates);
+
+    // AI-9599: when approved, enqueue an agent_jobs row so the Mac runner
+    // actually fires the iMessage. Without this the approval was a dead-end
+    // (status flipped but nothing else happened).
+    if (args.status === "approved") {
+      const body =
+        (updates.proposed_text as string | undefined) ??
+        row.proposed_text ??
+        undefined;
+      // proposed_data may carry person_id / handle set by the autonomy engine.
+      const proposedData: Record<string, unknown> =
+        typeof row.proposed_data === "object" && row.proposed_data !== null
+          ? (row.proposed_data as Record<string, unknown>)
+          : {};
+      await ctx.db.insert("agent_jobs", {
+        user_id: args.user_id,
+        job_type: "send_imessage",
+        payload: {
+          match_id: row.match_id,
+          person_id: proposedData.person_id,
+          handle: proposedData.handle,
+          body,
+          source: "approved_draft",
+          approval_id: args.id,
+        },
+        status: "queued",
+        priority: 1,
+        attempts: 0,
+        max_attempts: 3,
+        created_at: now,
+        updated_at: now,
+      });
+    }
+
     return await ctx.db.get(args.id);
   },
 });
