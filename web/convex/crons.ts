@@ -151,25 +151,16 @@ crons.interval(
   internal.enrichment.sweepDateAskGhostOuts,
 );
 
-// AI-9500 Wave 2 #E — Auto-archive 30d-silence threads daily at 4am Pacific
-// (12:00 UTC). Scans all people; anyone with both last_inbound AND last_outbound
-// older than 30 days (and not already archived/ghosted) gets archived with
-// reason="auto_30d_silence" and whitelist_for_autoreply flipped to false.
-crons.cron(
-  "auto-archive-ghosted-30d",
-  "0 12 * * *",
-  internal.people.autoArchiveGhosted30d,
-);
-
-// AI-9500 W2 #B — Soft-no recovery detector (every 6 hours).
-// Safety-net sweep: finds date_ask touches with ask_outcome=soft_no whose
-// recovery_scheduled_at is still unset (e.g. process restart during real-time
-// classification, or backfilled asks). Schedules a soft_no_recovery touch
-// +14d for each unprocessed row. Capped at 20 per sweep.
+// AI-9500 W2 #J: Enqueue a Tinder match + message sync job every 5 minutes.
+// The local Mac Mini agent (convex_runner.py) claims and executes the job
+// via _handle_sync_tinder(). Dedup guard inside enqueueTinderSync prevents
+// pile-up if the previous tick hasn't completed yet.
+// NOTE: The daemon skips gracefully if ~/.clapcheeks/tinder-auth.json is absent.
+// Julian must run: mitmproxy -s scripts/capture_tinder.py once to capture tokens.
 crons.interval(
-  "soft-no-recovery-detector",
-  { hours: 6 },
-  internal.touches.softNoRecoveryDetectorCron,
+  "enqueue-tinder-sync",
+  { minutes: 5 },
+  internal.agent_jobs.enqueueTinderSync,
 );
 
 // AI-9500 W2 #G — Voice-memo trigger sweep every 6 hours.
@@ -193,5 +184,13 @@ crons.interval(
   { minutes: 5 },
   internal.agent_jobs.enqueueTinderSync,
 );
+
+// AI-9500 W1 — Competition signal sweep every 12h.
+// sweepCompetitionSignalCandidates is now live in enrichment.ts (W3 included it).
+// crons.interval(
+//   "competition-signal-sweep",
+//   { hours: 12 },
+//   internal.enrichment.sweepCompetitionSignalCandidates,
+// );
 
 export default crons;

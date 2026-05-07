@@ -1,6 +1,22 @@
 /**
  * AI-9449 Phase A — scheduled_touches engine.
  *
+ * AI-9500 W2 #G additions (voice-memo trigger):
+ *   - sweepVoiceMemoCandidates  : internalMutation cron (every 6h).
+ *                                 Detects three high-leverage moments and schedules a
+ *                                 voice_memo touch for each qualifying person:
+ *                                   1. Phone-swap +24h  — courtship_stage="phone_swap",
+ *                                      no voice_memo sent yet.
+ *                                   2. 3rd inbound reply — exactly 3 total inbound messages
+ *                                      across all their conversations, no voice_memo yet.
+ *                                   3. Post-second-date  — 2 post_date_calibration touches
+ *                                      both fired, no voice_memo in last 7d.
+ *                                 Each touch carries a short script in draft_body so the
+ *                                 operator knows what to say before recording on their phone.
+ *   - markVoiceMemoSent          : mutation. Operator calls after physically sending the
+ *                                 voice memo. Patches the touch to status="fired" and
+ *                                 records sent_at so the sweep won't re-schedule.
+ *
  * Per-row scheduling instead of global polling. Every touch picks its own
  * runAt timestamp so Convex fires it within ~50ms of the target — no cron
  * scan, no rate-limit spikes, naturally spread load.
@@ -1499,6 +1515,13 @@ function nextHourLocalToUnix(tz: string, hour: number): number {
 //
 // sweepVoiceMemoCandidates — internalMutation called every 6h via cron.
 //
+
+const VOICE_MEMO_COOLDOWN_MS = 7 * 24 * 60 * 60 * 1000;          // 7d
+const VOICE_MEMO_PHONE_SWAP_WINDOW_MS = 4 * 24 * 60 * 60 * 1000;  // 4d active window
+const VOICE_MEMO_MAX_SWEEP = 30;
+
+/** Build the 1-2 sentence voice-memo script for a given trigger. */
+=======
 // Three high-leverage triggers:
 //   1. Phone-swap +24h  — courtship_stage="phone_swap", active last 4d,
 //      last_outbound_at at least 24h ago, no voice_memo yet.

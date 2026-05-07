@@ -682,6 +682,11 @@ export default function CoachPage() {
         <RosterCard kpis={rosterKpis} />
       </div>
 
+      {/* Roster KPIs — full width */}
+      <div className="mb-4 sm:mb-6">
+        <RosterCard kpis={rosterKpis} />
+      </div>
+
       {/* Cards — 1 col on mobile, 2 col on lg+ */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
         <OverPursueCard data={overPursue} />
