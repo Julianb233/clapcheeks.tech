@@ -158,3 +158,40 @@ export const reapStuck = internalMutation({
     return { scanned: running.length, reaped };
   },
 });
+
+// AI-9500-C: Enqueue a Hinge sync job for the Mac Mini agent to pick up.
+// Called by the 5-min cron in crons.ts. Includes a dedup guard so a second
+// cron tick cannot pile up if the previous job is still queued or running.
+export const enqueueHingeSync = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const now = Date.now();
+    const existing = await ctx.db
+      .query("agent_jobs")
+      .withIndex("by_user_type", (q) =>
+        q.eq("user_id", "fleet-julian").eq("job_type", "sync_hinge"),
+      )
+      .filter((q) =>
+        q.or(
+          q.eq(q.field("status"), "queued"),
+          q.eq(q.field("status"), "running"),
+        ),
+      )
+      .first();
+    if (existing) {
+      return { skipped: true, reason: "already_queued_or_running" };
+    }
+    const id = await ctx.db.insert("agent_jobs", {
+      user_id: "fleet-julian",
+      job_type: "sync_hinge",
+      payload: {},
+      status: "queued",
+      priority: 1,
+      attempts: 0,
+      max_attempts: 2,
+      created_at: now,
+      updated_at: now,
+    });
+    return { skipped: false, id };
+  },
+});

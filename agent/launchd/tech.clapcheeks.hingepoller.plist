@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  AI-9500-C (AI-9502) — Hinge message poller launchd agent
+  Polls Hinge matches for new messages every 5 minutes.
+
+  Install:
+    cp tech.clapcheeks.hingepoller.plist ~/Library/LaunchAgents/
+    launchctl load ~/Library/LaunchAgents/tech.clapcheeks.hingepoller.plist
+
+  Uninstall:
+    launchctl unload ~/Library/LaunchAgents/tech.clapcheeks.hingepoller.plist
+    rm ~/Library/LaunchAgents/tech.clapcheeks.hingepoller.plist
+
+  Logs: ~/.clapcheeks/hinge-poller.log (stderr from run-hinge-poller.sh)
+        ~/Library/Logs/tech.clapcheeks.hingepoller.stdout.log
+        ~/Library/Logs/tech.clapcheeks.hingepoller.stderr.log
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>tech.clapcheeks.hingepoller</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>AGENT_DIR/scripts/run-hinge-poller.sh</string>
+    </array>
+
+    <!-- Run every 5 minutes (300 seconds) -->
+    <key>StartInterval</key>
+    <integer>300</integer>
+
+    <!-- Do NOT keep alive — this is a periodic one-shot, not a daemon -->
+    <key>KeepAlive</key>
+    <false/>
+
+    <!-- Run at load time so the first poll fires immediately -->
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>HOME_PLACEHOLDER/Library/Logs/tech.clapcheeks.hingepoller.stdout.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>HOME_PLACEHOLDER/Library/Logs/tech.clapcheeks.hingepoller.stderr.log</string>
+
+    <!-- Working directory: the agent root (so relative imports work) -->
+    <key>WorkingDirectory</key>
+    <string>AGENT_DIR</string>
+
+    <!-- Throttle: if the script exits with error, wait 60s before retry -->
+    <key>ThrottleInterval</key>
+    <integer>60</integer>
+</dict>
+</plist>
