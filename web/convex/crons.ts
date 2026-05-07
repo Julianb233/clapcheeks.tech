@@ -185,4 +185,12 @@ crons.interval(
   internal.agent_jobs.enqueueTinderSync,
 );
 
+// AI-9500 W1 — Competition signal sweep every 12h.
+// sweepCompetitionSignalCandidates is now live in enrichment.ts (W3 included it).
+// crons.interval(
+//   "competition-signal-sweep",
+//   { hours: 12 },
+//   internal.enrichment.sweepCompetitionSignalCandidates,
+// );
+
 export default crons;
