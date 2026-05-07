@@ -217,7 +217,7 @@ export default function SocialGraphPanel({
             </span>
           </label>
           {saveError && (
-            <p className="text-[10px] text-amber-400 mt-2 font-mono">{saveError}</p>
+            <p className="text-sm text-red-400 mt-2 border border-red-500/30 rounded px-2 py-1 font-mono">{saveError}</p>
           )}
         </div>
       )}

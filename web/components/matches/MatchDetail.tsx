@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { useMutation, useQuery } from 'convex/react'
 import { api } from '@/convex/_generated/api'
 import type { Id } from '@/convex/_generated/dataModel'
+import { toast } from 'sonner'
 import {
   ClapcheeksMatchRow,
   ConversationMessage,
@@ -50,18 +51,24 @@ export default function MatchDetail({ match, messages, clusterRisk }: Props) {
   ) as (Record<string, unknown> & { _id?: Id<'matches'> }) | null | undefined
   const patch = useMutation(api.matches.patch)
 
+  // row === undefined means Convex is still loading; null means not found.
+  const rowLoading = row === undefined
+
   async function updateStatus(next: MatchStatus) {
+    if (rowLoading) return
     setStatusBusy(next)
     try {
       if (!row?._id) {
-        console.warn('[MatchDetail] status update: row not loaded yet')
+        toast.error('Match not loaded — please wait and try again.')
         return
       }
       try {
         await patch({ id: row._id, status: next })
         setCurrent((prev) => ({ ...prev, status: next }))
       } catch (err) {
-        console.warn('[MatchDetail] status update failed:', err)
+        toast.error(
+          err instanceof Error ? err.message : 'Failed to update status.',
+        )
       }
     } finally {
       setStatusBusy(null)
@@ -136,18 +143,32 @@ export default function MatchDetail({ match, messages, clusterRisk }: Props) {
           </div>
 
           {/* Action bar */}
-          <div className="flex gap-2 flex-wrap">
+          <div className="flex gap-2 flex-wrap items-center">
+            {rowLoading && (
+              <span className="flex items-center gap-1 text-[10px] text-white/30 font-mono">
+                <svg
+                  className="animate-spin h-3 w-3 text-white/30"
+                  xmlns="http://www.w3.org/2000/svg"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                >
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+                loading
+              </span>
+            )}
             {ACTIONABLE_STATUSES.map((s) => (
               <button
                 key={s.key}
                 type="button"
                 onClick={() => updateStatus(s.key)}
-                disabled={statusBusy !== null}
+                disabled={rowLoading || statusBusy !== null}
                 className={`text-xs px-3 py-1.5 rounded-lg border transition-all ${
                   current.status === s.key
                     ? 'bg-yellow-500/25 text-yellow-200 border-yellow-500/50'
                     : 'bg-white/5 text-white/70 border-white/10 hover:bg-white/10'
-                } disabled:opacity-50`}
+                } disabled:opacity-50 disabled:cursor-not-allowed`}
               >
                 {statusBusy === s.key ? '...' : s.label}
               </button>

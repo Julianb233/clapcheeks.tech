@@ -573,6 +573,7 @@ export const upsertOffline = mutation({
     instagram_handle: v.optional(v.string()),
     met_at: v.optional(v.string()),
     first_impression: v.optional(v.string()),
+    match_intel: v.optional(v.any()),
     status: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
@@ -600,6 +601,7 @@ export const upsertOffline = mutation({
       instagram_handle: args.instagram_handle,
       met_at: args.met_at,
       first_impression: args.first_impression,
+      match_intel: args.match_intel,
       status: args.status ?? "conversing",
       last_activity_at: now,
       updated_at: now,
