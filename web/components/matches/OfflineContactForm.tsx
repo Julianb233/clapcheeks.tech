@@ -1,6 +1,7 @@
 'use client'
 
 import * as React from 'react'
+import { useRouter } from 'next/navigation'
 import { Plus, X, Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -12,6 +13,7 @@ import { toast } from 'sonner'
  * automatically via Convex reactivity.
  */
 export default function OfflineContactForm() {
+  const router = useRouter()
   const [open, setOpen] = React.useState(false)
   const [loading, setLoading] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
@@ -57,6 +59,10 @@ export default function OfflineContactForm() {
       if (!res.ok) throw new Error(data.error ?? 'Failed to add match')
       toast.success(`${name.trim()} added`)
       handleClose()
+      // AI-9526 F6 — refresh server-rendered match list so the new row shows
+      // without manual reload (Convex reactivity handles dashboards that use
+      // useQuery; SSR pages need an explicit refresh).
+      router.refresh()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Something went wrong')
     } finally {
