@@ -1464,3 +1464,96 @@ export const autoArchiveGhosted30d = internalMutation({
     return { archived, scanned: all.length };
   },
 });
+
+// ============================================================================
+// AI-9500 Wave2 #C — Internal mutations for enrichment.ts actions.
+// Actions cannot call public mutations via api.*; they must use internal.*.
+// ============================================================================
+
+/** Internal version of updateVibe — called by classifyConversationVibeForOne action. */
+export const _updateVibeInternal = internalMutation({
+  args: {
+    person_id: v.id("people"),
+    vibe_classification: v.union(
+      v.literal("dating"), v.literal("platonic"),
+      v.literal("professional"), v.literal("unclear"),
+    ),
+    vibe_confidence: v.number(),
+    vibe_evidence: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.person_id, {
+      vibe_classification: args.vibe_classification,
+      vibe_confidence: args.vibe_confidence,
+      vibe_evidence: args.vibe_evidence,
+      vibe_classified_at: Date.now(),
+      updated_at: Date.now(),
+    });
+  },
+});
+
+/** Internal version of updateCourtship — called by enrichCourtshipForOne action. */
+export const _updateCourtshipInternal = internalMutation({
+  args: {
+    person_id: v.id("people"),
+    courtship_stage: v.optional(v.union(
+      v.literal("matched"), v.literal("early_chat"), v.literal("phone_swap"),
+      v.literal("pre_date"), v.literal("first_date_done"), v.literal("ongoing"),
+      v.literal("exclusive"), v.literal("ghosted"), v.literal("ended"),
+    )),
+    trust_score: v.optional(v.number()),
+    trust_signals_observed: v.optional(v.array(v.string())),
+    trust_signals_missing: v.optional(v.array(v.string())),
+    things_she_loves: v.optional(v.array(v.string())),
+    things_she_dislikes: v.optional(v.array(v.string())),
+    boundaries_stated: v.optional(v.array(v.string())),
+    green_flags: v.optional(v.array(v.string())),
+    red_flags: v.optional(v.array(v.string())),
+    compliments_that_landed: v.optional(v.array(v.string())),
+    references_to_callback: v.optional(v.array(v.string())),
+    her_love_languages: v.optional(v.array(v.string())),
+    next_best_move: v.optional(v.string()),
+    next_best_move_confidence: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const { person_id, ...rest } = args;
+    const patch: Record<string, unknown> = {
+      courtship_last_analyzed: Date.now(),
+      updated_at: Date.now(),
+    };
+    for (const [k, val] of Object.entries(rest)) {
+      if (val !== undefined) patch[k] = val;
+    }
+    await ctx.db.patch(person_id, patch);
+  },
+});
+
+/**
+ * AI-9500 Wave2 #C — Tier 2 LLM scores writer.
+ * Writes flirtation_level, attachment_style, love_languages_top2, ask_yes_prob_now
+ * to the person row. Called from enrichCourtshipForOne (same LLM call, extra fields).
+ */
+export const _writeTier2Scores = internalMutation({
+  args: {
+    person_id: v.id("people"),
+    flirtation_level: v.optional(v.number()),
+    attachment_style: v.optional(v.union(
+      v.literal("anxious"), v.literal("avoidant"),
+      v.literal("secure"), v.literal("fearful"), v.literal("unclear"),
+    )),
+    love_languages_top2: v.optional(v.array(v.union(
+      v.literal("words_of_affirmation"), v.literal("acts_of_service"),
+      v.literal("receiving_gifts"), v.literal("quality_time"), v.literal("physical_touch"),
+    ))),
+    ask_yes_prob_now: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const { person_id, ...scores } = args;
+    const patch: Record<string, unknown> = { updated_at: Date.now() };
+    if (scores.flirtation_level !== undefined) patch.flirtation_level = scores.flirtation_level;
+    if (scores.attachment_style !== undefined) patch.attachment_style = scores.attachment_style;
+    if (scores.love_languages_top2 !== undefined) patch.love_languages_top2 = scores.love_languages_top2;
+    if (scores.ask_yes_prob_now !== undefined) patch.ask_yes_prob_now = scores.ask_yes_prob_now;
+    await ctx.db.patch(person_id, patch);
+  },
+});

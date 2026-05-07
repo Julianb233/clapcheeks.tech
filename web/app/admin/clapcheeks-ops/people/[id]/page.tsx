@@ -137,6 +137,67 @@ export default function PersonDossierPage() {
 }
 
 // ---------------------------------------------------------------------------
+// AI-9500 W2 #C — Tier 2 badge helpers
+// ---------------------------------------------------------------------------
+
+function FlirtationThermometer({ level }: { level: number | undefined }) {
+  if (level === undefined) return null
+  const pct = Math.round((level / 10) * 100)
+  const colorClass = level <= 3 ? "bg-blue-500" : level <= 6 ? "bg-amber-400" : "bg-rose-500"
+  const label = level <= 3 ? "low" : level <= 6 ? "med" : "hot"
+  return (
+    <div className="flex items-center gap-1.5" title={`Flirtation: ${level}/10`}>
+      <span className="text-[10px] text-gray-500 uppercase tracking-wider">flirt</span>
+      <div className="w-16 h-1.5 bg-gray-800 rounded-full overflow-hidden">
+        <div className={`h-full rounded-full ${colorClass}`} style={{ width: `${pct}%` }} />
+      </div>
+      <span className={`text-[10px] font-mono ${level <= 3 ? "text-blue-400" : level <= 6 ? "text-amber-400" : "text-rose-400"}`}>
+        {level}/{label}
+      </span>
+    </div>
+  )
+}
+
+function AttachmentBadge({ style }: { style: string | undefined }) {
+  if (!style || style === "unclear") return null
+  const colors: Record<string, string> = {
+    secure: "bg-emerald-900/60 text-emerald-300 border-emerald-700/40",
+    anxious: "bg-amber-900/60 text-amber-300 border-amber-700/40",
+    avoidant: "bg-blue-900/60 text-blue-300 border-blue-700/40",
+    fearful: "bg-red-900/60 text-red-300 border-red-700/40",
+  }
+  const cls = colors[style] ?? "bg-gray-800 text-gray-400 border-gray-700/40"
+  return <span className={`text-[10px] px-1.5 py-0.5 rounded border font-mono ${cls}`}>{style}</span>
+}
+
+const LOVE_LANG_EMOJI: Record<string, string> = {
+  words_of_affirmation: "✍️",
+  acts_of_service: "🫳",
+  receiving_gifts: "🎁",
+  quality_time: "⏰",
+  physical_touch: "🤗",
+}
+function LoveLangChips({ langs }: { langs: string[] | undefined }) {
+  if (!langs || langs.length === 0) return null
+  return (
+    <div className="flex gap-1" title={langs.join(" + ")}>
+      {langs.map((l) => (
+        <span key={l} className="text-sm" title={l.replace(/_/g, " ")}>{LOVE_LANG_EMOJI[l] ?? "💬"}</span>
+      ))}
+    </div>
+  )
+}
+
+function AskReadyBadge({ prob }: { prob: number | undefined }) {
+  if (prob === undefined || prob <= 0.6) return null
+  return (
+    <span className="text-[10px] px-2 py-0.5 rounded bg-green-900/70 text-green-300 border border-green-700/50 font-semibold" title={`ask_yes_prob_now = ${prob.toFixed(2)}`}>
+      💪 ready to ask
+    </span>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Header card
 // ---------------------------------------------------------------------------
 /** AI-9500 W1: competition signal badge — shown in HeaderCard */
@@ -188,6 +249,12 @@ function HeaderCard({ person }: { person: any }) {
   const tta = person.time_to_ask_score?.toFixed(2) ?? "—"
   const lastEmotion = (person.emotional_state_recent ?? []).slice(-1)[0]?.state ?? "—"
 
+  // AI-9500 W2 #C — show tier2 row only when at least one field is scored
+  const hasTier2 = person.flirtation_level !== undefined
+    || person.attachment_style !== undefined
+    || (person.love_languages_top2 ?? []).length > 0
+    || person.ask_yes_prob_now !== undefined
+
   return (
     <div className="bg-gradient-to-br from-purple-900/20 to-gray-900 border border-purple-800/40 rounded-lg p-4 sm:p-6">
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
@@ -206,6 +273,8 @@ function HeaderCard({ person }: { person: any }) {
               score={person.competition_signal_score}
               evidence={person.competition_signal_evidence}
             />
+            {/* AI-9500 W2 #C: ask-ready badge */}
+            <AskReadyBadge prob={person.ask_yes_prob_now} />
           </div>
           <div className="text-sm text-gray-400 mt-1">
             {person.location_observed || person.company || "—"}
@@ -224,6 +293,14 @@ function HeaderCard({ person }: { person: any }) {
             <span className="hidden sm:inline">ask {tta}</span>
             <span className="hidden sm:inline">msgs {person.total_messages_30d ?? 0}</span>
           </div>
+          {/* AI-9500 W2 #C — Tier 2 row: flirtation thermometer + attachment pill + love lang chips */}
+          {hasTier2 && (
+            <div className="flex items-center gap-3 mt-2 flex-wrap">
+              <FlirtationThermometer level={person.flirtation_level} />
+              <AttachmentBadge style={person.attachment_style} />
+              <LoveLangChips langs={person.love_languages_top2} />
+            </div>
+          )}
         </div>
         <div className="text-xs text-gray-500 sm:text-right sm:max-w-sm">
           {person.next_best_move && (
