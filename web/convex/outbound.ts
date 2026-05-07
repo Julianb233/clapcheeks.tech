@@ -34,6 +34,9 @@ export const enqueueScheduledMessage = mutation({
     sequence_step: v.optional(v.number()),
     delay_hours: v.optional(v.number()),
     legacy_id: v.optional(v.string()),
+    // AI-9526 Q4 — when true, insert directly as "approved" so the Mac
+    // outbound drainer picks it up on the next tick (compose->send flow).
+    immediate_approved: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     const now = Date.now();
@@ -45,7 +48,7 @@ export const enqueueScheduledMessage = mutation({
       phone: args.phone ?? undefined,
       message_text: args.message_text,
       scheduled_at: args.scheduled_at,
-      status: "pending",
+      status: args.immediate_approved ? "approved" : "pending",
       sequence_type: args.sequence_type ?? "manual",
       sequence_step: args.sequence_step ?? 0,
       delay_hours: args.delay_hours ?? undefined,
