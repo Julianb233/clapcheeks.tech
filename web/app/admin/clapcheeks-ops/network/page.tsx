@@ -68,6 +68,39 @@ export default function NetworkPage() {
     return showAll ? true : isDatingRelevant(p)
   })
 
+  // AI-9500 coach pulse — 3 buckets that tell you "what to do now":
+  //   needs_response: she replied, you haven't, last 12h
+  //   cooling: last_inbound > 3d AND was warm (last emotional_state positive)
+  //   followup_due: next_followup_at past now
+  const now = Date.now()
+  const TWELVE_H = 12 * 3600 * 1000
+  const THREE_D = 3 * 24 * 3600 * 1000
+  const needsResponse = filtered
+    .filter((p: any) => {
+      if (!p.last_inbound_at) return false
+      if (now - p.last_inbound_at > TWELVE_H) return false
+      if (p.last_outbound_at && p.last_outbound_at > p.last_inbound_at) return false
+      return true
+    })
+    .sort((a: any, b: any) => priorityScore(b) - priorityScore(a))
+    .slice(0, 5)
+  const cooling = filtered
+    .filter((p: any) => {
+      if (!p.last_inbound_at) return false
+      const sinceIn = now - p.last_inbound_at
+      if (sinceIn < THREE_D || sinceIn > 30 * 24 * 3600 * 1000) return false
+      const emo = (p.emotional_state_recent ?? []).slice(-1)[0]?.state
+      const wasWarm = emo === "happy" || emo === "playful" || emo === "flirty" || emo === "warm" ||
+        p.conversation_temperature === "warm" || p.conversation_temperature === "hot"
+      return wasWarm
+    })
+    .sort((a: any, b: any) => (a.last_inbound_at ?? 0) - (b.last_inbound_at ?? 0))
+    .slice(0, 5)
+  const followupDue = filtered
+    .filter((p: any) => p.next_followup_at && p.next_followup_at < now)
+    .sort((a: any, b: any) => (a.next_followup_at ?? 0) - (b.next_followup_at ?? 0))
+    .slice(0, 5)
+
   const byStage: Record<string, any[]> = {}
   for (const p of filtered) {
     const stage = p.courtship_stage || (p.status === "lead" ? "matched" : "early_chat")
@@ -99,9 +132,11 @@ export default function NetworkPage() {
         </div>
       </div>
 
-      <div className="text-xs text-gray-600 mb-6">
+      <div className="text-xs text-gray-600 mb-4">
         Default view: lead/active/dating/paused with dating-channel handle, recent inbound, operator rating, or dating vibe.
       </div>
+
+      <PulseCard needsResponse={needsResponse} cooling={cooling} followupDue={followupDue} />
 
       {filtered.length === 0 && (
         <div className="text-center py-12 text-gray-500">
@@ -186,5 +221,79 @@ function PersonRow({ p }: { p: any }) {
         </div>
       </div>
     </Link>
+  )
+}
+
+// AI-9500 — Pulse card. Tier 1 coach view: 3 buckets that tell you "what to
+// do now" without LLM scoring. Pure math on existing fields.
+function PulseCard({ needsResponse, cooling, followupDue }: {
+  needsResponse: any[]; cooling: any[]; followupDue: any[];
+}) {
+  if (needsResponse.length === 0 && cooling.length === 0 && followupDue.length === 0) {
+    return null
+  }
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-6">
+      <PulseColumn
+        title="🔥 Needs response now"
+        subtitle="she replied, you haven't · last 12h"
+        people={needsResponse}
+        accent="border-pink-700/60 bg-pink-900/10"
+        emptyMsg="all caught up — ✓"
+      />
+      <PulseColumn
+        title="📉 Cooling off"
+        subtitle="last warm > 3d ago · intervene now"
+        people={cooling}
+        accent="border-amber-700/60 bg-amber-900/10"
+        emptyMsg="nobody cooling"
+      />
+      <PulseColumn
+        title="⏰ Follow-up due"
+        subtitle="next_followup_at past now"
+        people={followupDue}
+        accent="border-purple-700/60 bg-purple-900/10"
+        emptyMsg="no scheduled follow-ups overdue"
+      />
+    </div>
+  )
+}
+
+function PulseColumn({ title, subtitle, people, accent, emptyMsg }: {
+  title: string; subtitle: string; people: any[]; accent: string; emptyMsg: string;
+}) {
+  return (
+    <div className={`rounded-lg p-3 border ${accent}`}>
+      <div className="text-sm font-semibold">{title}</div>
+      <div className="text-[10px] text-gray-500 mb-2">{subtitle}</div>
+      {people.length === 0 ? (
+        <div className="text-xs text-gray-600">{emptyMsg}</div>
+      ) : (
+        <ul className="space-y-1">
+          {people.map((p: any) => {
+            const sinceIn = p.last_inbound_at ? Math.round((Date.now() - p.last_inbound_at) / 3600000) : null
+            return (
+              <li key={p._id}>
+                <Link
+                  href={`/admin/clapcheeks-ops/people/${p._id}`}
+                  className="block text-xs text-gray-200 hover:text-white py-1 px-2 rounded hover:bg-white/5"
+                >
+                  <span className="font-medium">{p.display_name}</span>
+                  {p.hotness_rating && <span className="ml-2 text-pink-300">🔥{p.hotness_rating}</span>}
+                  {sinceIn !== null && (
+                    <span className="text-[10px] text-gray-500 ml-2">
+                      {sinceIn < 24 ? `${sinceIn}h ago` : `${Math.round(sinceIn / 24)}d ago`}
+                    </span>
+                  )}
+                  {p.next_best_move && (
+                    <div className="text-[10px] text-purple-300 line-clamp-1">💡 {p.next_best_move}</div>
+                  )}
+                </Link>
+              </li>
+            )
+          })}
+        </ul>
+      )}
+    </div>
   )
 }
