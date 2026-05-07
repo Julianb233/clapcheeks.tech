@@ -35,28 +35,41 @@ function getWeekStart(): string {
   return monday.toISOString().split('T')[0]
 }
 
-export async function getLatestCoaching(supabase: SupabaseClient, userId: string) {
+export async function getLatestCoaching(_supabase: SupabaseClient, userId: string) {
+  // AI-9537: coaching_sessions + tip_feedback migrated to Convex.
   const weekStart = getWeekStart()
-
-  const { data } = await supabase
-    .from('clapcheeks_coaching_sessions')
-    .select('*')
-    .eq('user_id', userId)
-    .eq('week_start', weekStart)
-    .single()
-
-  if (!data) return null
-
-  // Fetch feedback for this session
-  const { data: feedback } = await supabase
-    .from('clapcheeks_tip_feedback')
-    .select('tip_index, helpful')
-    .eq('coaching_session_id', data.id)
-    .eq('user_id', userId)
-
-  return {
-    ...data,
-    feedback: feedback || [],
+  const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL || process.env.CONVEX_URL
+  if (!convexUrl) return null
+  const convex = new ConvexHttpClient(convexUrl)
+  try {
+    const session = await convex.query(api.coaching.getSessionForWeek, {
+      user_id: userId,
+      week_start: weekStart,
+    })
+    if (!session) return null
+    const feedback = await convex.query(api.coaching.listFeedbackForSession, {
+      coaching_session_id: session._id,
+    })
+    // Map Convex shape (generated_at: number ms) into the legacy
+    // {id, tips, generated_at: string ISO, feedback} contract that downstream
+    // CoachingSession-typed consumers expect.
+    return {
+      id: session._id as string,
+      tips: (session.tips ?? []) as Array<{
+        category: string
+        title: string
+        tip: string
+        supporting_data: string
+        priority: string
+      }>,
+      generated_at: new Date(session.generated_at).toISOString(),
+      feedback: (feedback || []).map((f) => ({
+        tip_index: f.tip_index,
+        helpful: f.helpful,
+      })),
+    }
+  } catch {
+    return null
   }
 }
 
@@ -214,19 +227,35 @@ Generate 3 personalized coaching tips for this week.`,
     }
   }
 
-  // Store in database
-  const { data: session, error } = await supabase
-    .from('clapcheeks_coaching_sessions')
-    .upsert({
-      user_id: userId,
-      week_start: weekStart,
-      tips,
-      stats_snapshot: statsSnapshot,
-    }, { onConflict: 'user_id,week_start' })
-    .select()
-    .single()
+  // Store in database — AI-9537: coaching_sessions on Convex.
+  if (!convexUrl) {
+    throw new Error('CONVEX_URL not set — cannot persist coaching session')
+  }
+  const convex = new ConvexHttpClient(convexUrl)
+  const upsertResult = await convex.mutation(api.coaching.upsertSession, {
+    user_id: userId,
+    week_start: weekStart,
+    tips,
+    stats_snapshot: statsSnapshot,
+  })
+  const session = await convex.query(api.coaching.getSessionForWeek, {
+    user_id: userId,
+    week_start: weekStart,
+  })
+  if (!session) {
+    throw new Error('coaching session vanished after upsert')
+  }
 
-  if (error) throw error
-
-  return { ...session, feedback: [] }
+  return {
+    id: upsertResult.id as string,
+    tips: (session.tips ?? []) as Array<{
+      category: string
+      title: string
+      tip: string
+      supporting_data: string
+      priority: string
+    }>,
+    generated_at: new Date(session.generated_at).toISOString(),
+    feedback: [] as Array<{ tip_index: number; helpful: boolean }>,
+  }
 }

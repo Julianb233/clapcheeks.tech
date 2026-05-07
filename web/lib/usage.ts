@@ -1,9 +1,9 @@
 import { ConvexHttpClient } from 'convex/browser'
 
-import { createClient } from '@/lib/supabase/server'
 import { api } from '@/convex/_generated/api'
 
 // AI-9536 — clapcheeks_usage_daily migrated to Convex usage_daily.
+// AI-9537 — clapcheeks_subscriptions migrated to Convex subscriptions.
 
 export const PLAN_LIMITS = {
   base: { swipes: 500, coaching_calls: 5, ai_replies: 20 },
@@ -39,16 +39,16 @@ function todayIso(): string {
 }
 
 async function getUserPlan(userId: string): Promise<'base' | 'elite'> {
-  const supabase = await createClient()
-  const { data } = await supabase
-    .from('clapcheeks_subscriptions')
-    .select('plan')
-    .eq('user_id', userId)
-    .eq('status', 'active')
-    .limit(1)
-    .single()
-
-  return (data?.plan as 'base' | 'elite') || 'base'
+  // AI-9537: read subscription from Convex.
+  const convex = getConvex()
+  if (!convex) return 'base'
+  try {
+    const sub = await convex.query(api.billing.getByUser, { user_id: userId })
+    if (sub?.status === 'active' && sub.plan === 'elite') return 'elite'
+    return 'base'
+  } catch {
+    return 'base'
+  }
 }
 
 async function getUsageRow(

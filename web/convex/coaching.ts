@@ -69,6 +69,38 @@ export const listRecentForUser = query({
   },
 });
 
+// AI-9537 — Used by weekly-report fallback tip helper.
+// Returns the single most recent session row across all users.
+export const getMostRecentSession = query({
+  args: {},
+  handler: async (ctx) => {
+    const rows = await ctx.db.query("coaching_sessions").order("desc").take(1);
+    return rows[0] ?? null;
+  },
+});
+
+// AI-9537 — Used by weekly report generator.
+// Returns the most recent session for a user whose created_at falls in the
+// inclusive [start_ms, end_ms] window. Falls back to null when none exists.
+export const getRecentForUserInRange = query({
+  args: {
+    user_id: v.string(),
+    start_ms: v.number(),
+    end_ms: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const rows = await ctx.db
+      .query("coaching_sessions")
+      .withIndex("by_user", (q) => q.eq("user_id", args.user_id))
+      .order("desc")
+      .collect();
+    for (const r of rows) {
+      if (r.created_at >= args.start_ms && r.created_at <= args.end_ms) return r;
+    }
+    return null;
+  },
+});
+
 // ---------------------------------------------------------------------------
 // tip_feedback
 // ---------------------------------------------------------------------------

@@ -59,17 +59,21 @@ export async function generateReportData(
   const prevEndStr = prevEnd.toISOString().split('T')[0]
 
   // Fetch this week + last week analytics
-  const [thisWeek, prevWeek, coachingRes] = await Promise.all([
+  // AI-9537: coaching_sessions migrated to Convex.
+  const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL || process.env.CONVEX_URL
+  const convex = convexUrl ? new ConvexHttpClient(convexUrl) : null
+  const [thisWeek, prevWeek, coachingRow] = await Promise.all([
     fetchAnalyticsRange(userId, weekStartStr, weekEndStr),
     fetchAnalyticsRange(userId, prevStartStr, prevEndStr),
-    supabase
-      .from('clapcheeks_coaching_sessions')
-      .select('tips')
-      .eq('user_id', userId)
-      .gte('created_at', weekStart.toISOString())
-      .lte('created_at', weekEnd.toISOString())
-      .order('created_at', { ascending: false })
-      .limit(1),
+    convex
+      ? convex
+          .query(api.coaching.getRecentForUserInRange, {
+            user_id: userId,
+            start_ms: weekStart.getTime(),
+            end_ms: weekEnd.getTime(),
+          })
+          .catch(() => null as { tips?: unknown } | null)
+      : Promise.resolve(null as { tips?: unknown } | null),
   ])
 
   // Aggregate this week
@@ -109,7 +113,7 @@ export async function generateReportData(
 
   // Coaching tips
   const coachingTips: string[] = []
-  const tipData = coachingRes.data?.[0]?.tips
+  const tipData = coachingRow?.tips
   if (Array.isArray(tipData)) {
     coachingTips.push(...tipData.slice(0, 3))
   }

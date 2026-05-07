@@ -104,18 +104,18 @@ export default async function Dashboard() {
       .select('amount, category, date')
       .eq('user_id', user.id)
       .gte('date', sinceStr),
-    supabase
-      .from('devices')
-      .select('last_seen_at, is_active')
-      .eq('user_id', user.id)
-      .order('last_seen_at', { ascending: false })
-      .limit(1),
-    supabase
-      .from('clapcheeks_subscriptions')
-      .select('status')
-      .eq('user_id', user.id)
-      .limit(1)
-      .single(),
+    // AI-9537: devices migrated to Convex.
+    convex
+      ? convex
+          .query(api.devices.listForUser, { user_id: user.id })
+          .catch(() => [] as Array<{ last_seen_at: number; is_active: boolean }>)
+      : Promise.resolve([] as Array<{ last_seen_at: number; is_active: boolean }>),
+    // AI-9537: subscriptions migrated to Convex.
+    convex
+      ? convex
+          .query(api.billing.getByUser, { user_id: user.id })
+          .catch(() => null as { status: string } | null)
+      : Promise.resolve(null as { status: string } | null),
     supabase
       .from('profiles')
       .select('subscription_tier, subscription_status')
@@ -164,7 +164,8 @@ export default async function Dashboard() {
   // Fetch coaching session
   const coachingSession = await getLatestCoaching(supabase, user.id)
 
-  const isSubscribed = subRes.data?.status === 'active'
+  // AI-9537: subRes is now the Convex row directly (or null).
+  const isSubscribed = (subRes as { status?: string } | null)?.status === 'active'
   const userPlan = (profileRes.data?.subscription_tier || 'base') as 'base' | 'elite'
   const userSubStatus = profileRes.data?.subscription_status || 'inactive'
   const userIsElite = userPlan === 'elite' && userSubStatus === 'active'
@@ -174,13 +175,21 @@ export default async function Dashboard() {
   type SpendingRow = { amount: number | string; category: string; date: string }
   const spending: SpendingRow[] = (spendRes.data as SpendingRow[] | null) ?? []
 
-  // AI-8926/AI-9536: pick the freshest of (devices.last_seen_at, Convex device_heartbeats.last_heartbeat_at).
-  const oldDevice = deviceRes.data?.[0] || null
+  // AI-8926/AI-9536/AI-9537: pick the freshest of (Convex devices.last_seen_at, Convex device_heartbeats.last_heartbeat_at).
+  const deviceRows = (deviceRes as Array<{ last_seen_at: number; is_active: boolean }>) ?? []
+  const oldDevice = deviceRows.length
+    ? deviceRows.reduce((best, d) => (d.last_seen_at > best.last_seen_at ? d : best))
+    : null
   const heartbeatTsMs =
     (heartbeatRow as { last_heartbeat_at?: number } | null)?.last_heartbeat_at ?? null
   const heartbeatTs = heartbeatTsMs ? new Date(heartbeatTsMs).toISOString() : null
   const candidates: { last_seen_at: string; is_active: boolean }[] = []
-  if (oldDevice?.last_seen_at) candidates.push({ last_seen_at: oldDevice.last_seen_at, is_active: oldDevice.is_active })
+  if (oldDevice?.last_seen_at) {
+    candidates.push({
+      last_seen_at: new Date(oldDevice.last_seen_at).toISOString(),
+      is_active: oldDevice.is_active,
+    })
+  }
   if (heartbeatTs) candidates.push({ last_seen_at: heartbeatTs, is_active: true })
   const device: DeviceRow | null = candidates.length
     ? candidates.reduce((best, c) =>
