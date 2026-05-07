@@ -2,6 +2,10 @@ import type { Metadata } from 'next'
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import DogfoodDashboard from './dogfood-dashboard'
+import { getConvexServerClient } from '@/lib/convex/server'
+import { api } from '@/convex/_generated/api'
+
+// AI-9537: subscriptions on Convex.
 
 export const metadata: Metadata = {
   title: 'Dogfooding — Clapcheeks',
@@ -17,6 +21,7 @@ export default async function DogfoodPage() {
   const since = new Date()
   since.setDate(since.getDate() - 14)
 
+  const convex = getConvexServerClient()
   const [healthRes, frictionRes, reportsRes, subscriptionRes] = await Promise.all([
     supabase
       .from('clapcheeks_dogfood_health')
@@ -36,18 +41,15 @@ export default async function DogfoodPage() {
       .eq('user_id', user.id)
       .order('week_start', { ascending: false })
       .limit(4),
-    supabase
-      .from('clapcheeks_subscriptions')
-      .select('status, plan_id')
-      .eq('user_id', user.id)
-      .limit(1)
-      .single(),
+    convex.query(api.billing.getByUser, { user_id: user.id }),
   ])
 
   const health = healthRes.data || []
   const friction = frictionRes.data || []
   const reports = reportsRes.data || []
-  const subscription = subscriptionRes.data
+  const subscription = subscriptionRes
+    ? { status: subscriptionRes.status, plan_id: subscriptionRes.plan }
+    : null
 
   // Calculate current streak from health data
   const latestHealth = health[0]

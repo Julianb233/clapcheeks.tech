@@ -3,6 +3,10 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { generateReportData } from '@/lib/reports/generate-report-data'
 import { renderReportPdf } from '@/lib/reports/generate-pdf'
 import { sendReportEmail } from '@/lib/reports/send-report-email'
+import { getConvexServerClient } from '@/lib/convex/server'
+import { api } from '@/convex/_generated/api'
+
+// AI-9537: subscriptions + report_preferences moved to Convex.
 
 export const maxDuration = 300
 
@@ -24,28 +28,23 @@ export async function GET(request: NextRequest) {
   const weekEnd = new Date(weekStart)
   weekEnd.setDate(weekEnd.getDate() + 6)
 
-  // Get all users with active subscriptions
-  const { data: subscribers } = await supabase
-    .from('clapcheeks_subscriptions')
-    .select('user_id')
-    .eq('status', 'active')
+  // Get all users with active subscriptions (Convex)
+  const convex = getConvexServerClient()
+  const userIds = await convex.query(api.billing.listActiveUserIds, {})
 
-  if (!subscribers || subscribers.length === 0) {
+  if (!userIds || userIds.length === 0) {
     return NextResponse.json({ message: 'No active subscribers', processed: 0 })
   }
 
-  // Filter by preferences (email_enabled)
-  const userIds = subscribers.map((s) => s.user_id)
-  const { data: prefs } = await supabase
-    .from('clapcheeks_report_preferences')
-    .select('user_id, email_enabled')
-    .in('user_id', userIds)
-
+  // Filter by preferences (email_enabled) — defaults to true if no row.
+  const prefs = await convex.query(api.reportPreferences.listEmailEnabledMap, {
+    user_ids: userIds,
+  })
   const disabledUsers = new Set(
-    (prefs || []).filter((p) => p.email_enabled === false).map((p) => p.user_id)
+    (prefs || []).filter((p) => p.email_enabled === false).map((p) => p.user_id),
   )
 
-  const eligibleUsers = userIds.filter((id) => !disabledUsers.has(id))
+  const eligibleUsers = userIds.filter((id: string) => !disabledUsers.has(id))
 
   let processed = 0
   let errors = 0

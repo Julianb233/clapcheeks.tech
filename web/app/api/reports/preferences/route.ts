@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { getConvexServerClient } from '@/lib/convex/server'
+import { api } from '@/convex/_generated/api'
+
+// AI-9537: report_preferences now lives on Convex.
 
 export async function GET() {
   try {
@@ -10,13 +14,18 @@ export async function GET() {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const { data } = await supabase
-      .from('clapcheeks_report_preferences')
-      .select('email_enabled, send_day, send_hour')
-      .eq('user_id', user.id)
-      .single()
+    const convex = getConvexServerClient()
+    const data = await convex.query(api.reportPreferences.getForUser, { user_id: user.id })
 
-    return NextResponse.json(data || { email_enabled: true, send_day: 'monday', send_hour: 9 })
+    return NextResponse.json(
+      data
+        ? {
+            email_enabled: data.email_enabled,
+            send_day: data.send_day,
+            send_hour: data.send_hour,
+          }
+        : { email_enabled: true, send_day: 'monday', send_hour: 9 },
+    )
   } catch (error) {
     console.error('Preferences GET error:', error)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
@@ -35,21 +44,17 @@ export async function PUT(request: NextRequest) {
     const body = await request.json()
     const { email_enabled, send_day, send_hour } = body
 
-    const { error } = await supabase
-      .from('clapcheeks_report_preferences')
-      .upsert(
-        {
-          user_id: user.id,
-          email_enabled: email_enabled ?? true,
-          send_day: send_day ?? 'sunday',
-          send_hour: send_hour ?? 8,
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: 'user_id' }
-      )
-
-    if (error) {
-      console.error('Preferences update error:', error)
+    try {
+      const convex = getConvexServerClient()
+      await convex.mutation(api.reportPreferences.upsertForUser, {
+        user_id: user.id,
+        email_enabled: email_enabled ?? true,
+        send_day: send_day ?? 'sunday',
+        send_hour: send_hour ?? 8,
+      })
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'failed'
+      console.error('Preferences update error:', msg)
       return NextResponse.json({ error: 'Failed to update preferences' }, { status: 500 })
     }
 

@@ -1,9 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { getValidAccessToken, createCalendarEvent, type CalendarEventInput } from '@/lib/google/calendar'
+import { getConvexServerClient } from '@/lib/convex/server'
+import { api } from '@/convex/_generated/api'
 
 export const runtime = 'nodejs'
 export const maxDuration = 30
+
+// AI-9537: tokens now in Convex google_calendar_tokens (encrypted at rest).
 
 interface CreateEventRequest {
   summary: string
@@ -36,7 +40,7 @@ export async function POST(req: NextRequest) {
     )
   }
 
-  const token = await getValidAccessToken(supabase, user.id)
+  const token = await getValidAccessToken(user.id)
   if (!token) {
     return NextResponse.json(
       { error: 'Calendar not connected', code: 'NOT_CONNECTED' },
@@ -80,18 +84,15 @@ export async function GET() {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { data } = await supabase
-    .from('google_calendar_tokens')
-    .select('google_email, calendar_id, scopes, created_at, updated_at')
-    .eq('user_id', user.id)
-    .maybeSingle()
+  const convex = getConvexServerClient()
+  const meta = await convex.query(api.calendarTokens.getMetaForUser, { user_id: user.id })
 
-  if (!data) return NextResponse.json({ connected: false })
+  if (!meta) return NextResponse.json({ connected: false })
   return NextResponse.json({
     connected: true,
-    email: data.google_email,
-    calendarId: data.calendar_id,
-    scopes: data.scopes,
-    connectedAt: data.created_at,
+    email: meta.google_email,
+    calendarId: meta.calendar_id,
+    scopes: meta.scopes,
+    connectedAt: meta.created_at ? new Date(meta.created_at).toISOString() : null,
   })
 }

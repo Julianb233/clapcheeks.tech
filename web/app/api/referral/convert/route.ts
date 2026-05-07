@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { stripe } from '@/lib/stripe'
+import { getConvexServerClient } from '@/lib/convex/server'
+import { api } from '@/convex/_generated/api'
+
+// AI-9537: clapcheeks_referrals migrated to Convex referrals.
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -31,13 +35,11 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ message: 'No referral to convert' })
   }
 
-  // Find the referral record
-  const { data: referral } = await supabaseAdmin
-    .from('clapcheeks_referrals')
-    .select('id, referrer_id, status')
-    .eq('referred_id', profile.id)
-    .eq('status', 'pending')
-    .single()
+  // Find the referral record (Convex)
+  const convex = getConvexServerClient()
+  const referral = await convex.query(api.referrals.findPendingByReferred, {
+    referred_id: profile.id,
+  })
 
   if (!referral) {
     return NextResponse.json({ message: 'No pending referral found' })
@@ -68,16 +70,10 @@ export async function POST(request: NextRequest) {
     )
   }
 
-  // Update referral status
-  await supabaseAdmin
-    .from('clapcheeks_referrals')
-    .update({
-      status: 'credited',
-      credited_at: new Date().toISOString(),
-    })
-    .eq('id', referral.id)
+  // Mark rewarded
+  await convex.mutation(api.referrals.markRewarded, { id: referral._id })
 
-  // Increment referrer's credit count
+  // Increment referrer's credit count (still in Supabase profiles)
   await supabaseAdmin.rpc('increment_referral_credits', {
     p_user_id: referral.referrer_id,
   })

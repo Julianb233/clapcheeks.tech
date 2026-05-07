@@ -18,6 +18,10 @@
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { getConvexServerClient } from '@/lib/convex/server'
+import { api } from '@/convex/_generated/api'
+
+// AI-9537: migrated voice profile reads/writes to Convex voice_profiles.
 
 export async function GET() {
   const supabase = await createClient()
@@ -28,17 +32,13 @@ export async function GET() {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const { data, error } = await supabase
-    .from('clapcheeks_voice_profiles')
-    .select(
-      'user_id, style_summary, tone, sample_phrases, profile_data, ' +
-        'messages_analyzed, digest, boosted_samples, last_scan_at, updated_at'
-    )
-    .eq('user_id', user.id)
-    .maybeSingle()
-
-  if (error && error.code !== 'PGRST116') {
-    return NextResponse.json({ error: error.message }, { status: 500 })
+  let data: unknown = null
+  try {
+    const convex = getConvexServerClient()
+    data = await convex.query(api.voice.getProfile, { user_id: user.id })
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'voice_load_failed'
+    return NextResponse.json({ error: msg }, { status: 500 })
   }
 
   return NextResponse.json({
@@ -86,24 +86,16 @@ export async function POST(req: NextRequest) {
     .filter((s): s is string => typeof s === 'string' && s.trim().length > 0)
     .map((s) => s.trim())
 
-  const { data, error } = await supabase
-    .from('clapcheeks_voice_profiles')
-    .upsert(
-      {
-        user_id: user.id,
-        boosted_samples: cleaned,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: 'user_id' }
-    )
-    .select(
-      'user_id, boosted_samples, digest, messages_analyzed, last_scan_at, updated_at'
-    )
-    .single()
-
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
+  try {
+    const convex = getConvexServerClient()
+    await convex.mutation(api.voice.upsertProfileDigest, {
+      user_id: user.id,
+      boosted_samples: cleaned,
+    })
+    const data = await convex.query(api.voice.getProfile, { user_id: user.id })
+    return NextResponse.json({ profile: data })
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'voice_save_failed'
+    return NextResponse.json({ error: msg }, { status: 500 })
   }
-
-  return NextResponse.json({ profile: data })
 }

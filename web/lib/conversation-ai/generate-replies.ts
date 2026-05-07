@@ -126,12 +126,24 @@ export async function generateReplies(
   platform: string,
   profileContext?: string
 ): Promise<ReplySuggestion[]> {
-  // Fetch voice profile
-  const { data: voiceProfile } = await supabase
-    .from('clapcheeks_voice_profiles')
-    .select('style_summary, sample_phrases, tone, profile_data')
-    .eq('user_id', userId)
-    .single()
+  // Fetch voice profile (AI-9537: now Convex voice_profiles).
+  let voiceProfile: { style_summary?: string; sample_phrases?: unknown; tone?: string; profile_data?: Record<string, unknown> } | null = null
+  try {
+    const { getConvexServerClient } = await import('@/lib/convex/server')
+    const { api } = await import('@/convex/_generated/api')
+    const convex = getConvexServerClient()
+    const row = await convex.query(api.voice.getProfile, { user_id: userId })
+    if (row) {
+      voiceProfile = {
+        style_summary: row.style_summary,
+        sample_phrases: row.sample_phrases,
+        tone: row.tone,
+        profile_data: (row.profile_data as Record<string, unknown>) ?? {},
+      }
+    }
+  } catch {
+    voiceProfile = null
+  }
 
   // PHASE-E (AI-8319) — also load persona from clapcheeks_user_settings so the
   // persona.message_formatting_rules / banned_words / signature_phrases get

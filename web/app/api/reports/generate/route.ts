@@ -4,6 +4,10 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { generateReportData } from '@/lib/reports/generate-report-data'
 import { renderReportPdf } from '@/lib/reports/generate-pdf'
 import { sendReportEmail } from '@/lib/reports/send-report-email'
+import { getConvexServerClient } from '@/lib/convex/server'
+import { api } from '@/convex/_generated/api'
+
+// AI-9537: report_preferences moved to Convex.
 
 export const maxDuration = 60
 
@@ -88,11 +92,10 @@ export async function POST(request: NextRequest) {
     }
 
     // Send email if user has it enabled
-    const { data: prefs } = await supabase
-      .from('clapcheeks_report_preferences')
-      .select('email_enabled')
-      .eq('user_id', targetUserId)
-      .single()
+    const convex = getConvexServerClient()
+    const prefs = await convex.query(api.reportPreferences.getForUser, {
+      user_id: targetUserId,
+    })
 
     const emailEnabled = prefs?.email_enabled !== false // default true
 

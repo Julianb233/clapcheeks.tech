@@ -1,4 +1,8 @@
 import { createClient } from '@/lib/supabase/server'
+import { getConvexServerClient } from '@/lib/convex/server'
+import { api } from '@/convex/_generated/api'
+
+// AI-9537: subscription plan now read from Convex subscriptions.
 
 export const PLAN_LIMITS = {
   base: { swipes: 500, coaching_calls: 5, ai_replies: 20 },
@@ -20,16 +24,17 @@ export interface UsageSummary {
 }
 
 async function getUserPlan(userId: string): Promise<'base' | 'elite'> {
-  const supabase = await createClient()
-  const { data } = await supabase
-    .from('clapcheeks_subscriptions')
-    .select('plan')
-    .eq('user_id', userId)
-    .eq('status', 'active')
-    .limit(1)
-    .single()
-
-  return (data?.plan as 'base' | 'elite') || 'base'
+  try {
+    const convex = getConvexServerClient()
+    const sub = await convex.query(api.billing.getByUser, { user_id: userId })
+    if (sub && sub.status === 'active') {
+      // Map plan tiers — elite is the only "unlimited" plan in PLAN_LIMITS.
+      return (sub.plan === 'elite' ? 'elite' : 'base') as 'base' | 'elite'
+    }
+  } catch (e) {
+    console.warn('[usage] Convex subscription lookup failed, defaulting to base:', e)
+  }
+  return 'base'
 }
 
 export async function checkLimit(

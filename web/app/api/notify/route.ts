@@ -39,6 +39,10 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient as createSupabaseClient } from '@supabase/supabase-js'
 import { Resend } from 'resend'
 import { createClient as createServerSupabase } from '@/lib/supabase/server'
+import { getConvexServerClient } from '@/lib/convex/server'
+import { api } from '@/convex/_generated/api'
+
+// AI-9537: notification_prefs + outbound_notifications + push_queue on Convex.
 
 type Channel = 'email' | 'imessage' | 'push'
 
@@ -181,24 +185,9 @@ export async function POST(req: NextRequest) {
   }
   const userId = auth.userId
 
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
-  if (!supabaseUrl || !serviceKey) {
-    return NextResponse.json(
-      { ok: false, error: 'server_unconfigured' },
-      { status: 500 },
-    )
-  }
-  const adminSb = createSupabaseClient(supabaseUrl, serviceKey, {
-    auth: { persistSession: false },
-  })
-
-  // Load preferences.
-  const { data: prefRow } = await adminSb
-    .from('clapcheeks_notification_prefs')
-    .select('email, phone_e164, channels_per_event, quiet_hours_start, quiet_hours_end')
-    .eq('user_id', userId)
-    .maybeSingle()
+  // Load preferences (Convex).
+  const convex = getConvexServerClient()
+  const prefRow = await convex.query(api.notifications.getPrefs, { user_id: userId })
 
   const channelsMap = (prefRow?.channels_per_event as Record<string, Channel[]> | null) || {}
   const channels = (channelsMap[body.event_type] || []) as Channel[]
@@ -271,36 +260,36 @@ export async function POST(req: NextRequest) {
     if (!phone) {
       results.push({ channel: 'imessage', status: 'skipped', detail: 'no_phone_on_file' })
     } else {
-      const { error } = await adminSb
-        .from('clapcheeks_outbound_notifications')
-        .insert({
+      try {
+        await convex.mutation(api.notifications.enqueueOutbound, {
           user_id: userId,
           channel: 'imessage',
           phone_e164: phone,
           body: `${title}\n${messageBody}`,
           event_type: body.event_type,
         })
-      if (error) {
-        results.push({ channel: 'imessage', status: 'error', detail: error.message })
-      } else {
         results.push({ channel: 'imessage', status: 'queued' })
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'enqueue_failed'
+        results.push({ channel: 'imessage', status: 'error', detail: msg })
       }
     }
   }
 
   // ---- Push channel (queued for the future PWA SW) ----
   if (channels.includes('push')) {
-    const { error } = await adminSb.from('clapcheeks_push_queue').insert({
-      user_id: userId,
-      title,
-      body: messageBody,
-      event_type: body.event_type,
-      payload: body.payload || {},
-    })
-    if (error) {
-      results.push({ channel: 'push', status: 'error', detail: error.message })
-    } else {
+    try {
+      await convex.mutation(api.notifications.enqueuePush, {
+        user_id: userId,
+        title,
+        body: messageBody,
+        event_type: body.event_type,
+        payload: body.payload || {},
+      })
       results.push({ channel: 'push', status: 'queued' })
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'enqueue_failed'
+      results.push({ channel: 'push', status: 'error', detail: msg })
     }
   }
 

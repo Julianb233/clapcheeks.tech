@@ -1,6 +1,10 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import Anthropic from '@anthropic-ai/sdk'
+import { getConvexServerClient } from '@/lib/convex/server'
+import { api } from '@/convex/_generated/api'
+
+// AI-9537: voice_context now lives on Convex.
 
 export const runtime = 'nodejs'
 export const maxDuration = 60
@@ -16,11 +20,8 @@ export async function POST() {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { data: row } = await supabase
-    .from('user_voice_context')
-    .select('answers')
-    .eq('user_id', user.id)
-    .maybeSingle()
+  const convex = getConvexServerClient()
+  const row = await convex.query(api.voice.getContext, { user_id: user.id })
 
   const answers: Record<string, Answer> = (row?.answers as Record<string, Answer>) || {}
   const entries = Object.values(answers)
@@ -79,23 +80,19 @@ No preamble, no trailing commentary. Just the JSON.`,
     console.error('finalize parse error', err)
   }
 
-  const now = new Date().toISOString()
-  await supabase.from('user_voice_context').upsert(
-    {
-      user_id: user.id,
-      answers,
-      summary,
-      persona_blob: personaBlob,
-      completed_at: now,
-      updated_at: now,
-    },
-    { onConflict: 'user_id' },
-  )
+  const nowMs = Date.now()
+  await convex.mutation(api.voice.upsertContext, {
+    user_id: user.id,
+    answers,
+    summary,
+    persona_blob: personaBlob,
+    completed_at: nowMs,
+  })
 
   return NextResponse.json({
     summary,
     persona_blob: personaBlob,
     tags,
-    completed_at: now,
+    completed_at: new Date(nowMs).toISOString(),
   })
 }
