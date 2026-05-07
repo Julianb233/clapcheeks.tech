@@ -1,5 +1,8 @@
+// AI-9535 — Migrated to Convex queued_replies.
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { getConvexServerClient } from '@/lib/convex/server'
+import { api } from '@/convex/_generated/api'
 
 export async function POST(request: NextRequest) {
   const supabase = await createClient()
@@ -20,30 +23,20 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const { error } = await supabase
-      .from('clapcheeks_queued_replies')
-      .insert({
-        user_id: user.id,
-        match_name: matchName,
-        platform,
-        text,
-        status: 'queued',
-      })
-
-    if (error) {
-      console.error('Queue reply error:', error)
-      return NextResponse.json(
-        { error: 'Failed to queue reply' },
-        { status: 500 }
-      )
-    }
+    await getConvexServerClient().mutation(api.queues.enqueueReply, {
+      user_id: user.id,
+      match_name: matchName,
+      platform,
+      text,
+      status: 'queued',
+    })
 
     return NextResponse.json({ success: true })
   } catch (error) {
     console.error('Send reply error:', error)
+    const msg = error instanceof Error ? error.message : String(error)
     return NextResponse.json(
-      { error: 'Failed to send reply' },
-      { status: 500 }
+      { error: msg || 'Failed to send reply' }, { status: 500 }
     )
   }
 }

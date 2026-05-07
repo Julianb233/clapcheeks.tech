@@ -964,9 +964,9 @@ export default defineSchema({
 
   // =====================================================================
   // BEGIN AI-9526 (matches-on-convex) — owned by AI-9526-matches-on-convex
-  // Sibling agent (AI-9526-outbound-on-convex) owns clapcheeks_scheduled_messages
-  // / clapcheeks_followup_sequences / clapcheeks_queued_replies /
-  // clapcheeks_posting_queue / clapcheeks_approval_queue. Don't touch those.
+  // Sibling agent (AI-9535) owns clapcheeks_scheduled_messages /
+  // clapcheeks_followup_sequences / clapcheeks_queued_replies /
+  // clapcheeks_posting_queue / clapcheeks_approval_queue.
   // =====================================================================
 
   // -----------------------------------------------------------------------
@@ -1028,4 +1028,148 @@ export default defineSchema({
   // =====================================================================
   // END AI-9526 (matches-on-convex)
   // =====================================================================
+
+  // ==========================================================================
+  // AI-9535 outbound migration — tables migrated from Supabase off the legacy
+  // clapcheeks_* schemas. These mirror the public.clapcheeks_* shapes 1:1 so
+  // the existing Next.js routes + Mac Mini Python pollers can swap call sites
+  // with minimal logic changes. Auth still resolves user_id via Supabase.
+  // ==========================================================================
+
+  // AI-9535 outbound migration — replaces public.clapcheeks_scheduled_messages
+  // (legacy match-name-keyed scheduled outbound messages — separate from the
+  // AI-9196 conversation-keyed `scheduled_messages` table above).
+  outbound_scheduled_messages: defineTable({
+    user_id: v.string(),                  // Supabase auth uuid
+    match_id: v.optional(v.string()),     // platform-specific match id (text)
+    match_name: v.string(),
+    platform: v.string(),                 // "iMessage", "tinder", "hinge", etc.
+    phone: v.optional(v.string()),
+    message_text: v.string(),
+    scheduled_at: v.number(),             // unix ms (was timestamptz on Postgres)
+    status: v.union(
+      v.literal("pending"),
+      v.literal("approved"),
+      v.literal("rejected"),
+      v.literal("sent"),
+      v.literal("failed"),
+    ),
+    sequence_type: v.union(
+      v.literal("follow_up"),
+      v.literal("manual"),
+      v.literal("app_to_text"),
+    ),
+    sequence_step: v.optional(v.number()),
+    delay_hours: v.optional(v.number()),
+    rejection_reason: v.optional(v.string()),
+    sent_at: v.optional(v.number()),
+    god_draft_id: v.optional(v.string()),
+    legacy_id: v.optional(v.string()),    // backfill: original Supabase UUID
+    created_at: v.number(),
+    updated_at: v.number(),
+  })
+    .index("by_user_status", ["user_id", "status"])
+    .index("by_user_match", ["user_id", "match_id"])
+    .index("by_status_due", ["status", "scheduled_at"])
+    .index("by_legacy_id", ["legacy_id"]),
+
+  // AI-9535 outbound migration — replaces public.clapcheeks_followup_sequences
+  // (per-user drip cadence config). One row per user_id (uniqueness enforced
+  // in mutation logic, not at index level).
+  followup_sequences: defineTable({
+    user_id: v.string(),
+    enabled: v.boolean(),
+    delays_hours: v.array(v.number()),    // ordered list, e.g. [24, 72, 168]
+    max_followups: v.number(),
+    app_to_text_enabled: v.boolean(),
+    warmth_threshold: v.number(),         // 0..1
+    min_messages_before_transition: v.number(),
+    optimal_send_start_hour: v.number(),  // 0-23
+    optimal_send_end_hour: v.number(),
+    quiet_hours_start: v.number(),
+    quiet_hours_end: v.number(),
+    timezone: v.string(),
+    legacy_id: v.optional(v.string()),
+    created_at: v.number(),
+    updated_at: v.number(),
+  })
+    .index("by_user", ["user_id"])
+    .index("by_legacy_id", ["legacy_id"]),
+
+  // AI-9535 outbound migration — replaces public.clapcheeks_queued_replies.
+  // Operator-approved or AI-drafted iMessage queue consumed by the Mac Mini
+  // queue_poller within ~30s.
+  queued_replies: defineTable({
+    user_id: v.string(),
+    match_name: v.optional(v.string()),
+    platform: v.optional(v.string()),
+    text: v.optional(v.string()),         // legacy column name
+    body: v.optional(v.string()),         // newer column name (imessage/test)
+    recipient_handle: v.optional(v.string()),
+    source: v.optional(v.string()),       // "web_test", "drip", "ai_suggestion", etc.
+    status: v.union(
+      v.literal("queued"),
+      v.literal("sent"),
+      v.literal("failed"),
+    ),
+    legacy_id: v.optional(v.string()),
+    created_at: v.number(),
+  })
+    .index("by_user_status", ["user_id", "status"])
+    .index("by_user_created", ["user_id", "created_at"])
+    .index("by_user_source", ["user_id", "source"])
+    .index("by_legacy_id", ["legacy_id"]),
+
+  // AI-9535 outbound migration — replaces public.clapcheeks_posting_queue.
+  // 7-day rolling outbound posting schedule consumed by the publisher.
+  posting_queue: defineTable({
+    user_id: v.string(),
+    content_library_id: v.string(),       // FK to clapcheeks_content_library on PG; remains string until that table migrates
+    scheduled_for: v.number(),            // unix ms
+    status: v.union(
+      v.literal("pending"),
+      v.literal("in_progress"),
+      v.literal("posted"),
+      v.literal("failed"),
+      v.literal("cancelled"),
+    ),
+    agent_job_id: v.optional(v.string()), // FK to agent_jobs row id (text); null until claimed
+    posted_at: v.optional(v.number()),
+    error: v.optional(v.string()),
+    legacy_id: v.optional(v.string()),
+    created_at: v.number(),
+  })
+    .index("by_status_due", ["status", "scheduled_for"])
+    .index("by_user_scheduled", ["user_id", "scheduled_for"])
+    .index("by_user_status", ["user_id", "status"])
+    .index("by_content_library", ["content_library_id"])
+    .index("by_legacy_id", ["legacy_id"]),
+
+  // AI-9535 outbound migration — replaces public.clapcheeks_approval_queue.
+  // Generic per-action approval queue used by the autonomy engine. Operator
+  // approves/rejects via /autonomy dashboard.
+  approval_queue: defineTable({
+    user_id: v.string(),
+    action_type: v.string(),
+    match_id: v.optional(v.string()),
+    match_name: v.optional(v.string()),
+    platform: v.optional(v.string()),
+    proposed_text: v.optional(v.string()),
+    proposed_data: v.optional(v.any()),
+    confidence: v.number(),               // 0..1
+    ai_reasoning: v.optional(v.string()),
+    status: v.union(
+      v.literal("pending"),
+      v.literal("approved"),
+      v.literal("rejected"),
+      v.literal("expired"),
+    ),
+    expires_at: v.number(),               // unix ms
+    decided_at: v.optional(v.number()),
+    legacy_id: v.optional(v.string()),
+    created_at: v.number(),
+  })
+    .index("by_user_status", ["user_id", "status"])
+    .index("by_status_expires", ["status", "expires_at"])
+    .index("by_legacy_id", ["legacy_id"]),
 });

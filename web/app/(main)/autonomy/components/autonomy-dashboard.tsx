@@ -151,18 +151,21 @@ export default function AutonomyDashboard({
     setSaving(false)
   }, [config, userId, supabase])
 
-  // Approve/reject queue item
+  // AI-9535 — Approve/reject queue item via Convex-backed API.
   const handleQueueAction = useCallback(async (id: string, status: 'approved' | 'rejected') => {
     startTransition(async () => {
-      await supabase
-        .from('clapcheeks_approval_queue')
-        .update({ status, decided_at: new Date().toISOString(), decided_by: 'user' })
-        .eq('id', id)
-        .eq('user_id', userId)
-
-      setQueue(prev => prev.filter(item => item.id !== id))
+      try {
+        await fetch(`/api/autonomy-approval/${id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status }),
+        })
+        setQueue(prev => prev.filter(item => item.id !== id))
+      } catch {
+        // ignore — let user retry
+      }
     })
-  }, [userId, supabase])
+  }, [])
 
   // Average confidence
   const avgConfidence = actions.length > 0

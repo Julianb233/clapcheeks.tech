@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { getConvexServerClient } from '@/lib/convex/server'
+import { api } from '@/convex/_generated/api'
 
 /**
  * Phase L (AI-8340) - fill the user's 7-day posting queue.
@@ -171,15 +173,17 @@ export async function POST() {
     .eq('post_type', 'story')
     .limit(500)
 
-  const { data: existing } = await admin
-    .from('clapcheeks_posting_queue')
-    .select('content_library_id')
-    .eq('user_id', user.id)
-    .eq('status', 'pending')
-    .limit(200)
-
+  // AI-9535 — Convex posting_queue. Pending rows for the user.
+  const convex = getConvexServerClient()
+  const existing = await convex.query(api.queues.listPostsForUser, {
+    user_id: user.id,
+    status: 'pending',
+    limit: 200,
+  })
   const existingIds = new Set<string>(
-    (existing || []).map((r: { content_library_id: string }) => r.content_library_id),
+    (existing || []).map(
+      (r: { content_library_id: string }) => r.content_library_id,
+    ),
   )
 
   const plan = buildPlan(library || [], normalized, existingIds, 7)
@@ -187,20 +191,25 @@ export async function POST() {
     return NextResponse.json({ inserted: 0, plan: [] })
   }
 
-  const rows = plan.map((p) => ({
-    user_id: user.id,
-    content_library_id: p.content_library_id,
-    scheduled_for: p.scheduled_for,
-    status: 'pending',
-  }))
-  // Insert one at a time so unique-index conflicts don't rollback the
-  // whole batch.
   let inserted = 0
-  for (const row of rows) {
-    const { error } = await admin
-      .from('clapcheeks_posting_queue')
-      .insert(row)
-    if (!error) inserted += 1
+  for (const p of plan) {
+    try {
+      const dupe = await convex.query(api.queues.findPendingPostForLibraryItem, {
+        user_id: user.id,
+        content_library_id: p.content_library_id,
+      })
+      if (dupe) continue
+      await convex.mutation(api.queues.enqueuePost, {
+        user_id: user.id,
+        content_library_id: p.content_library_id,
+        scheduled_for: typeof p.scheduled_for === 'number'
+          ? p.scheduled_for
+          : new Date(p.scheduled_for).getTime(),
+      })
+      inserted += 1
+    } catch {
+      // ignore per-row failures
+    }
   }
 
   return NextResponse.json({ inserted, plan })

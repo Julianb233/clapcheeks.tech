@@ -1,15 +1,16 @@
+// AI-9535 — Migrated to Convex outbound_scheduled_messages.
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { execFile } from 'child_process'
 import { promisify } from 'util'
+import { getConvexServerClient } from '@/lib/convex/server'
+import { api } from '@/convex/_generated/api'
+import type { Id } from '@/convex/_generated/dataModel'
 
 const execFileAsync = promisify(execFile)
 
-// Phones must be E.164-ish: optional leading + then 8-15 digits. Blocks shell
-// metachars from ever reaching god's argv.
 const PHONE_RE = /^\+?[0-9]{8,15}$/
 
-// POST /api/scheduled-messages/send — fire a god draft for an approved message.
 export async function POST(request: NextRequest) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -20,14 +21,13 @@ export async function POST(request: NextRequest) {
 
   if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 })
 
-  const { data: msg, error: fetchErr } = await supabase
-    .from('clapcheeks_scheduled_messages')
-    .select('*')
-    .eq('id', id)
-    .eq('user_id', user.id)
-    .single()
+  const convex = getConvexServerClient()
+  const msg = await convex.query(api.outbound.getById, {
+    id: id as Id<'outbound_scheduled_messages'>,
+    user_id: user.id,
+  })
 
-  if (fetchErr || !msg) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  if (!msg) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
   if (msg.status !== 'approved') {
     return NextResponse.json(
@@ -43,12 +43,10 @@ export async function POST(request: NextRequest) {
     )
   }
 
-  const scheduledAt = new Date(msg.scheduled_at)
-  const now = new Date()
-  const delayMinutes = Math.max(
-    0,
-    Math.round((scheduledAt.getTime() - now.getTime()) / 60000),
-  )
+  const scheduledAtMs = typeof msg.scheduled_at === 'number'
+    ? msg.scheduled_at : new Date(msg.scheduled_at as unknown as string).getTime()
+  const now = Date.now()
+  const delayMinutes = Math.max(0, Math.round((scheduledAtMs - now) / 60000))
 
   const phone = String(msg.phone).trim()
   const messageText = String(msg.message_text)
@@ -57,8 +55,6 @@ export async function POST(request: NextRequest) {
   let godError: string | null = null
 
   try {
-    // execFile: each argv is passed literally, no shell interpretation, so
-    // message body cannot inject commands regardless of contents.
     const args = delayMinutes > 0
       ? ['draft', phone, messageText, '--delay', String(delayMinutes)]
       : ['mac', 'send', phone, messageText]
@@ -72,26 +68,20 @@ export async function POST(request: NextRequest) {
   }
 
   if (godError && !godDraftId) {
-    await supabase
-      .from('clapcheeks_scheduled_messages')
-      .update({ status: 'failed', rejection_reason: godError })
-      .eq('id', id)
-
+    await convex.mutation(api.outbound.markFailed, {
+      id: id as Id<'outbound_scheduled_messages'>,
+      user_id: user.id,
+      rejection_reason: godError,
+    })
     return NextResponse.json({ error: godError }, { status: 500 })
   }
 
-  const { data: updated, error: updateErr } = await supabase
-    .from('clapcheeks_scheduled_messages')
-    .update({
-      status: 'sent',
-      sent_at: delayMinutes === 0 ? new Date().toISOString() : null,
-      god_draft_id: godDraftId,
-    })
-    .eq('id', id)
-    .select()
-    .single()
-
-  if (updateErr) return NextResponse.json({ error: updateErr.message }, { status: 500 })
+  const updated = await convex.mutation(api.outbound.markSent, {
+    id: id as Id<'outbound_scheduled_messages'>,
+    user_id: user.id,
+    god_draft_id: godDraftId ?? undefined,
+    sent_at: delayMinutes === 0 ? Date.now() : undefined,
+  })
 
   return NextResponse.json({
     message: updated,

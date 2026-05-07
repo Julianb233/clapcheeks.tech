@@ -190,14 +190,14 @@ export default function ContentLibraryClient({
       })
       const data = await resp.json()
       if (!resp.ok) throw new Error(data.error || 'auto-fill failed')
-      const { data: freshQueue } = await (createClient() as any)
-        .from('clapcheeks_posting_queue')
-        .select('id, content_library_id, scheduled_for, status, posted_at, error')
-        .eq('user_id', userId)
-        .in('status', ['pending', 'in_progress'])
-        .order('scheduled_for', { ascending: true })
-        .limit(100)
-      if (freshQueue) setQueue(freshQueue as QueueRow[])
+      // AI-9535 — refresh queue via Convex-backed API instead of Supabase.
+      const r = await fetch('/api/content-library/posting-queue', {
+        cache: 'no-store',
+      })
+      if (r.ok) {
+        const json = await r.json()
+        if (Array.isArray(json.queue)) setQueue(json.queue as QueueRow[])
+      }
     } catch (e) {
       setError((e as Error).message)
     } finally {

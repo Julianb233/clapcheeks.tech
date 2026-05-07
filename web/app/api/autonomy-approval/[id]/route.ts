@@ -1,15 +1,13 @@
+// AI-9535 — Migrated to Convex approval_queue. Auto-actions log still on Supabase.
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import * as Sentry from '@sentry/nextjs'
+import { getConvexServerClient } from '@/lib/convex/server'
+import { api } from '@/convex/_generated/api'
+import type { Id } from '@/convex/_generated/dataModel'
 
 const VALID_STATUSES = new Set(['approved', 'rejected'])
 
-// PATCH /api/autonomy-approval/[id] — approve or reject a queued action
-//
-// Body: { status: 'approved' | 'rejected', edited_text?: string }
-//
-// On approval: also writes a row to clapcheeks_auto_actions logging the
-// operator's decision so the action log shows what the user okayed.
 export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
@@ -24,9 +22,7 @@ export async function PATCH(
     const supabase = await createClient()
     const { data: { user } } = await supabase.auth.getUser()
 
-    if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
     let body: { status?: string; edited_text?: string }
     try {
@@ -39,46 +35,29 @@ export async function PATCH(
 
     if (!status || !VALID_STATUSES.has(status)) {
       return NextResponse.json(
-        { error: 'status must be "approved" or "rejected"' },
-        { status: 400 },
+        { error: 'status must be "approved" or "rejected"' }, { status: 400 },
       )
     }
 
-    // Build update payload — `proposed_text` is overridable when caller
-    // edits the AI's suggestion before approving.
-    const updates: Record<string, unknown> = {
-      status,
-      decided_at: new Date().toISOString(),
-    }
-    if (status === 'approved' && typeof edited_text === 'string' && edited_text.trim()) {
-      updates.proposed_text = edited_text.trim()
-    }
-
-    const { data: updated, error: updateError } = await supabase
-      .from('clapcheeks_approval_queue')
-      .update(updates)
-      .eq('id', id)
-      .eq('user_id', user.id)
-      .select()
-      .single()
-
-    if (updateError) {
-      // PostgREST returns a specific code for "no rows" — surface as 404.
-      if (updateError.code === 'PGRST116') {
-        return NextResponse.json({ error: 'Not found' }, { status: 404 })
-      }
-      console.error('approval update error:', updateError)
-      Sentry.captureException(updateError)
-      return NextResponse.json({ error: updateError.message }, { status: 500 })
+    let updated
+    try {
+      updated = await getConvexServerClient().mutation(api.queues.decideApproval, {
+        id: id as Id<'approval_queue'>,
+        user_id: user.id,
+        status: status as 'approved' | 'rejected',
+        edited_text: edited_text ?? undefined,
+      })
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      if (msg === 'Not found') return NextResponse.json({ error: 'Not found' }, { status: 404 })
+      if (msg === 'Forbidden') return NextResponse.json({ error: 'Not found' }, { status: 404 })
+      console.error('approval update error:', err)
+      Sentry.captureException(err)
+      return NextResponse.json({ error: msg }, { status: 500 })
     }
 
-    if (!updated) {
-      return NextResponse.json({ error: 'Not found' }, { status: 404 })
-    }
+    if (!updated) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
-    // On approval, also append to the auto-actions log so the operator's
-    // okay is visible in the action history. We don't fail the request if
-    // the log insert errors — the approval itself already succeeded.
     if (status === 'approved') {
       const { error: logError } = await supabase
         .from('clapcheeks_auto_actions')

@@ -1,6 +1,8 @@
 import Link from 'next/link'
 import { ArrowRight } from 'lucide-react'
 import { createClient } from '@/lib/supabase/server'
+import { getConvexServerClient } from '@/lib/convex/server'
+import { api } from '@/convex/_generated/api'
 
 /**
  * Operator briefing card — top-of-dashboard glanceable counts that point to
@@ -42,12 +44,10 @@ export default async function BriefingCard() {
     'date_proposed',
   ]
 
-  const [approvalsRes, staleRes, datesRes] = await Promise.all([
-    supabase
-      .from('clapcheeks_approval_queue')
-      .select('id', { count: 'exact', head: true })
-      .eq('user_id', userId)
-      .eq('status', 'pending'),
+  // AI-9535 — approval_queue lives on Convex; the rest stays Supabase.
+  const convex = getConvexServerClient()
+  const [approvalsCount, staleRes, datesRes] = await Promise.all([
+    convex.query(api.queues.countPendingApprovalsForUser, { user_id: userId }),
     supabase
       .from('clapcheeks_conversations')
       .select('id', { count: 'exact', head: true })
@@ -63,7 +63,7 @@ export default async function BriefingCard() {
       .lte('scheduled_at', sevenDaysFromNow),
   ])
 
-  const approvals = approvalsRes.count ?? 0
+  const approvals = approvalsCount ?? 0
   const stale = staleRes.count ?? 0
   const dates = datesRes.count ?? 0
 

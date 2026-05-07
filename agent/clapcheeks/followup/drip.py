@@ -866,32 +866,17 @@ def _insert_queued_replies(
     auto_send: bool,
     platform_clients: Optional[dict],
 ) -> Optional[str]:
-    """Insert into clapcheeks_queued_replies. If auto_send, try to dispatch.
+    """Insert into Convex queued_replies. If auto_send, try to dispatch.
 
-    Returns the first queued row id, or None on failure.
+    AI-9535: migrated from Supabase clapcheeks_queued_replies. Returns the
+    Convex _id of the queued row, or None on failure.
     """
-    url, key, requests = _supabase_rest()
-    if not url:
-        return None
-
     match_id = match.get("id") or match.get("match_id")
     platform = match.get("platform") or ""
     match_name = match.get("name") or match.get("match_name") or ""
 
-    # Concatenate into a single queued row (multi-part drip). The dashboard
-    # and platform worker are responsible for splitting across sends.
     body = "\n\n".join(messages)
-    payload = {
-        "user_id": user_id,
-        "match_name": match_name,
-        "platform": platform,
-        "text": body,
-        "status": "queued",
-    }
 
-    # If auto-send is requested and we actually have a platform client, try
-    # to fire immediately and flip status. Best-effort — a failed send keeps
-    # the row as status='queued' so the user sees it in the dashboard.
     sent_ok = False
     if auto_send and platform_clients and platform in platform_clients:
         try:
@@ -901,34 +886,35 @@ def _insert_queued_replies(
             sent_ok = True
         except Exception as exc:
             logger.warning("drip auto-send failed (%s): %s", platform, exc)
-    if sent_ok:
-        payload["status"] = "auto_sent"
+    final_status = "sent" if sent_ok else "queued"
 
     try:
-        r = requests.post(
-            f"{url}/rest/v1/clapcheeks_queued_replies",
-            headers={
-                "apikey": key,
-                "Authorization": f"Bearer {key}",
-                "Content-Type": "application/json",
-                "Prefer": "return=representation",
-            },
-            json=payload,
-            timeout=15,
-        )
+        from clapcheeks.convex_client import get_client
     except Exception as exc:
-        logger.warning("queued_replies insert failed: %s", exc)
-        return None
-
-    if r.status_code >= 300:
-        logger.warning("queued_replies status %s: %s", r.status_code, r.text[:200])
+        logger.warning("convex client import failed: %s", exc)
         return None
 
     try:
-        rows = r.json() or []
-        return rows[0].get("id") if rows else None
-    except Exception:
+        cx = get_client()
+    except Exception as exc:
+        logger.warning("convex client init failed: %s", exc)
         return None
+
+    try:
+        result = cx.mutation("queues:enqueueReply", {
+            "user_id": user_id,
+            "match_name": match_name,
+            "platform": platform,
+            "text": body,
+            "status": final_status,
+        })
+    except Exception as exc:
+        logger.warning("queues:enqueueReply failed: %s", exc)
+        return None
+
+    if isinstance(result, dict):
+        return result.get("_id")
+    return None
 
 
 def _bump_drip_counters(match_id: str) -> None:

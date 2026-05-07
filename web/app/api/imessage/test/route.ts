@@ -1,30 +1,27 @@
+// AI-9535 — Migrated to Convex queued_replies.
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { getConvexServerClient } from '@/lib/convex/server'
+import { api } from '@/convex/_generated/api'
 
-// Normalize a phone number to +1XXXXXXXXXX format
 function normalizePhone(raw: string): string | null {
   const digits = raw.replace(/\D/g, '')
   if (digits.length === 10) return `+1${digits}`
   if (digits.length === 11 && digits.startsWith('1')) return `+${digits}`
-  if (digits.length > 11) return `+${digits}` // international
+  if (digits.length > 11) return `+${digits}`
   return null
 }
 
-// POST /api/imessage/test — queue a test iMessage to a phone number
 export async function POST(request: NextRequest) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
 
-  if (!user) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = await request.json()
   const { phone, message, opener_style } = body
 
-  if (!phone) {
-    return NextResponse.json({ error: 'phone is required' }, { status: 400 })
-  }
+  if (!phone) return NextResponse.json({ error: 'phone is required' }, { status: 400 })
 
   const handle = normalizePhone(phone)
   if (!handle) {
@@ -34,7 +31,6 @@ export async function POST(request: NextRequest) {
     )
   }
 
-  // Use provided message or a default opener based on style
   const openers: Record<string, string> = {
     witty: "Hey — the AI made me do this 😅 But seriously, wanted to reach out.",
     warm: "Hey! Reaching out to connect — hope you're having a great day.",
@@ -43,50 +39,38 @@ export async function POST(request: NextRequest) {
 
   const body_text = message?.trim() || openers[opener_style] || openers.warm
 
-  // Insert into the queue — local Mac agent will pick this up within 30s
-  const { data, error } = await supabase
-    .from('clapcheeks_queued_replies')
-    .insert({
+  try {
+    const data = await getConvexServerClient().mutation(api.queues.enqueueReply, {
       user_id: user.id,
       recipient_handle: handle,
       body: body_text,
       status: 'queued',
       source: 'web_test',
     })
-    .select('id, recipient_handle, body, status, created_at')
-    .single()
 
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json({
+      ok: true, queued: data,
+      message: `Message queued for ${handle}. Your Mac agent will send it within 30 seconds.`,
+    })
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    return NextResponse.json({ error: msg }, { status: 500 })
   }
-
-  return NextResponse.json({
-    ok: true,
-    queued: data,
-    message: `Message queued for ${handle}. Your Mac agent will send it within 30 seconds.`,
-  })
 }
 
-// GET /api/imessage/test — list recent test messages for this user
-export async function GET(request: NextRequest) {
+export async function GET(_request: NextRequest) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
 
-  if (!user) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  try {
+    const data = await getConvexServerClient().query(api.queues.listRepliesForUser, {
+      user_id: user.id, source: 'web_test', limit: 20,
+    })
+    return NextResponse.json({ messages: data || [] })
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    return NextResponse.json({ error: msg }, { status: 500 })
   }
-
-  const { data, error } = await supabase
-    .from('clapcheeks_queued_replies')
-    .select('id, recipient_handle, body, status, created_at, source')
-    .eq('user_id', user.id)
-    .eq('source', 'web_test')
-    .order('created_at', { ascending: false })
-    .limit(20)
-
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
-  }
-
-  return NextResponse.json({ messages: data || [] })
 }

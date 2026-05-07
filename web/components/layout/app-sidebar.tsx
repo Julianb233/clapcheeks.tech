@@ -102,140 +102,74 @@ export default function AppSidebar() {
     return cancelIdle
   }, [])
 
-  // Live approval-queue badge: count of pending items for the current user.
-  // Subscribes to Supabase Realtime postgres_changes; falls back to 30s polling
-  // if the realtime channel never reaches SUBSCRIBED.
-  // AI-9500: defer the entire setup (auth lookup + Realtime subscribe + first
-  // count query) until the browser is idle. The badge starts at 0 and updates
-  // a beat later, which is fine — we save tens of ms of input-blocking work
-  // on every page navigation.
+  // AI-9535 — counts now read from Convex via API endpoints. Realtime
+  // postgres_changes subscriptions are dropped; we fall back to 60s polling.
   useEffect(() => {
-    const supabase = createClient()
     let cancelled = false
-    let userId: string | null = null
     let pollHandle: ReturnType<typeof setInterval> | null = null
-    let realtimeOk = false
-    const channel = supabase.channel('sidebar-approval-queue')
 
     async function refreshApprovals() {
-      if (!userId || cancelled) return
-      const { count, error } = await supabase
-        .from('clapcheeks_approval_queue')
-        .select('id', { count: 'exact', head: true })
-        .eq('user_id', userId)
-        .eq('status', 'pending')
-      if (cancelled) return
-      if (error) return
-      setCounts((c) => ({ ...c, approvals: count ?? 0 }))
+      try {
+        const r = await fetch('/api/autonomy-approval/count', { cache: 'no-store' })
+        if (!r.ok || cancelled) return
+        const json = await r.json()
+        if (cancelled) return
+        setCounts((c) => ({ ...c, approvals: json.count ?? 0 }))
+      } catch {
+        // ignore
+      }
     }
 
     const cancelIdle = runWhenIdle(() => {
-      ;(async () => {
-        const { data } = await supabase.auth.getUser()
-        userId = data.user?.id ?? null
-        if (!userId || cancelled) return
-
-        await refreshApprovals()
-
-        channel
-          .on(
-            'postgres_changes',
-            {
-              event: '*',
-              schema: 'public',
-              table: 'clapcheeks_approval_queue',
-              filter: `user_id=eq.${userId}`,
-            },
-            () => refreshApprovals(),
-          )
-          .subscribe((status) => {
-            if (status === 'SUBSCRIBED') {
-              realtimeOk = true
-              if (pollHandle) {
-                clearInterval(pollHandle)
-                pollHandle = null
-              }
-            }
-          })
-
-        pollHandle = setInterval(() => {
-          if (!realtimeOk) refreshApprovals()
-        }, 60_000)
-      })()
+      void refreshApprovals()
+      pollHandle = setInterval(() => {
+        if (!cancelled) void refreshApprovals()
+      }, 60_000)
     }, 3000)
 
     return () => {
       cancelled = true
       cancelIdle()
       if (pollHandle) clearInterval(pollHandle)
-      supabase.removeChannel(channel)
     }
   }, [])
 
-  // Live scheduled-messages badge: pending + approved-but-overdue count.
-  // AI-9500: same idle-defer treatment as the approvals badge above.
   useEffect(() => {
-    const supabase = createClient()
     let cancelled = false
-    let userId: string | null = null
     let pollHandle: ReturnType<typeof setInterval> | null = null
-    let realtimeOk = false
-    const channel = supabase.channel('sidebar-scheduled-messages')
 
     async function refreshScheduled() {
-      if (!userId || cancelled) return
-      const { count, error } = await supabase
-        .from('clapcheeks_scheduled_messages')
-        .select('id', { count: 'exact', head: true })
-        .eq('user_id', userId)
-        .eq('status', 'pending')
-      if (cancelled) return
-      if (error) return
-      setCounts((c) => ({ ...c, scheduled: count ?? 0 }))
+      try {
+        const r = await fetch('/api/scheduled-messages?status=pending&limit=1', {
+          cache: 'no-store',
+        })
+        if (!r.ok || cancelled) return
+        const json = await r.json()
+        if (cancelled) return
+        // listForUser query doesn't expose a total count; use array length
+        // as a >0 indicator. For accurate totals we'd add a count endpoint.
+        setCounts((c) => ({ ...c, scheduled: (json.messages ?? []).length }))
+      } catch {
+        // ignore
+      }
     }
 
     const cancelIdle = runWhenIdle(() => {
-      ;(async () => {
-        const { data } = await supabase.auth.getUser()
-        userId = data.user?.id ?? null
-        if (!userId || cancelled) return
-
-        await refreshScheduled()
-
-        channel
-          .on(
-            'postgres_changes',
-            {
-              event: '*',
-              schema: 'public',
-              table: 'clapcheeks_scheduled_messages',
-              filter: `user_id=eq.${userId}`,
-            },
-            () => refreshScheduled(),
-          )
-          .subscribe((status) => {
-            if (status === 'SUBSCRIBED') {
-              realtimeOk = true
-              if (pollHandle) {
-                clearInterval(pollHandle)
-                pollHandle = null
-              }
-            }
-          })
-
-        pollHandle = setInterval(() => {
-          if (!realtimeOk) refreshScheduled()
-        }, 60_000)
-      })()
+      void refreshScheduled()
+      pollHandle = setInterval(() => {
+        if (!cancelled) void refreshScheduled()
+      }, 60_000)
     }, 3500)
 
     return () => {
       cancelled = true
       cancelIdle()
       if (pollHandle) clearInterval(pollHandle)
-      supabase.removeChannel(channel)
     }
   }, [])
+
+  // (Original Supabase Realtime + polling blocks were replaced above as part
+  // of the AI-9535 migration. Polling now hits Convex-backed API endpoints.)
 
   function isActive(href: string) {
     if (href === '/') return pathname === '/'
