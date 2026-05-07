@@ -820,75 +820,172 @@ function _engagementSlope(scores: number[]): number {
   return (scores[scores.length - 1] - scores[0]) / (scores.length - 1);
 }
 
+// =========================================================================
+// AI-9500-F — DISC → sub-style mapping for pattern_interrupt
+// =========================================================================
+//
+// Sub-styles:
+//   callback          — references something she said earlier; universal safe choice
+//   meme_reference    — playful, culture-hook; re-establishes fun vibe
+//   low_pressure_check_in — super-soft, easy on-ramp back
+//   bold_direct       — direct, confident re-opener; slight challenge energy
+//   seasonal_hook     — ties into current season/event/holiday; feels timely
+//
+// Resolution order: courtship_stage override → disc_primary → disc_inference → "callback"
+
+const SUBSTYLE_BY_DISC: Record<string, string> = {
+  D: "bold_direct",
+  I: "meme_reference",
+  S: "low_pressure_check_in",
+  C: "seasonal_hook",
+};
+
+const SUBSTYLE_BY_STAGE: Record<string, string> = {
+  ghosted: "low_pressure_check_in",
+  ended:   "low_pressure_check_in",
+  matched: "meme_reference",
+};
+
+/**
+ * Determine the best pattern-interrupt sub-style for a person.
+ *
+ * Resolution order:
+ *   1. courtship_stage override (ghosted/ended/matched → fixed style)
+ *   2. disc_primary → DISC map
+ *   3. disc_inference field (optional, string like "D/I" or "I")
+ *   4. default → "callback"
+ */
+function _pickSubstyle(person: Record<string, unknown>): string {
+  const stage = (person.courtship_stage as string | undefined) ?? "";
+  if (stage in SUBSTYLE_BY_STAGE) {
+    return SUBSTYLE_BY_STAGE[stage]!;
+  }
+  const disc =
+    (person.disc_primary as string | undefined) ||
+    (person.disc_inference as string | undefined) || "";
+  const primary = disc.toUpperCase().trim().length > 0 ? disc.toUpperCase().trim()[0]! : "";
+  if (primary in SUBSTYLE_BY_DISC) {
+    return SUBSTYLE_BY_DISC[primary]!;
+  }
+  return "callback";
+}
+
+/**
+ * Fit a simple least-squares linear slope on `y` values (one per index 0..N-1).
+ * Returns slope (dy/d_position). Negative = declining engagement.
+ * Supersedes the simple first/last delta in prior helper above.
+ */
+function _lsSlope(y: number[]): number {
+  const n = y.length;
+  if (n < 2) return 0;
+  let xMean = 0; let yMean = 0;
+  for (let i = 0; i < n; i++) { xMean += i; yMean += y[i]!; }
+  xMean /= n; yMean /= n;
+  let num = 0; let den = 0;
+  for (let i = 0; i < n; i++) {
+    num += (i - xMean) * (y[i]! - yMean);
+    den += (i - xMean) ** 2;
+  }
+  return den === 0 ? 0 : num / den;
+}
+
+/**
+ * AI-9500-F — Conversation-fatigue detection sweep.
+ *
+ * Scans CC TECH people whose engagement is declining AND who have been silent
+ * for >3 days, then enqueues a pattern_interrupt agent_job with the DISC-based
+ * sub-style. Idempotent: skips people that already have a pending touch queued.
+ *
+ * Runs every 12h via crons.ts ("fatigue-detection-sweep").
+ */
 export const sweepFatigueDetection = internalAction({
   args: {},
-  handler: async (ctx) => {
+  handler: async (ctx): Promise<{
+    scanned: number;
+    qualified: number;
+    scheduled: number;
+    skipped_pending: number;
+  }> => {
     const now = Date.now();
     const silenceCutoff = now - FATIGUE_SILENCE_DAYS * 24 * 60 * 60 * 1000;
-    const interruptCooloff = now - FATIGUE_INTERRUPT_COOLDOWN_DAYS * 24 * 60 * 60 * 1000;
 
-    // 1. Load candidate people.
+    // 1. Load candidate people (active / paused / lead with recent last_inbound_at).
     const all: any[] = await ctx.runQuery(internal.enrichment._fatigueListPeople, {});
     const eligible = all
-      .filter((p) => FATIGUE_STATUSES.has(p.status))
-      .filter((p) => p.whitelist_for_autoreply === true)
+      .filter((p) => FATIGUE_STATUSES.has(p.status ?? ""))
       .slice(0, MAX_FATIGUE_SWEEP);
 
     let scanned = 0;
+    let qualified = 0;
     let scheduled = 0;
-    let skipped_already_scheduled = 0;
+    let skippedPending = 0;
 
     for (const person of eligible) {
       scanned++;
 
-      // 2. Pull last 5 messages (all directions) for engagement scoring.
-      const msgs: any[] = await ctx.runQuery(internal.enrichment._recentMessagesForPerson, {
-        person_id: person._id,
-        limit: FATIGUE_ENGAGE_WINDOW,
-      });
-      if (msgs.length < 2) continue;
+      // 2. Must be CC TECH member (array filter — can't index on array fields).
+      const labels: string[] = (person.google_contacts_labels as string[] | undefined) ?? [];
+      if (!labels.includes("CC TECH")) continue;
 
-      // Sort oldest-first for slope direction.
-      const sorted = [...msgs].sort((a, b) => (a.sent_at || 0) - (b.sent_at || 0));
-      const scores = sorted.map((m) =>
-        typeof m.engagement_score === "number"
-          ? m.engagement_score
-          : _msgEngagementScore(m.body || ""),
+      // 3. Must be silent >3d (inbound older than cutoff).
+      const lastInbound = (person.last_inbound_at as number | undefined) ?? 0;
+      if (lastInbound > silenceCutoff) continue;
+
+      // 4. Compute engagement slope over last 5 messages.
+      const msgs: any[] = await ctx.runQuery(
+        internal.enrichment._recentMessagesForPerson,
+        { person_id: person._id, limit: FATIGUE_ENGAGE_WINDOW },
       );
+      if (msgs.length >= 2) {
+        const sorted = [...msgs].sort((a, b) => (a.sent_at || 0) - (b.sent_at || 0));
+        const ySeries = sorted.map((m) =>
+          typeof m.engagement_score === "number"
+            ? m.engagement_score
+            : _msgEngagementScore(m.body || ""),
+        );
+        // Normalise if scores look like raw word-counts (>1)
+        const maxY = Math.max(...ySeries);
+        const yNorm = maxY > 1 ? ySeries.map((v) => v / maxY) : ySeries;
+        const slope = _lsSlope(yNorm);
+        if (slope >= FATIGUE_SLOPE_THRESHOLD) continue; // healthy trend
+      }
+      // (if < 2 messages, allow through — pure silence trigger)
 
-      const slope = _engagementSlope(scores);
-      if (slope >= FATIGUE_SLOPE_THRESHOLD) continue;
-
-      // 3. Check last inbound silence.
-      const lastInbound = (person.last_inbound_at ?? 0);
-      if (lastInbound > silenceCutoff) continue; // she replied recently — not fatigued
-
-      // 4. Check pattern_interrupt cooldown via scheduled_touches.
-      const recentInterrupt: boolean = await ctx.runQuery(
+      // 5. Skip if pending pattern_interrupt touch already queued.
+      const hasPending: boolean = await ctx.runQuery(
         internal.enrichment._hasRecentPatternInterrupt,
-        { person_id: person._id, since: interruptCooloff },
+        { person_id: person._id, since: now - FATIGUE_INTERRUPT_COOLDOWN_DAYS * 24 * 60 * 60 * 1000 },
       );
-      if (recentInterrupt) {
-        skipped_already_scheduled++;
+      if (hasPending) {
+        skippedPending++;
         continue;
       }
 
-      // 5. Schedule the touch.
+      // 6. Pick sub-style and enqueue agent_job.
+      qualified++;
+      const substyle = _pickSubstyle(person as Record<string, unknown>);
       const jitterMs = Math.floor(Math.random() * FATIGUE_JITTER_MS);
-      const scheduledFor = now + jitterMs;
 
-      await ctx.runAction(internal.enrichment._schedulePatternInterruptFor, {
-        person_id: person._id,
-        user_id: person.user_id,
-        scheduled_for: scheduledFor,
-        style_profile: person.style_profile ?? null,
-        courtship_stage: person.courtship_stage ?? "early_chat",
-        disc_primary: person.disc_primary ?? null,
+      await ctx.runMutation(api.agent_jobs.enqueue, {
+        user_id: person.user_id as string,
+        job_type: "send_imessage",
+        payload: {
+          person_id: person._id,
+          prompt_template: "pattern_interrupt",
+          template_id: substyle,
+          touch_type: "pattern_interrupt",
+          sub_style: substyle,
+          generate_at_fire_time: true,
+          fatigue_sweep: true,
+          scheduled_for: now + jitterMs,
+        },
+        priority: 1,
+        max_attempts: 2,
       });
       scheduled++;
     }
 
-    return { scanned, scheduled, skipped_already_scheduled };
+    return { scanned, qualified, scheduled, skipped_pending: skippedPending };
   },
 });
 
@@ -898,62 +995,44 @@ export const _fatigueListPeople = internalQuery({
   handler: async (ctx) => ctx.db.query("people").collect(),
 });
 
-// Query: check if a pattern_interrupt touch was scheduled in the last N ms.
+// Query: check if a pattern_interrupt agent_job was queued within the last N ms.
+// Replaces the scheduled_touches query — uses agent_jobs table instead.
 export const _hasRecentPatternInterrupt = internalQuery({
   args: {
     person_id: v.id("people"),
     since: v.number(),
   },
   handler: async (ctx, args) => {
-    const rows = await ctx.db
-      .query("scheduled_touches")
-      .withIndex("by_person_status", (q) =>
-        q.eq("person_id", args.person_id),
-      )
-      .collect();
-    return rows.some(
-      (r) =>
-        r.type === "pattern_interrupt" &&
-        r.created_at !== undefined &&
-        r.created_at >= args.since,
-    );
+    // Scan queued + running + completed agent_jobs for this person.
+    const statuses = ["queued", "running", "done"] as const;
+    for (const status of statuses) {
+      const rows = await ctx.db
+        .query("agent_jobs")
+        .withIndex("by_status_priority", (q) => q.eq("status", status))
+        .order("desc")
+        .take(200);
+      const found = rows.some((job) => {
+        if (job.job_type !== "send_imessage") return false;
+        const p = job.payload as Record<string, unknown> | undefined;
+        if (p?.person_id !== args.person_id) return false;
+        if (p?.touch_type !== "pattern_interrupt") return false;
+        // Check creation time — use _creationTime (Convex system field)
+        return (job._creationTime ?? 0) >= args.since;
+      });
+      if (found) return true;
+    }
+    return false;
   },
 });
 
-// Pick a pattern_interrupt sub_style from the person's DISC profile.
-// Exported so convex_runner.py can mirror the same logic.
-export function pickPatternInterruptSubStyle(discPrimary: string | null | undefined): string {
-  switch ((discPrimary ?? "").toUpperCase()) {
-    case "D": return "bold_direct";
-    case "I": return "meme_reference";
-    case "S": return "low_pressure_check_in";
-    case "C": return "callback";
-    default:  return "seasonal_hook";
-  }
+// Pick a pattern_interrupt sub_style from DISC + stage.
+// Exported so convex_runner.py can mirror the same logic client-side.
+export function pickPatternInterruptSubStyle(
+  discPrimary: string | null | undefined,
+  courtshipStage?: string | null,
+): string {
+  return _pickSubstyle({
+    disc_primary: discPrimary,
+    courtship_stage: courtshipStage,
+  });
 }
-
-// Internal action: wraps api.touches.scheduleOne for pattern_interrupt.
-import { internalAction as ia3 } from "./_generated/server";
-export const _schedulePatternInterruptFor = ia3({
-  args: {
-    person_id: v.id("people"),
-    user_id: v.string(),
-    scheduled_for: v.number(),
-    style_profile: v.any(),
-    courtship_stage: v.string(),
-    disc_primary: v.union(v.string(), v.null()),
-  },
-  handler: async (ctx, args) => {
-    const subStyle = pickPatternInterruptSubStyle(args.disc_primary);
-    await ctx.runMutation(api.touches.scheduleOne, {
-      user_id: args.user_id,
-      person_id: args.person_id,
-      type: "pattern_interrupt",
-      scheduled_for: args.scheduled_for,
-      generate_at_fire_time: true,
-      urgency: "cool",
-      prompt_template: `pattern_interrupt_${subStyle}`,
-      generated_by_run_id: `fatigue-sweep-${Date.now()}`,
-    } as any);
-  },
-});

@@ -13,7 +13,6 @@ import type * as conversations from "../conversations.js";
 import type * as crons from "../crons.js";
 import type * as drip from "../drip.js";
 import type * as messages from "../messages.js";
-import type * as people from "../people.js";
 import type * as scheduled_messages from "../scheduled_messages.js";
 
 import type {
@@ -28,7 +27,6 @@ declare const fullApi: ApiFromModules<{
   crons: typeof crons;
   drip: typeof drip;
   messages: typeof messages;
-  people: typeof people;
   scheduled_messages: typeof scheduled_messages;
 }>;
 
