@@ -1,6 +1,4 @@
 import type { Metadata } from 'next'
-import { ConvexHttpClient } from 'convex/browser'
-import { api } from '@/convex/_generated/api'
 import { createClient } from '@/lib/supabase/server'
 import { redirect, notFound } from 'next/navigation'
 import MatchProfileView from './match-profile-view'
@@ -10,7 +8,7 @@ import type { ChatMessage } from './conversation-thread'
 import { getConvexServerClient } from '@/lib/convex/server'
 import { api } from '@/convex/_generated/api'
 
-// AI-9537: memos on Convex.
+// AI-9534/AI-9537: matches and memos on Convex.
 
 export const metadata: Metadata = {
   title: 'Match Profile - Clapcheeks',
@@ -33,9 +31,7 @@ export default async function MatchDetailPage({
   // (new matches) or the legacy Supabase UUID (existing tabs / bookmarks).
   // resolveByAnyId handles both. We also enforce ownership against the auth'd
   // Supabase user_id.
-  const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL
-  if (!convexUrl) notFound()
-  const convex = new ConvexHttpClient(convexUrl)
+  const convex = getConvexServerClient()
   const rawMatch = (await convex.query(api.matches.resolveByAnyId, { id })) as
     | (Record<string, unknown> & { user_id?: string })
     | null

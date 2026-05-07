@@ -1,6 +1,6 @@
 import type { Metadata } from 'next'
-import { ConvexHttpClient } from 'convex/browser'
 import { api } from '@/convex/_generated/api'
+import { getConvexServerClient } from '@/lib/convex/server'
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import LeadsBoard, { type Lead } from './leads-board'
@@ -74,18 +74,15 @@ export default async function PipelinePage() {
   // via listForUserOrdered. Defensive try/catch — if Convex is unreachable we
   // still want the kanban to render.
   let matches: ClapcheeksMatchRow[] = []
-  const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL
-  if (convexUrl) {
-    try {
-      const convex = new ConvexHttpClient(convexUrl)
-      const rows = await convex.query(api.matches.listForUserOrdered, {
-        user_id: user.id,
-        limit: 200,
-      })
-      matches = mapConvexMatchRowsToLegacy(rows)
-    } catch {
-      // Non-fatal — header strip just renders empty / hidden states.
-    }
+  try {
+    const convex = getConvexServerClient()
+    const rows = await convex.query(api.matches.listForUserOrdered, {
+      user_id: user.id,
+      limit: 200,
+    })
+    matches = mapConvexMatchRowsToLegacy(rows)
+  } catch {
+    // Non-fatal — header strip just renders empty / hidden states.
   }
 
   return (
