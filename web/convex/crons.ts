@@ -173,18 +173,6 @@ crons.interval(
   internal.touches.sweepVoiceMemoCandidates,
 );
 
-// AI-9500 W2 #J: Enqueue a Tinder match + message sync job every 5 minutes.
-// The local Mac Mini agent (convex_runner.py) claims and executes the job
-// via _handle_sync_tinder(). Dedup guard inside enqueueTinderSync prevents
-// pile-up if the previous tick hasn't completed yet.
-// NOTE: The daemon skips gracefully if ~/.clapcheeks/tinder-auth.json is absent.
-// Julian must run: mitmproxy -s scripts/capture_tinder.py once to capture tokens.
-crons.interval(
-  "enqueue-tinder-sync",
-  { minutes: 5 },
-  internal.agent_jobs.enqueueTinderSync,
-);
-
 // AI-9500 W1 — Competition signal sweep every 12h.
 // sweepCompetitionSignalCandidates is now live in enrichment.ts (W3 included it).
 // crons.interval(

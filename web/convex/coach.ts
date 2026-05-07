@@ -540,3 +540,97 @@ export const getDashboardSummary = query({
     };
   },
 });
+
+// ---------------------------------------------------------------------------
+// AI-9500 W2 #F follow-up — Roster KPI panel for /coach.
+// Reads operator_profile.target_concurrent_active and computes capacity vs
+// active dating-relevant threads. Surfaces the top 5 to move forward + the
+// top 5 cooling threats to roster.
+// ---------------------------------------------------------------------------
+const NINETY_DAYS = 90 * 24 * 60 * 60 * 1000;
+const DATING_CHANNELS = new Set(["imessage", "hinge", "tinder", "bumble", "instagram"]);
+function isDatingRelevant(p: any, now: number): boolean {
+  if (!["lead", "active", "dating", "paused"].includes(p.status)) return false;
+  if (p.archived_at) return false;
+  const handles = p.handles ?? [];
+  const hasDatingHandle = handles.some((h: any) => DATING_CHANNELS.has(h.channel));
+  const hasRecentInbound = p.last_inbound_at && now - p.last_inbound_at < NINETY_DAYS;
+  const hasOperatorRating = p.hotness_rating !== undefined || p.effort_rating !== undefined;
+  const isDatingVibe = p.vibe_classification === "dating";
+  return Boolean(hasDatingHandle || hasRecentInbound || hasOperatorRating || isDatingVibe);
+}
+
+export const getRosterKPIs = query({
+  args: { user_id: v.string() },
+  handler: async (ctx, { user_id }) => {
+    const now = Date.now();
+    const profile = await ctx.db
+      .query("operator_profile")
+      .withIndex("by_user", (q) => q.eq("user_id", user_id))
+      .first();
+    const target = profile?.target_concurrent_active ?? 10;
+
+    const all = await ctx.db
+      .query("people")
+      .withIndex("by_user", (q) => q.eq("user_id", user_id))
+      .collect();
+
+    const active = all.filter((p) =>
+      isDatingRelevant(p, now) && (p.status === "active" || p.status === "dating")
+    );
+    const capacity = target - active.length;
+
+    function score(p: any): number {
+      let s = 0;
+      if (p.hotness_rating) s += p.hotness_rating * 10;
+      if (p.last_inbound_at) {
+        const h = (now - p.last_inbound_at) / 3_600_000;
+        s += Math.max(0, 50 - h);
+      }
+      if (p.time_to_ask_score) s += p.time_to_ask_score * 30;
+      return s;
+    }
+
+    const topToMoveForward = [...active]
+      .sort((a, b) => score(b) - score(a))
+      .slice(0, 5)
+      .map((p) => ({
+        _id: p._id,
+        display_name: p.display_name,
+        hotness_rating: p.hotness_rating ?? null,
+        last_inbound_at: p.last_inbound_at ?? null,
+        next_best_move: p.next_best_move ?? null,
+        score: score(p),
+      }));
+
+    const THREE_D = 3 * 24 * 3_600_000;
+    const cooling = active
+      .filter((p) => p.last_inbound_at && now - p.last_inbound_at > THREE_D)
+      .filter((p) => {
+        const emo = (p.emotional_state_recent ?? []).slice(-1)[0]?.state;
+        const wasWarm =
+          emo === "happy" || emo === "playful" || emo === "flirty" ||
+          emo === "warm" || p.conversation_temperature === "warm" ||
+          p.conversation_temperature === "hot";
+        return wasWarm;
+      })
+      .sort((a, b) => (a.last_inbound_at ?? 0) - (b.last_inbound_at ?? 0))
+      .slice(0, 5)
+      .map((p) => ({
+        _id: p._id,
+        display_name: p.display_name,
+        last_inbound_at: p.last_inbound_at ?? null,
+        days_silent: Math.round((now - (p.last_inbound_at ?? now)) / (24 * 3_600_000)),
+      }));
+
+    return {
+      target,
+      active_count: active.length,
+      capacity,
+      capacity_state: capacity < 0 ? "over" : capacity >= 2 ? "healthy" : "tight",
+      top_to_move_forward: topToMoveForward,
+      cooling_threats: cooling,
+      operator_profile: profile ?? null,
+    };
+  },
+});
