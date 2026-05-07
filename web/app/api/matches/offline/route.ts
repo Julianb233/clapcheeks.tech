@@ -10,11 +10,17 @@ import { createClient } from '@/lib/supabase/server'
  * Phase F daemon (Mac Mini) still queues iMessage history pulls + IG
  * enrichment via clapcheeks_agent_jobs on Supabase — that table is out of
  * scope for this migration.
+ *
+ * AI-9579 — phone is now optional (form can submit without a phone number).
+ * When phone is absent, external_match_id is keyed on a UUID so the row is
+ * still unique but won't de-dupe against a future phone-keyed row for the
+ * same person.
  */
 
 type OfflinePayload = {
   name?: string
   phone?: string
+  email?: string | null
   instagram_handle?: string | null
   met_at?: string | null
   first_impression?: string | null
@@ -43,29 +49,40 @@ export async function POST(req: Request) {
   }
 
   const name = (body.name ?? '').trim()
-  const phoneRaw = (body.phone ?? '').trim()
   if (!name) {
     return NextResponse.json({ error: 'name is required' }, { status: 400 })
   }
-  if (!phoneRaw) {
-    return NextResponse.json({ error: 'phone is required' }, { status: 400 })
-  }
-  const phoneE164 = normalizePhoneE164(phoneRaw)
-  if (!phoneE164) {
-    return NextResponse.json(
-      { error: `phone '${phoneRaw}' is not a valid 10-digit NANP number` },
-      { status: 400 },
-    )
+
+  // phone is optional — only validate format when provided
+  const phoneRaw = (body.phone ?? '').trim()
+  let phoneE164: string | null = null
+  if (phoneRaw) {
+    phoneE164 = normalizePhoneE164(phoneRaw)
+    if (!phoneE164) {
+      return NextResponse.json(
+        { error: `phone '${phoneRaw}' is not a valid 10-digit NANP number` },
+        { status: 400 },
+      )
+    }
   }
 
   const instagramHandle = (body.instagram_handle ?? '').trim().replace(/^@/, '') || null
   const metAt = (body.met_at ?? '').trim() || null
   const firstImpression = (body.first_impression ?? body.notes ?? '').trim() || null
+  const emailClean = (body.email ?? '').trim() || null
 
-  const digits = phoneE164.replace(/\D+/g, '')
-  const externalId = `offline:${digits}`
+  // Key external_id on phone digits when available; fall back to UUID so the
+  // row is still unique but won't de-dupe with a phone-keyed row later.
+  const externalId = phoneE164
+    ? `offline:${phoneE164.replace(/\D+/g, '')}`
+    : `offline:${crypto.randomUUID().replace(/-/g, '')}`
+
   const nowIso = new Date().toISOString() // still used by the agent_jobs insert below
   const nowMs = Date.now()
+
+  // Store email in match_intel since the offline schema doesn't have a
+  // dedicated email column.
+  const matchIntel = emailClean ? { email: emailClean } : undefined
 
   // AI-9534 — write the match to Convex (idempotent on
   // (user_id, platform=offline, external_match_id)).
@@ -79,15 +96,16 @@ export async function POST(req: Request) {
       external_id: externalId,
       match_name: name,
       name,
-      her_phone: phoneE164,
-      source: 'imessage',
-      primary_channel: 'imessage',
-      handoff_complete: true,
-      julian_shared_phone: true,
-      handoff_detected_at: nowMs,
+      her_phone: phoneE164 ?? '',
+      source: 'manual',
+      primary_channel: phoneE164 ? 'imessage' : 'email',
+      handoff_complete: !!phoneE164,
+      julian_shared_phone: !!phoneE164,
+      handoff_detected_at: phoneE164 ? nowMs : undefined,
       instagram_handle: instagramHandle ?? undefined,
       met_at: metAt ?? undefined,
       first_impression: firstImpression ?? undefined,
+      match_intel: matchIntel,
       status: 'conversing',
     })
     upserted = {
@@ -106,8 +124,9 @@ export async function POST(req: Request) {
 
   // Best-effort: queue iMessage history pull + IG enrichment for the daemon.
   try {
-    const jobs: Array<Record<string, unknown>> = [
-      {
+    const jobs: Array<Record<string, unknown>> = []
+    if (phoneE164) {
+      jobs.push({
         user_id: user.id,
         job_type: 'imessage_history_pull',
         status: 'queued',
@@ -118,8 +137,8 @@ export async function POST(req: Request) {
           source: 'phase_f_offline',
         },
         created_at: nowIso,
-      },
-    ]
+      })
+    }
     if (instagramHandle) {
       jobs.push({
         user_id: user.id,
@@ -133,7 +152,7 @@ export async function POST(req: Request) {
         created_at: nowIso,
       })
     }
-    await (supabase as any).from('clapcheeks_agent_jobs').insert(jobs)
+    if (jobs.length > 0) await (supabase as any).from('clapcheeks_agent_jobs').insert(jobs)
   } catch (err) {
     // Non-fatal — match row exists; daemon can pick these up on next tick
     console.warn('[offline-match] job enqueue failed (non-fatal):', err)
@@ -147,6 +166,7 @@ export async function POST(req: Request) {
         external_id: externalId,
         name,
         phone_e164: phoneE164,
+        email: emailClean,
         instagram_handle: instagramHandle,
       },
     },
