@@ -142,4 +142,14 @@ crons.interval(
   internal.enrichment.sweepDateAskGhostOuts,
 );
 
+// AI-9500 Wave 2 #E — Auto-archive 30d-silence threads daily at 4am Pacific
+// (12:00 UTC). Scans all people; anyone with both last_inbound AND last_outbound
+// older than 30 days (and not already archived/ghosted) gets archived with
+// reason="auto_30d_silence" and whitelist_for_autoreply flipped to false.
+crons.cron(
+  "auto-archive-ghosted-30d",
+  "0 12 * * *",
+  internal.people.autoArchiveGhosted30d,
+);
+
 export default crons;
