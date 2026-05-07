@@ -651,6 +651,95 @@ export const _writeCadenceOverrides = internalMutation({
   },
 });
 
+// -------------------------------------------------------------------------
+// AI-9500 #1 — Curiosity-question scheduler helpers
+//
+// _computeHerQuestionRatio: reads her inbound messages in the last 7d and
+// returns { ratio, question_count, total_count } where ratio = ?-count / total.
+// Uses the by_person_recent index for efficiency.
+//
+// _writeHerQuestionRatio: patches the person row with the computed ratio and
+// timestamp. Also sets next_followup_kind = "easy_question_revival" when:
+//   - ratio < 0.15 (she's stopped asking questions)
+//   - last_inbound_at > 24h ago (conversation is quiet)
+//
+// These are called from recalibrateCadenceForOne so cadence + question-ratio
+// compute in a single sweep pass.
+// -------------------------------------------------------------------------
+
+/** Count question marks in a string (counts "?", "??", "???" as 1 each occurrence of "?"). */
+function _countQuestionMarks(text: string): number {
+  return (text.match(/\?/g) || []).length;
+}
+
+export const _computeHerQuestionRatio = internalQuery({
+  args: { person_id: v.id("people") },
+  handler: async (ctx, args) => {
+    const sevenDaysAgo = Date.now() - 7 * 24 * 3600_000;
+
+    // Primary: by_person_recent index with since filter
+    let inboundMsgs = await ctx.db
+      .query("messages")
+      .withIndex("by_person_recent", (q) =>
+        q.eq("person_id", args.person_id).gte("sent_at", sevenDaysAgo),
+      )
+      .filter((q) => q.eq(q.field("direction"), "inbound"))
+      .collect();
+
+    // Fallback: walk conversations if index returned nothing
+    if (inboundMsgs.length === 0) {
+      const convs = await ctx.db
+        .query("conversations")
+        .withIndex("by_person", (q) => q.eq("person_id", args.person_id))
+        .collect();
+      for (const c of convs) {
+        const msgs = await ctx.db
+          .query("messages")
+          .withIndex("by_conversation", (q) =>
+            q.eq("conversation_id", c._id).gte("sent_at", sevenDaysAgo),
+          )
+          .filter((q) => q.eq(q.field("direction"), "inbound"))
+          .collect();
+        inboundMsgs.push(...msgs);
+      }
+    }
+
+    const total = inboundMsgs.length;
+    if (total === 0) return { ratio: null, question_count: 0, total_count: 0 };
+
+    let questionCount = 0;
+    for (const m of inboundMsgs) {
+      if (_countQuestionMarks(m.body || "") > 0) questionCount++;
+    }
+
+    return {
+      ratio: questionCount / total,
+      question_count: questionCount,
+      total_count: total,
+    };
+  },
+});
+
+export const _writeHerQuestionRatio = internalMutation({
+  args: {
+    person_id: v.id("people"),
+    her_question_ratio_7d: v.number(),
+    set_easy_question_revival: v.boolean(),
+  },
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    const patch: Record<string, unknown> = {
+      her_question_ratio_7d: args.her_question_ratio_7d,
+      her_question_ratio_computed_at: now,
+      updated_at: now,
+    };
+    if (args.set_easy_question_revival) {
+      patch.next_followup_kind = "easy_question_revival";
+    }
+    await ctx.db.patch(args.person_id, patch);
+  },
+});
+
 // Main action: compute and write cadence overrides for one person.
 export const recalibrateCadenceForOne = internalAction({
   args: { person_id: v.id("people") },
@@ -754,7 +843,7 @@ export const recalibrateCadenceForOne = internalAction({
     }
 
     // -----------------------------------------------------------------------
-    // Step 4: Write back
+    // Step 4: Write back cadence overrides
     // -----------------------------------------------------------------------
     const cadenceOverrides = {
       min_reply_gap_ms: minGap,
@@ -769,6 +858,35 @@ export const recalibrateCadenceForOne = internalAction({
       active_hours_computed: activeHours,
     });
 
+    // -----------------------------------------------------------------------
+    // Step 5: AI-9500 #1 — Curiosity-question ratio
+    //
+    // Compute her ?-count / total-messages ratio for the last 7d inbound messages.
+    // If ratio < 0.15 AND last_inbound_at > 24h ago → flag for easy_question_revival
+    // so the fatigue sweep sends a yes/no question instead of a generic interrupt.
+    // -----------------------------------------------------------------------
+    const QUESTION_RATIO_THRESHOLD = 0.15;
+    const TWENTY_FOUR_H_MS = 24 * 3600_000;
+    const lastInboundAt: number = person.last_inbound_at ?? 0;
+    const isSilent = lastInboundAt > 0 && (now - lastInboundAt) > TWENTY_FOUR_H_MS;
+
+    const questionRatioResult: any = await ctx.runQuery(
+      internal.enrichment._computeHerQuestionRatio,
+      { person_id: args.person_id },
+    );
+
+    let questionRatioWritten: number | null = null;
+    if (questionRatioResult.ratio !== null) {
+      const ratio: number = questionRatioResult.ratio;
+      const setRevival = ratio < QUESTION_RATIO_THRESHOLD && isSilent;
+      await ctx.runMutation(internal.enrichment._writeHerQuestionRatio, {
+        person_id: args.person_id,
+        her_question_ratio_7d: ratio,
+        set_easy_question_revival: setRevival,
+      });
+      questionRatioWritten = ratio;
+    }
+
     return {
       person_id: args.person_id,
       reply_pairs: replyGaps.length,
@@ -776,6 +894,9 @@ export const recalibrateCadenceForOne = internalAction({
       min_reply_gap_ms: minGap,
       max_reply_gap_ms: maxGap,
       active_hours: activeHours,
+      her_question_ratio_7d: questionRatioWritten,
+      easy_question_revival_flagged: questionRatioWritten !== null
+        && questionRatioWritten < QUESTION_RATIO_THRESHOLD && isSilent,
     };
   },
 });
