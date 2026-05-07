@@ -27,6 +27,7 @@ import {
   Hash,
   Smile,
 } from 'lucide-react'
+import { toast } from 'sonner'
 
 export interface Digest {
   message_count?: number
@@ -101,7 +102,7 @@ export default function VoiceStudioClient({
       })
       const json = await r.json()
       if (!r.ok) {
-        alert(json.error ?? 'Failed to save')
+        toast.error(json.error ?? 'Failed to save')
         return
       }
       setProfile((p) => ({

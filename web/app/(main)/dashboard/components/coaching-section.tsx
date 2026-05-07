@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { Sparkles, ThumbsUp, ThumbsDown, RefreshCw, Loader2 } from 'lucide-react'
+import { toast } from 'sonner'
 
 interface CoachingTip {
   category: string
@@ -58,14 +59,14 @@ export default function CoachingSection({
       const res = await fetch('/api/coaching/generate', { method: 'POST' })
       if (!res.ok) {
         const data = await res.json()
-        alert(data.error || 'Failed to generate tips')
+        toast.error(data.error || 'Failed to generate tips')
         return
       }
       const data = await res.json()
       setSession(data)
       setFeedbackState({})
     } catch {
-      alert('Failed to generate coaching tips')
+      toast.error('Failed to generate coaching tips')
     } finally {
       setLoading(false)
     }

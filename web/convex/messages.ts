@@ -545,6 +545,27 @@ export const listForPerson = query({
   },
 });
 
+// AI-9572 — Reactive thread for a single conversation.
+// Used by conversation-thread.tsx via useQuery so the UI updates live
+// when messages.append / upsertFromWebhook writes to Convex.
+export const listByConversation = query({
+  args: {
+    conversation_id: v.id("conversations"),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const limit = Math.min(args.limit ?? 100, 500);
+    const rows = await ctx.db
+      .query("messages")
+      .withIndex("by_conversation", (q) =>
+        q.eq("conversation_id", args.conversation_id),
+      )
+      .order("asc")
+      .take(limit);
+    return rows;
+  },
+});
+
 // Recent messages for a user across all conversations — powers the
 // global activity feed in the dashboard.
 export const recentForUser = query({

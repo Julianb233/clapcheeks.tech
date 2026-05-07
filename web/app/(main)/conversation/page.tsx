@@ -1,7 +1,8 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Copy, Check, Loader2, MessageSquare, User, Mic, ChevronRight, Send } from 'lucide-react'
+import { Copy, Check, Loader2, MessageSquare, Mic, ChevronRight, Send } from 'lucide-react'
+import { toast } from 'sonner'
 import VoiceProfileSetup from './components/voice-profile-setup'
 import { VoiceInput, VoiceTextarea } from '@/components/voice'
 
@@ -70,12 +71,12 @@ export default function ConversationPage() {
       })
       const data = await res.json()
       if (!res.ok) {
-        alert(data.error || 'Failed to generate replies')
+        toast.error(data.error || 'Failed to generate replies')
         return
       }
       setSuggestions(data.suggestions || [])
     } catch {
-      alert('Failed to generate reply suggestions')
+      toast.error('Failed to generate reply suggestions')
     } finally {
       setLoading(false)
     }
@@ -97,12 +98,12 @@ export default function ConversationPage() {
       })
       if (!res.ok) {
         const data = await res.json()
-        alert(data.error || 'Failed to queue reply')
+        toast.error(data.error || 'Failed to queue reply')
         return
       }
       setSent(prev => new Set(prev).add(index))
     } catch {
-      alert('Failed to send reply')
+      toast.error('Failed to send reply')
     } finally {
       setSending(null)
     }

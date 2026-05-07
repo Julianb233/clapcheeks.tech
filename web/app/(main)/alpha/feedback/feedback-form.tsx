@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { Send, Star, Bug, Lightbulb, ThumbsUp } from 'lucide-react'
+import { toast } from 'sonner'
 import { VoiceTextarea } from '@/components/voice'
 
 type FeedbackType = 'bug' | 'feature' | 'general' | 'praise'
@@ -34,7 +35,7 @@ export default function FeedbackForm() {
       setSubmitted(true)
     } catch {
       // Sentry will capture this
-      alert('Failed to submit — try again or tap the support chat below.')
+      toast.error('Failed to submit — try again or tap the support chat below.')
     } finally {
       setSubmitting(false)
     }
