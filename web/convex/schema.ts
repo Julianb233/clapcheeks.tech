@@ -461,6 +461,15 @@ export default defineSchema({
     next_followup_at: v.optional(v.number()),
     style_profile: v.optional(v.any()),             // output of comms_profiler
 
+    // AI-9500 #1 — her question-asking ratio over last 7 days. Single best
+    // engagement signal. When < 0.15 AND last_inbound > 24h, daemon picks
+    // an easy_question_revival template instead of a generic pattern_interrupt.
+    her_question_ratio_7d: v.optional(v.number()),
+    her_question_ratio_computed_at: v.optional(v.number()),
+    // AI-9500 #1 — track consecutive easy_question_revival sends so we don't
+    // loop on the same revival pattern.
+    easy_question_streak: v.optional(v.number()),
+
     // Vibe classification — LLM-driven hint for "is this person in the
     // dating ecosystem?". Computed by convex_runner job classify_conversation_vibe
     // against the last 50 messages. Surfaces in the dashboard as a candidate
@@ -495,6 +504,55 @@ export default defineSchema({
     .index("by_obsidian_path", ["obsidian_path"]),
     // NOTE: no by_handles index — Convex doesn't index inside arrays-of-objects.
     // findByHandle does an O(N) scan filtered by user_id; fine at human-scale (<10k people).
+
+  // -----------------------------------------------------------------------
+  // AI-9500 #8 — Opener A/B experiments. Every opener fired records 1 row.
+  // archetype is a coarse bucket of her profile (DISC + emoji + age band)
+  // so we can score variants per-archetype rather than per-person. epsilon-
+  // greedy picker reads winner once N >= 30 samples per archetype.
+  // -----------------------------------------------------------------------
+  opener_experiments: defineTable({
+    user_id: v.string(),
+    person_id: v.id("people"),
+    conversation_id: v.optional(v.id("conversations")),
+    message_id: v.optional(v.id("messages")),
+    archetype: v.string(),                  // e.g. "DI:high_emoji:24-29"
+    variant_id: v.string(),                 // identifier for the variant prompt path
+    variant_kind: v.optional(v.string()),   // "humor" | "callback" | "warm" | "curious"
+    body_preview: v.optional(v.string()),   // first 80 chars for offline review
+    sent_at: v.number(),
+    outcome: v.optional(v.union(
+      v.literal("replied_in_4h"),
+      v.literal("replied_in_24h"),
+      v.literal("replied_later"),
+      v.literal("ghosted"),
+      v.literal("unknown"),
+    )),
+    outcome_at: v.optional(v.number()),
+    her_first_reply_minutes: v.optional(v.number()),
+    notes: v.optional(v.string()),
+  })
+    .index("by_user", ["user_id"])
+    .index("by_archetype", ["archetype"])
+    .index("by_user_outcome", ["user_id", "outcome"])
+    .index("by_person", ["person_id"]),
+
+  // -----------------------------------------------------------------------
+  // AI-9500 #8 — Per-archetype winners. Updated by weekly cohort cron once
+  // sample size is sufficient. Convex_runner reads this before firing an
+  // opener; falls back to uniform-random if archetype has < 30 samples.
+  // -----------------------------------------------------------------------
+  opener_winners: defineTable({
+    user_id: v.string(),
+    archetype: v.string(),
+    winning_variant_id: v.string(),
+    samples: v.number(),
+    win_rate: v.number(),                   // 0.0-1.0
+    runner_up_variant_id: v.optional(v.string()),
+    confidence: v.optional(v.number()),
+    computed_at: v.number(),
+  })
+    .index("by_user_archetype", ["user_id", "archetype"]),
 
   // -----------------------------------------------------------------------
   // AI-9449 — Pending cross-channel link queue.
@@ -543,8 +601,12 @@ export default defineSchema({
       v.literal("date_ask"),               // propose a date
       v.literal("date_confirm_24h"),       // T-24h confirmation
       v.literal("date_dayof"),             // T-3h / day-of
+      v.literal("date_dayof_transit"),     // AI-9500 #5 — 90min-before transit ping
+      v.literal("date_check_in"),          // AI-9500 #5 — 30min-before silence check
       v.literal("date_postmortem"),        // next-morning followup
+      v.literal("post_date_calibration"),  // AI-9500 #6 — +18h post-date 3-candidate calibrator
       v.literal("reengage_low_temp"),      // pattern interrupt at 5+ days silent
+      v.literal("easy_question_revival"),  // AI-9500 #1 — low-effort question to revive cooling
       v.literal("birthday_wish"),
       v.literal("event_day_check"),        // her marathon / interview / etc.
       v.literal("pattern_interrupt"),      // unique soft restart
@@ -580,6 +642,29 @@ export default defineSchema({
     // draft_preview job_handler fills draft_body and calls touches:setPreviewDraft.
     // touches:commitPreview clears is_preview and runs the standard fireOne path.
     is_preview: v.optional(v.boolean()),
+    // AI-9500 #2 — ask_outcome tracking. When a date_ask touch fires, the
+    // outcome (her reply or 7d ghost) is patched here so the A/B engine
+    // can score timing strategies (active-typing-window vs static stagger).
+    ask_outcome: v.optional(v.union(
+      v.literal("yes"),
+      v.literal("soft_no"),
+      v.literal("hard_no"),
+      v.literal("no_reply"),
+    )),
+    // AI-9500 #6 — post-date calibrator. date_done_at is set by operator
+    // (or auto-detected from calendar) when an actual date completed.
+    // date_notes_text is the operator-typed memory of specific moments
+    // the post_date_calibration template should reference.
+    date_done_at: v.optional(v.number()),
+    date_notes_text: v.optional(v.string()),
+    // AI-9500 #6 — when fireOne handles post_date_calibration, _draft_with_template
+    // returns 3 candidate drafts (callback / photo / generic) instead of 1.
+    // The compose UI lets the operator pick one before commitPreview.
+    candidate_drafts: v.optional(v.array(v.object({
+      kind: v.string(),                  // "callback" | "photo" | "generic"
+      body: v.string(),
+      reasoning: v.optional(v.string()),
+    }))),
     created_at: v.number(),
     updated_at: v.number(),
   })
