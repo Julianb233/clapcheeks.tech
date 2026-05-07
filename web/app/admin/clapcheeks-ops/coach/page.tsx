@@ -501,10 +501,10 @@ export default function CoachPage() {
   const heatmap = useQuery(api.coach.getTimeOfDayHeatmap, { user_id: FLEET_USER_ID })
 
   return (
-    <div className="p-8 max-w-7xl">
+    <div className="p-4 sm:p-8 max-w-7xl">
       {/* Header */}
-      <div className="flex items-center justify-between mb-2">
-        <h1 className="text-3xl font-bold">Self-Coaching Dashboard</h1>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-2">
+        <h1 className="text-2xl sm:text-3xl font-bold">Self-Coaching Dashboard</h1>
         <Link
           href="/admin/clapcheeks-ops"
           className="text-sm text-gray-400 hover:text-gray-200"
@@ -512,15 +512,15 @@ export default function CoachPage() {
           ← Ops overview
         </Link>
       </div>
-      <p className="text-gray-400 mb-8">
+      <p className="text-gray-400 text-sm mb-6 sm:mb-8">
         Your patterns across all active threads — last 30 days. Each card has one thing to do.
       </p>
 
       {/* KPI Summary */}
       <SummaryCard summary={summary} />
 
-      {/* 2-column grid for the cards */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      {/* Cards — 1 col on mobile, 2 col on lg+ */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
         <OverPursueCard data={overPursue} />
         <CutListCard data={cutList} />
         <StuckInStageCard data={stuckInStage} />

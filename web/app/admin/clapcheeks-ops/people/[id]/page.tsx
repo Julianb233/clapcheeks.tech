@@ -62,7 +62,7 @@ export default function PersonDossierPage() {
   const { person, messages, conversations, scheduled_touches, media_uses, media_assets, pending_links } = dossier as any
 
   return (
-    <div className="p-8 max-w-7xl">
+    <div className="p-4 sm:p-8 max-w-7xl">
       <div className="mb-4">
         <Link href="/admin/clapcheeks-ops/network" className="text-xs text-gray-500 hover:text-gray-300">
           ← back to network
@@ -73,12 +73,13 @@ export default function PersonDossierPage() {
 
       <OperatorPanel person={person} />
 
-      <div className="mt-6 flex gap-1 border-b border-gray-800">
+      {/* Tabs — scrollable on mobile so all tabs remain accessible */}
+      <div className="mt-6 flex gap-1 border-b border-gray-800 overflow-x-auto scrollbar-hide">
         {TABS.map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
-            className={`px-4 py-2 text-sm rounded-t-md ${
+            className={`px-3 sm:px-4 py-2 text-xs sm:text-sm rounded-t-md whitespace-nowrap flex-shrink-0 ${
               tab === t
                 ? "bg-gray-900 text-white border border-gray-800 border-b-transparent"
                 : "text-gray-500 hover:text-gray-300"
@@ -89,7 +90,7 @@ export default function PersonDossierPage() {
         ))}
       </div>
 
-      <div className="bg-gray-900 border border-gray-800 border-t-0 rounded-b-md p-6 mb-8">
+      <div className="bg-gray-900 border border-gray-800 border-t-0 rounded-b-md p-4 sm:p-6 mb-8">
         {tab === "Timeline" && <TimelineTab messages={messages} conversations={conversations} personId={personId} />}
         {tab === "Memory" && <MemoryTab person={person} />}
         {tab === "Schedule" && <ScheduleTab person={person} touches={scheduled_touches} />}
@@ -118,11 +119,11 @@ function HeaderCard({ person }: { person: any }) {
   const lastEmotion = (person.emotional_state_recent ?? []).slice(-1)[0]?.state ?? "—"
 
   return (
-    <div className="bg-gradient-to-br from-purple-900/20 to-gray-900 border border-purple-800/40 rounded-lg p-6">
-      <div className="flex items-start justify-between">
-        <div>
-          <div className="flex items-center gap-3">
-            <h1 className="text-3xl font-bold">{person.display_name}</h1>
+    <div className="bg-gradient-to-br from-purple-900/20 to-gray-900 border border-purple-800/40 rounded-lg p-4 sm:p-6">
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
+            <h1 className="text-2xl sm:text-3xl font-bold">{person.display_name}</h1>
             {person.age && <span className="text-gray-500">· {person.age}</span>}
             <span className={`text-xs px-2 py-0.5 rounded ${
               person.whitelist_for_autoreply
@@ -135,26 +136,26 @@ function HeaderCard({ person }: { person: any }) {
             {person.location_observed || person.company || "—"}
             {person.occupation_observed ? ` · ${person.occupation_observed}` : ""}
           </div>
-          <div className="flex gap-4 mt-3 text-xs text-gray-400">
+          <div className="flex flex-wrap gap-2 sm:gap-4 mt-2 sm:mt-3 text-xs text-gray-400">
             <span>stage: <b className="text-purple-300">{person.courtship_stage ?? "early_chat"}</b></span>
             <span>cadence: {person.cadence_profile}</span>
-            <span>vibe: {person.conversation_temperature ?? "—"}</span>
-            <span>last emotion: {lastEmotion}</span>
+            <span className="hidden sm:inline">vibe: {person.conversation_temperature ?? "—"}</span>
+            <span>emo: {lastEmotion}</span>
           </div>
-          <div className="flex gap-4 mt-2 text-xs text-gray-500">
-            <span>inbound {lastInbound}</span>
-            <span>outbound {lastOutbound}</span>
-            <span>trust {trust}</span>
-            <span>ask-readiness {tta}</span>
-            <span>messages 30d {person.total_messages_30d ?? 0}</span>
+          <div className="flex flex-wrap gap-2 sm:gap-4 mt-1 sm:mt-2 text-xs text-gray-500">
+            <span>in {lastInbound}</span>
+            <span>out {lastOutbound}</span>
+            <span className="hidden sm:inline">trust {trust}</span>
+            <span className="hidden sm:inline">ask {tta}</span>
+            <span className="hidden sm:inline">msgs {person.total_messages_30d ?? 0}</span>
           </div>
         </div>
-        <div className="text-right text-xs text-gray-500 max-w-sm">
+        <div className="text-xs text-gray-500 sm:text-right sm:max-w-sm">
           {person.next_best_move && (
             <div className="text-purple-300 italic">💡 {person.next_best_move}</div>
           )}
           {person.zodiac_sign && (
-            <div className="mt-2 capitalize">♈ {person.zodiac_sign} · {person.disc_inference || "DISC ?"}</div>
+            <div className="mt-1 sm:mt-2 capitalize">♈ {person.zodiac_sign} · {person.disc_inference || "DISC ?"}</div>
           )}
         </div>
       </div>
