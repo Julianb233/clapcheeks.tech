@@ -1,9 +1,9 @@
 'use client'
 
-import { useMemo, useRef, useState, useEffect, useCallback } from 'react'
+import { useMemo, useRef, useState, useEffect } from 'react'
+import { useQuery } from 'convex/react'
+import { api as convexApi } from '@/convex/_generated/api'
 import type { MessageChannel } from '@/lib/matches/conversation'
-import { useMatchMessages } from '@/lib/realtime/messages'
-import type { ConversationRowEvent } from '@/lib/realtime/messages'
 import type { ConversationMessage } from '@/lib/matches/types'
 
 /**
@@ -186,6 +186,8 @@ type Props = {
   messages: ChatMessage[]
   /** match_id from clapcheeks_conversations for realtime subscription */
   matchId?: string | null
+  /** AI-9572: Convex conversation _id for reactive subscription */
+  convexConversationId?: string | null
   /** reactions JSONB from the conversation row */
   reactions?: ReactionEntry[] | null
   emptyHint?: string
@@ -196,6 +198,7 @@ type Props = {
 export default function ConversationThread({
   messages,
   matchId,
+  convexConversationId,
   reactions,
   emptyHint,
 }: Props) {
@@ -220,51 +223,28 @@ export default function ConversationThread({
     setLiveReactions(reactions ?? [])
   }, [reactions])
 
-  // ── Realtime subscription ───────────────────────────────────────────────────
+  // ── Convex reactive subscription (AI-9572) ───────────────────────────────
+  // Replaces Supabase Realtime. Messages are written to Convex (post-AI-9526),
+  // so useQuery on api.messages.listByConversation gives live updates for free.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const convexMessages = useQuery(
+    (convexApi as any).messages.listByConversation,
+    convexConversationId ? { conversation_id: convexConversationId as any } : 'skip',
+  )
 
-  const handleRealtimeEvent = useCallback((event: ConversationRowEvent) => {
-    const newRow = event.new
-
-    // New messages
-    if (event.newEntries.length > 0) {
-      const newMsgs = event.newEntries.map((e, i) =>
-        realtimeMsgToChatMessage(e, i),
-      )
-      setLiveMessages((prev) => {
-        // Deduplicate by id
-        const existingIds = new Set(prev.map((m) => m.id))
-        const fresh = newMsgs.filter((m) => !existingIds.has(m.id))
-        return fresh.length > 0 ? [...prev, ...fresh] : prev
-      })
-    }
-
-    // Typing indicator: read from conversation row metadata if available.
-    // BlueBubbles emits a `typing` boolean / `typing_started_at` field on rows
-    // or fires a separate synthetic UPDATE with typing metadata.
-    const rowAny = newRow as Record<string, unknown>
-    if (rowAny.typing === true || rowAny.peer_typing === true) {
-      setPeerTyping(true)
-      if (typingTimerRef.current) clearTimeout(typingTimerRef.current)
-      typingTimerRef.current = setTimeout(() => setPeerTyping(false), 3000)
-    }
-
-    // Read receipt: `read_at` column or `chat_read_at` on the row
-    const rawReadAt =
-      (rowAny.read_at as string | null | undefined) ??
-      (rowAny.chat_read_at as string | null | undefined) ??
-      null
-    if (rawReadAt) {
-      setReadAt(new Date(rawReadAt))
-    }
-
-    // Reactions update
-    const rawReactions = rowAny.reactions
-    if (Array.isArray(rawReactions) && rawReactions.length > 0) {
-      setLiveReactions(rawReactions as ReactionEntry[])
-    }
-  }, [])
-
-  useMatchMessages(matchId ?? null, handleRealtimeEvent)
+  // Map Convex message rows -> ChatMessage whenever the query updates
+  useEffect(() => {
+    if (!convexMessages) return
+    setLiveMessages(
+      (convexMessages as Array<Record<string, unknown>>).map((m) => ({
+        id: m._id as string,
+        text: m.body as string,
+        is_from_me: (m.direction as string) === 'outbound',
+        sent_at: m.sent_at ? new Date(m.sent_at as number).toISOString() : null,
+        channel: (m.platform as string | undefined) ?? 'imessage',
+      })),
+    )
+  }, [convexMessages])
 
   // Cleanup typing timer on unmount
   useEffect(() => {
