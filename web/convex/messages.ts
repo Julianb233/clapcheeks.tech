@@ -404,6 +404,50 @@ export const upsertFromWebhook = mutation({
               conversation_id: recentAsk.conversation_id,
             });
           }
+
+          // AI-9500 Wave2 #K — when she says yes to a date, schedule a
+          // pre_date_debrief touch 2h before the proposed date_time.
+          // date_time_ms is read from the touch's prompt_template JSON
+          // (same format used by the anti-flake kit). If no explicit time,
+          // fall back to 24h from now.
+          if (outcome === "yes") {
+            let dateTimeMs: number | null = null;
+            if (recentAsk.prompt_template) {
+              try {
+                const meta = JSON.parse(recentAsk.prompt_template);
+                if (typeof meta?.date_time_ms === "number" && meta.date_time_ms > Date.now()) {
+                  dateTimeMs = meta.date_time_ms;
+                }
+              } catch {
+                // non-JSON template, leave null
+              }
+            }
+            const debriefFireAt = dateTimeMs
+              ? dateTimeMs - 2 * 60 * 60 * 1000   // 2h before the date
+              : Date.now() + 23 * 60 * 60 * 1000; // fallback: 23h from now
+
+            // Only schedule if fire time is in the future
+            if (debriefFireAt > Date.now() + 5 * 60 * 1000) {
+              const debriefId = await ctx.db.insert("scheduled_touches", {
+                user_id: recentAsk.user_id,
+                person_id: recentAsk.person_id,
+                conversation_id: recentAsk.conversation_id,
+                type: "pre_date_debrief",
+                scheduled_for: debriefFireAt,
+                status: "scheduled",
+                generate_at_fire_time: true,
+                prompt_template: recentAsk.prompt_template, // carry venue/date_time_ms
+                draft_body: undefined,
+                created_at: Date.now(),
+                updated_at: Date.now(),
+              } as any);
+              await ctx.scheduler.runAt(
+                debriefFireAt,
+                internal.touches.fireOne,
+                { touch_id: debriefId },
+              );
+            }
+          }
         }
       }
     }

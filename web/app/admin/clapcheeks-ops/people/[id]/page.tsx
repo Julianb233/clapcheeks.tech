@@ -24,6 +24,32 @@ import { Id } from "@/convex/_generated/dataModel"
 const TABS = ["Timeline", "Memory", "Schedule", "Media", "Profile", "Notes"] as const
 type TabName = typeof TABS[number]
 
+// Debrief preview card — shown above tabs when an upcoming date is within 4h
+function PreDateDebriefCard({ touches }: { touches: any[] }) {
+  const debrief = touches.find(
+    (t: any) =>
+      t.type === "pre_date_debrief" &&
+      t.status === "fired" &&
+      t.draft_body &&
+      t.fired_at && Date.now() - t.fired_at < 6 * 60 * 60 * 1000, // fired in last 6h
+  )
+  if (!debrief) return null
+  return (
+    <div className="mt-4 bg-amber-950/20 border border-amber-700/50 rounded-lg p-4">
+      <div className="flex items-center gap-2 mb-3">
+        <span className="text-lg">📋</span>
+        <h2 className="text-sm font-semibold text-amber-300">Pre-Date Debrief</h2>
+        <span className="text-xs text-gray-500 ml-auto">
+          Generated {debrief.fired_at ? new Date(debrief.fired_at).toLocaleString() : ""}
+        </span>
+      </div>
+      <pre className="text-xs text-gray-300 whitespace-pre-wrap leading-relaxed font-sans">
+        {debrief.draft_body}
+      </pre>
+    </div>
+  )
+}
+
 const TEMPLATE_OPTIONS = [
   { value: "context_aware_reply", label: "Context-aware reply" },
   { value: "hot_reply", label: "Hot reply (high interest)" },
@@ -71,7 +97,11 @@ export default function PersonDossierPage() {
 
       <HeaderCard person={person} />
 
+      <TagsRow person={person} />
+
       <OperatorPanel person={person} />
+
+      <PreDateDebriefCard touches={scheduled_touches ?? []} />
 
       {/* Tabs — scrollable on mobile so all tabs remain accessible */}
       <div className="mt-6 flex gap-1 border-b border-gray-800 overflow-x-auto scrollbar-hide">
@@ -158,6 +188,72 @@ function HeaderCard({ person }: { person: any }) {
             <div className="mt-1 sm:mt-2 capitalize">♈ {person.zodiac_sign} · {person.disc_inference || "DISC ?"}</div>
           )}
         </div>
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// AI-9500 Wave2 #K — TagsRow
+//
+// Chip editor for the person's freeform tags (e.g. "foodie", "hiker").
+// Displayed between HeaderCard and OperatorPanel for quick glance + edit.
+// ---------------------------------------------------------------------------
+function TagsRow({ person }: { person: any }) {
+  const addTag = useMutation(api.people.addTag)
+  const removeTag = useMutation(api.people.removeTag)
+  const [draft, setDraft] = useState("")
+  const [busy, setBusy] = useState(false)
+
+  async function handleAdd() {
+    const tag = draft.trim().toLowerCase()
+    if (!tag) return
+    setBusy(true)
+    try {
+      await addTag({ person_id: person._id, tag })
+      setDraft("")
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function handleRemove(tag: string) {
+    await removeTag({ person_id: person._id, tag })
+  }
+
+  return (
+    <div className="mt-3 flex items-center gap-2 flex-wrap">
+      {(person.tags ?? []).map((tag: string) => (
+        <span
+          key={tag}
+          className="inline-flex items-center gap-1 bg-purple-900/40 border border-purple-700/50 text-purple-200 text-xs px-2 py-0.5 rounded-full"
+        >
+          #{tag}
+          <button
+            onClick={() => handleRemove(tag)}
+            className="text-purple-400 hover:text-purple-100 ml-0.5"
+            title="remove tag"
+          >
+            ×
+          </button>
+        </span>
+      ))}
+      <div className="flex items-center gap-1">
+        <input
+          type="text"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && !busy && handleAdd()}
+          placeholder="add tag…"
+          className="text-xs bg-gray-950 border border-gray-800 rounded px-2 py-0.5 w-28 focus:border-purple-600 outline-none"
+        />
+        <button
+          onClick={handleAdd}
+          disabled={busy || !draft.trim()}
+          className="text-xs px-2 py-0.5 bg-gray-800 hover:bg-purple-900/40 border border-gray-700 text-gray-300 rounded disabled:opacity-40"
+        >
+          +tag
+        </button>
       </div>
     </div>
   )
@@ -481,12 +577,14 @@ function TimelineTab({ messages: dossierMessages, conversations, personId }: {
 
 // ---------------------------------------------------------------------------
 // Memory tab — personal_details, curiosity_ledger, life_events, lit topics
+// + AI-9500 Wave2 #K: things_mentioned editor
 // ---------------------------------------------------------------------------
 function MemoryTab({ person }: { person: any }) {
   const details = person.personal_details ?? []
   const curiosity = (person.curiosity_ledger ?? []).filter((q: any) => q.status === "pending")
   const events = person.recent_life_events ?? []
   const lit = person.topics_that_lit_her_up ?? []
+  const thingsMentioned: any[] = person.things_mentioned ?? []
 
   // AI-9500 #1 — curiosity-question ratio metric
   const questionRatio: number | null = person.her_question_ratio_7d ?? null
@@ -610,6 +708,115 @@ function MemoryTab({ person }: { person: any }) {
           </ul>
         )}
       </Section>
+
+      {/* AI-9500 Wave2 #K — Things she mentioned */}
+      <ThingsMentionedSection person={person} thingsMentioned={thingsMentioned} />
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// AI-9500 Wave2 #K — ThingsMentionedSection
+//
+// Operator can add/remove specific things she mentioned. Auto-extracted entries
+// have source="auto"; operator entries have source="operator".
+// ---------------------------------------------------------------------------
+function ThingsMentionedSection({ person, thingsMentioned }: { person: any; thingsMentioned: any[] }) {
+  const addThingMut = useMutation(api.people.addThingMentioned)
+  const removeThingMut = useMutation(api.people.removeThingMentioned)
+  const [topicDraft, setTopicDraft] = useState("")
+  const [detailDraft, setDetailDraft] = useState("")
+  const [busy, setBusy] = useState(false)
+
+  async function handleAdd() {
+    const topic = topicDraft.trim()
+    if (!topic) return
+    setBusy(true)
+    try {
+      await addThingMut({
+        person_id: person._id,
+        topic,
+        detail: detailDraft.trim() || undefined,
+        source: "operator",
+      })
+      setTopicDraft("")
+      setDetailDraft("")
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function handleRemove(idx: number) {
+    await removeThingMut({ person_id: person._id, idx })
+  }
+
+  const sorted = [...thingsMentioned].sort((a, b) => b.said_at_ms - a.said_at_ms)
+
+  return (
+    <div className="col-span-full">
+      <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">
+        Things She Mentioned ({thingsMentioned.length})
+      </h3>
+      {sorted.length === 0 ? (
+        <div className="text-xs text-gray-600 mb-2">None recorded yet. Add manually or run the auto-extraction sweep.</div>
+      ) : (
+        <ul className="space-y-1 mb-3">
+          {sorted.map((t: any, i: number) => {
+            const realIdx = thingsMentioned.indexOf(t)
+            return (
+              <li key={i} className="flex items-start gap-2 text-xs">
+                <span className={`mt-0.5 px-1.5 py-0.5 rounded text-[10px] ${
+                  t.source === "auto"
+                    ? "bg-blue-900/40 text-blue-300 border border-blue-800/40"
+                    : "bg-purple-900/40 text-purple-300 border border-purple-800/40"
+                }`}>
+                  {t.source === "auto" ? "AI" : "op"}
+                </span>
+                <div className="flex-1">
+                  <span className="font-medium text-gray-200">{t.topic}</span>
+                  {t.detail && <span className="text-gray-500 ml-1">— {t.detail}</span>}
+                  <span className="text-gray-600 ml-2 text-[10px]">
+                    {new Date(t.said_at_ms).toLocaleDateString()}
+                  </span>
+                </div>
+                <button
+                  onClick={() => handleRemove(realIdx)}
+                  className="text-gray-600 hover:text-red-400 text-[10px]"
+                >
+                  ×
+                </button>
+              </li>
+            )
+          })}
+        </ul>
+      )}
+      <div className="flex gap-2 items-end">
+        <div className="flex-1">
+          <input
+            type="text"
+            value={topicDraft}
+            onChange={(e) => setTopicDraft(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && !busy && handleAdd()}
+            placeholder="topic (e.g. Italian food)"
+            className="w-full text-xs bg-gray-950 border border-gray-800 rounded px-2 py-1 mb-1"
+          />
+          <input
+            type="text"
+            value={detailDraft}
+            onChange={(e) => setDetailDraft(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && !busy && handleAdd()}
+            placeholder="detail (optional)"
+            className="w-full text-xs bg-gray-950 border border-gray-800 rounded px-2 py-1"
+          />
+        </div>
+        <button
+          onClick={handleAdd}
+          disabled={busy || !topicDraft.trim()}
+          className="text-xs px-3 py-2 bg-purple-900/40 border border-purple-800 text-purple-200 rounded hover:bg-purple-800/40 disabled:opacity-40"
+        >
+          Add
+        </button>
+      </div>
     </div>
   )
 }
