@@ -374,6 +374,17 @@ export const getDossier = query({
   },
 });
 
+// AI-9545 — runner-compat alias used by clapcheeks-local convex_runner.py
+// Returns the raw person row by Convex _id. Different from getDossier (which
+// includes recent messages + conversations + computed fields).
+export const get = query({
+  args: { id: v.id("people") },
+  handler: async (ctx, args) => {
+    return await ctx.db.get(args.id);
+  },
+});
+
+
 export const findByHandle = query({
   args: {
     user_id: v.string(),
