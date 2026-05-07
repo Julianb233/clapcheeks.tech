@@ -1,6 +1,10 @@
 import type { Metadata } from 'next'
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
+import { getConvexServerClient } from '@/lib/convex/server'
+import { api } from '@/convex/_generated/api'
+
+// AI-9537: subscriptions + devices on Convex.
 import ManageBillingButton from '@/components/manage-billing-button'
 import PlanBadge from '@/components/plan-badge'
 import EliteOnly from '@/components/elite-only'
@@ -73,7 +77,8 @@ export default async function Dashboard() {
   const fourteenDaysAgo = new Date()
   fourteenDaysAgo.setDate(fourteenDaysAgo.getDate() - 14)
 
-  const [analyticsRes, convoRes, spendRes, deviceRes, subRes, profileRes, heartbeatRes, matchCountRes] = await Promise.all([
+  const convex = getConvexServerClient()
+  const [analyticsRes, convoRes, spendRes, deviceListRes, subRes, profileRes, heartbeatRes, matchCountRes] = await Promise.all([
     supabase
       .from('clapcheeks_analytics_daily')
       .select('app, swipes_right, swipes_left, matches, conversations_started, dates_booked, money_spent, date')
@@ -91,18 +96,8 @@ export default async function Dashboard() {
       .select('amount, category, date')
       .eq('user_id', user.id)
       .gte('date', sinceStr),
-    supabase
-      .from('devices')
-      .select('last_seen_at, is_active')
-      .eq('user_id', user.id)
-      .order('last_seen_at', { ascending: false })
-      .limit(1),
-    supabase
-      .from('clapcheeks_subscriptions')
-      .select('status')
-      .eq('user_id', user.id)
-      .limit(1)
-      .single(),
+    convex.query(api.devices.listForUser, { user_id: user.id }),
+    convex.query(api.billing.getByUser, { user_id: user.id }),
     supabase
       .from('profiles')
       .select('subscription_tier, subscription_status')
@@ -127,7 +122,7 @@ export default async function Dashboard() {
   // Fetch coaching session
   const coachingSession = await getLatestCoaching(supabase, user.id)
 
-  const isSubscribed = subRes.data?.status === 'active'
+  const isSubscribed = subRes?.status === 'active'
   const userPlan = (profileRes.data?.subscription_tier || 'base') as 'base' | 'elite'
   const userSubStatus = profileRes.data?.subscription_status || 'inactive'
   const userIsElite = userPlan === 'elite' && userSubStatus === 'active'
@@ -136,11 +131,14 @@ export default async function Dashboard() {
   const convos: ConvoRow[] = convoRes.data || []
   const spending = spendRes.data || []
 
-  // AI-8926: pick the freshest of (devices.last_seen_at, clapcheeks_device_heartbeats.last_heartbeat_at).
-  const oldDevice = deviceRes.data?.[0] || null
+  // AI-8926/AI-9537: pick the freshest of (Convex devices.last_seen_at, clapcheeks_device_heartbeats.last_heartbeat_at).
+  const deviceList = (deviceListRes ?? []) as Array<{ last_seen_at: number; is_active: boolean }>
+  const oldDevice = deviceList.length
+    ? deviceList.reduce((best, d) => (d.last_seen_at > best.last_seen_at ? d : best))
+    : null
   const heartbeatTs = (heartbeatRes.data as { last_heartbeat_at: string | null } | null)?.last_heartbeat_at ?? null
   const candidates: { last_seen_at: string; is_active: boolean }[] = []
-  if (oldDevice?.last_seen_at) candidates.push({ last_seen_at: oldDevice.last_seen_at, is_active: oldDevice.is_active })
+  if (oldDevice) candidates.push({ last_seen_at: new Date(oldDevice.last_seen_at).toISOString(), is_active: oldDevice.is_active })
   if (heartbeatTs) candidates.push({ last_seen_at: heartbeatTs, is_active: true })
   const device: DeviceRow | null = candidates.length
     ? candidates.reduce((best, c) =>

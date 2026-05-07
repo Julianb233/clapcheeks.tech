@@ -15,6 +15,10 @@
  */
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
+import { getConvexServerClient } from '@/lib/convex/server'
+import { api } from '@/convex/_generated/api'
+
+// AI-9537: devices on Convex.
 
 type PillColor = 'green' | 'amber' | 'red' | 'gray'
 
@@ -204,7 +208,8 @@ export default async function ConnectionBar() {
   // AI-8926: clapcheeks_device_heartbeats is the modern source-of-truth for
   // agent freshness (the daemon upserts every heartbeat).  Older `devices`
   // rows can be stale; pick the freshest of the two.
-  const [settingsRes, eventsRes, deviceRes, heartbeatRes] = await Promise.all([
+  const convex = getConvexServerClient()
+  const [settingsRes, eventsRes, deviceListRes, heartbeatRes] = await Promise.all([
     (supabase as any)
       .from('clapcheeks_user_settings')
       .select(
@@ -221,13 +226,7 @@ export default async function ConnectionBar() {
       .gte('detected_at', since)
       .order('detected_at', { ascending: false })
       .limit(50),
-    (supabase as any)
-      .from('devices')
-      .select('last_seen_at,is_active')
-      .eq('user_id', user.id)
-      .order('last_seen_at', { ascending: false })
-      .limit(1)
-      .maybeSingle(),
+    convex.query(api.devices.listForUser, { user_id: user.id }),
     (supabase as any)
       .from('clapcheeks_device_heartbeats')
       .select('last_heartbeat_at')
@@ -239,7 +238,12 @@ export default async function ConnectionBar() {
 
   const settings = (settingsRes.data as UserSettingsRow | null) ?? null
   const events = ((eventsRes.data as BanEventRow[] | null) ?? []) as BanEventRow[]
-  const deviceRow = (deviceRes.data as DeviceRow | null) ?? null
+  const deviceList = (deviceListRes ?? []) as Array<{ last_seen_at: number; is_active: boolean }>
+  let deviceRow: DeviceRow | null = null
+  if (deviceList.length) {
+    const top = deviceList.reduce((best, d) => (d.last_seen_at > best.last_seen_at ? d : best))
+    deviceRow = { last_seen_at: new Date(top.last_seen_at).toISOString(), is_active: top.is_active } as DeviceRow
+  }
   const heartbeatRow = (heartbeatRes.data as { last_heartbeat_at: string | null } | null) ?? null
 
   // Compose a unified device view: take the freshest last_seen across both

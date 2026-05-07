@@ -1,5 +1,9 @@
 import { SupabaseClient } from '@supabase/supabase-js'
 import type { ReportData } from './generate-pdf'
+import { getConvexServerClient } from '@/lib/convex/server'
+import { api } from '@/convex/_generated/api'
+
+// AI-9537: coaching tips for reports now sourced from Convex coaching_sessions.
 
 export async function generateReportData(
   supabase: SupabaseClient,
@@ -18,8 +22,9 @@ export async function generateReportData(
   const prevStartStr = prevStart.toISOString().split('T')[0]
   const prevEndStr = prevEnd.toISOString().split('T')[0]
 
-  // Fetch this week + last week analytics
-  const [thisWeekRes, prevWeekRes, coachingRes] = await Promise.all([
+  // Fetch this week + last week analytics; coaching tips come from Convex.
+  const convex = getConvexServerClient()
+  const [thisWeekRes, prevWeekRes, coachingSessions] = await Promise.all([
     supabase
       .from('clapcheeks_analytics_daily')
       .select('app, swipes_right, swipes_left, matches, conversations_started, dates_booked')
@@ -32,18 +37,19 @@ export async function generateReportData(
       .eq('user_id', userId)
       .gte('date', prevStartStr)
       .lte('date', prevEndStr),
-    supabase
-      .from('clapcheeks_coaching_sessions')
-      .select('tips')
-      .eq('user_id', userId)
-      .gte('created_at', weekStart.toISOString())
-      .lte('created_at', weekEnd.toISOString())
-      .order('created_at', { ascending: false })
-      .limit(1),
+    convex.query(api.coaching.listRecentForUser, { user_id: userId, limit: 4 }),
   ])
 
   const thisWeek = thisWeekRes.data || []
   const prevWeek = prevWeekRes.data || []
+  const weekStartMs = weekStart.getTime()
+  const weekEndMs = weekEnd.getTime() + 24 * 3600 * 1000 - 1
+  const coachingRes = {
+    data: (coachingSessions || [])
+      .filter((s) => s.created_at >= weekStartMs && s.created_at <= weekEndMs)
+      .map((s) => ({ tips: s.tips }))
+      .slice(0, 1),
+  }
 
   // Aggregate this week
   const tw = aggregateRows(thisWeek)

@@ -8,6 +8,10 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import VoiceStudioClient, { type VoiceProfile } from './voice-studio-client'
+import { getConvexServerClient } from '@/lib/convex/server'
+import { api } from '@/convex/_generated/api'
+
+// AI-9537: voice_profiles on Convex.
 
 export const dynamic = 'force-dynamic'
 
@@ -22,19 +26,15 @@ export default async function VoiceStudioPage() {
   } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
-  const { data, error } = await supabase
-    .from('clapcheeks_voice_profiles')
-    .select(
-      'user_id, style_summary, tone, sample_phrases, profile_data, ' +
-        'messages_analyzed, digest, boosted_samples, last_scan_at, updated_at'
-    )
-    .eq('user_id', user.id)
-    .maybeSingle()
-
-  // maybeSingle() returns the row or null. Treat any read error as "no
-  // profile yet" rather than crashing — the client component handles the
-  // empty state with onboarding instructions.
-  const profile = error ? null : (data as unknown as VoiceProfile | null)
+  let profile: VoiceProfile | null = null
+  try {
+    const convex = getConvexServerClient()
+    const data = await convex.query(api.voice.getProfile, { user_id: user.id })
+    profile = (data as unknown as VoiceProfile | null) ?? null
+  } catch {
+    // empty-state path; client handles
+    profile = null
+  }
 
   return <VoiceStudioClient initialProfile={profile} />
 }

@@ -9,6 +9,10 @@
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { getConvexServerClient } from '@/lib/convex/server'
+import { api } from '@/convex/_generated/api'
+
+// AI-9537: migrated to Convex notification_prefs.
 
 const ALLOWED_CHANNELS = new Set(['email', 'imessage', 'push'])
 const ALLOWED_EVENTS = new Set([
@@ -64,19 +68,24 @@ export async function GET() {
     if (!user) {
       return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
     }
-    const { data } = await supabase
-      .from('clapcheeks_notification_prefs')
-      .select('email, phone_e164, channels_per_event, quiet_hours_start, quiet_hours_end')
-      .eq('user_id', user.id)
-      .maybeSingle()
+    const convex = getConvexServerClient()
+    const data = await convex.query(api.notifications.getPrefs, { user_id: user.id })
     return NextResponse.json(
-      data || {
-        email: user.email ?? '',
-        phone_e164: '',
-        channels_per_event: {},
-        quiet_hours_start: 21,
-        quiet_hours_end: 8,
-      },
+      data
+        ? {
+            email: data.email ?? '',
+            phone_e164: data.phone_e164 ?? '',
+            channels_per_event: data.channels_per_event ?? {},
+            quiet_hours_start: data.quiet_hours_start,
+            quiet_hours_end: data.quiet_hours_end,
+          }
+        : {
+            email: user.email ?? '',
+            phone_e164: '',
+            channels_per_event: {},
+            quiet_hours_start: 21,
+            quiet_hours_end: 8,
+          },
     )
   } catch (err) {
     console.error('notif prefs GET error', err)
@@ -100,19 +109,20 @@ export async function PUT(req: NextRequest) {
       return NextResponse.json({ error: 'invalid_json' }, { status: 400 })
     }
     const clean = sanitize(body)
-    const { error } = await supabase
-      .from('clapcheeks_notification_prefs')
-      .upsert(
-        {
-          user_id: user.id,
-          ...clean,
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: 'user_id' },
-      )
-    if (error) {
-      console.error('notif prefs upsert error', error)
-      return NextResponse.json({ error: error.message }, { status: 500 })
+    try {
+      const convex = getConvexServerClient()
+      await convex.mutation(api.notifications.upsertPrefs, {
+        user_id: user.id,
+        email: clean.email ?? undefined,
+        phone_e164: clean.phone_e164 ?? undefined,
+        channels_per_event: clean.channels_per_event,
+        quiet_hours_start: clean.quiet_hours_start,
+        quiet_hours_end: clean.quiet_hours_end,
+      })
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'upsert_failed'
+      console.error('notif prefs upsert error', msg)
+      return NextResponse.json({ error: msg }, { status: 500 })
     }
     return NextResponse.json({ ok: true })
   } catch (err) {

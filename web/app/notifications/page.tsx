@@ -4,8 +4,13 @@ import { revalidatePath } from "next/cache"
 import { createClient } from "@/lib/supabase/server"
 import { ArrowLeft, Bell, Calendar, Users, AlertTriangle, X } from "lucide-react"
 import Link from "next/link"
+import { getConvexServerClient } from "@/lib/convex/server"
+import { api } from "@/convex/_generated/api"
+import type { Id } from "@/convex/_generated/dataModel"
 
 export const metadata: Metadata = { title: 'Notifications | Clapcheeks' }
+
+// AI-9537: notifications now live on Convex (read instead of is_read).
 
 async function markAllRead() {
   "use server"
@@ -15,11 +20,8 @@ async function markAllRead() {
   } = await supabase.auth.getUser()
   if (!user) return
 
-  await supabase
-    .from("notifications")
-    .update({ is_read: true, read_at: new Date().toISOString() })
-    .eq("user_id", user.id)
-    .eq("is_read", false)
+  const convex = getConvexServerClient()
+  await convex.mutation(api.notifications.markAllReadForUser, { user_id: user.id })
   revalidatePath("/notifications")
 }
 
@@ -31,7 +33,8 @@ async function clearRead() {
   } = await supabase.auth.getUser()
   if (!user) return
 
-  await supabase.from("notifications").delete().eq("user_id", user.id).eq("is_read", true)
+  const convex = getConvexServerClient()
+  await convex.mutation(api.notifications.deleteAllReadForUser, { user_id: user.id })
   revalidatePath("/notifications")
 }
 
@@ -43,8 +46,21 @@ async function dismissNotification(id: string) {
   } = await supabase.auth.getUser()
   if (!user) return
 
-  await supabase.from("notifications").delete().eq("id", id).eq("user_id", user.id)
+  const convex = getConvexServerClient()
+  await convex.mutation(api.notifications.deleteNotification, {
+    id: id as Id<"notifications">,
+    user_id: user.id,
+  })
   revalidatePath("/notifications")
+}
+
+interface DisplayNotification {
+  id: string
+  type: string
+  title: string
+  message: string
+  is_read: boolean
+  created_at: string
 }
 
 export default async function NotificationsPage() {
@@ -58,15 +74,24 @@ export default async function NotificationsPage() {
     redirect("/auth/login")
   }
 
-  // Fetch notifications
-  const { data: notifications } = await supabase
-    .from("notifications")
-    .select("*")
-    .eq("user_id", user.id)
-    .order("created_at", { ascending: false })
+  // Fetch notifications from Convex
+  const convex = getConvexServerClient()
+  const rows = await convex.query(api.notifications.listForUser, {
+    user_id: user.id,
+    limit: 200,
+  })
 
-  const hasUnread = notifications?.some((n) => !n.is_read) ?? false
-  const hasRead = notifications?.some((n) => n.is_read) ?? false
+  const notifications: DisplayNotification[] = (rows ?? []).map((n) => ({
+    id: n._id as unknown as string,
+    type: n.type ?? '',
+    title: n.title,
+    message: n.message ?? '',
+    is_read: n.read,
+    created_at: new Date(n.created_at).toISOString(),
+  }))
+
+  const hasUnread = notifications.some((n) => !n.is_read)
+  const hasRead = notifications.some((n) => n.is_read)
 
   const getIcon = (type: string) => {
     switch (type) {
@@ -133,7 +158,7 @@ export default async function NotificationsPage() {
           </div>
         ) : (
           <div className="space-y-3">
-            {notifications.map((notification: { id: string; type: string; title: string; message: string; is_read: boolean; created_at: string }) => (
+            {notifications.map((notification) => (
               <div
                 key={notification.id}
                 className={`rounded-xl p-4 transition-all ${

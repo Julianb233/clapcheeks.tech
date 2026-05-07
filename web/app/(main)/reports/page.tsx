@@ -3,6 +3,10 @@ import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import ReportsList from './reports-list'
 import ReportPreferences from './report-preferences'
+import { getConvexServerClient } from '@/lib/convex/server'
+import { api } from '@/convex/_generated/api'
+
+// AI-9537: report_preferences on Convex.
 
 export const metadata: Metadata = {
   title: 'Reports — Clapcheeks',
@@ -15,6 +19,7 @@ export default async function ReportsPage() {
 
   if (!user) redirect('/auth/login')
 
+  const convex = getConvexServerClient()
   const [reportsRes, prefsRes] = await Promise.all([
     supabase
       .from('clapcheeks_weekly_reports')
@@ -22,15 +27,17 @@ export default async function ReportsPage() {
       .eq('user_id', user.id)
       .order('week_start', { ascending: false })
       .limit(12),
-    supabase
-      .from('clapcheeks_report_preferences')
-      .select('*')
-      .eq('user_id', user.id)
-      .single(),
+    convex.query(api.reportPreferences.getForUser, { user_id: user.id }),
   ])
 
   const reports = reportsRes.data || []
-  const preferences = prefsRes.data || { email_enabled: true, send_day: 'sunday', send_hour: 8 }
+  const preferences = prefsRes
+    ? {
+        email_enabled: prefsRes.email_enabled,
+        send_day: prefsRes.send_day,
+        send_hour: prefsRes.send_hour,
+      }
+    : { email_enabled: true, send_day: 'sunday', send_hour: 8 }
 
   return (
     <div className="min-h-screen bg-black px-6 py-8">

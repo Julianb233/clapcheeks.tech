@@ -3,6 +3,10 @@ import { createAdminClient } from "@/lib/supabase/admin"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Users, TrendingUp, Gift, AlertTriangle, Target, UserMinus } from "lucide-react"
+import { getConvexServerClient } from "@/lib/convex/server"
+import { api } from "@/convex/_generated/api"
+
+// AI-9537: clapcheeks_referrals migrated to Convex referrals.
 
 export const metadata: Metadata = { title: 'Soft Launch | Admin' }
 export const dynamic = "force-dynamic"
@@ -12,12 +16,13 @@ const LAUNCH_DATE = '2026-04-20'
 
 export default async function SoftLaunchPage() {
   const supabase = createAdminClient()
+  const convex = getConvexServerClient()
   const [
     { count: totalUsers },
     { data: paidProfiles },
     { data: recentChurn },
     { data: referralSignups },
-    { data: allReferrals },
+    allReferralsRaw,
     { data: weeklySignups },
     { data: dailyActive },
   ] = await Promise.all([
@@ -25,10 +30,11 @@ export default async function SoftLaunchPage() {
     supabase.from("profiles").select("id, subscription_tier, created_at").neq("subscription_tier", "free"),
     supabase.from("profiles").select("id, email, subscription_tier, updated_at").eq("subscription_tier", "free").not("stripe_customer_id", "is", null),
     supabase.from("profiles").select("id, created_at").not("referred_by", "is", null),
-    supabase.from("clapcheeks_referrals").select("id, status, created_at"),
+    convex.query(api.referrals.summary, {}),
     supabase.from("profiles").select("id, created_at").gte("created_at", new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()),
     supabase.from("clapcheeks_analytics_daily").select("user_id, date").gte("date", new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().split("T")[0]),
   ])
+  const allReferrals = (allReferralsRaw ?? []) as Array<{ id: string; status: string; created_at: number }>
   const paidCount = paidProfiles?.length ?? 0
   const total = totalUsers ?? 0
   const capacityPct = Math.round((paidCount / SOFT_LAUNCH_CAP) * 100)

@@ -1,5 +1,46 @@
 import { createClient } from '@supabase/supabase-js'
 import { stripe, stripeLog } from '@/lib/stripe'
+import { getConvexServerClient } from '@/lib/convex/server'
+import { api } from '@/convex/_generated/api'
+
+// AI-9537: dunning_events run in PARALLEL-WRITE mode to Supabase + Convex
+// during the rollout window. Reads continue from Supabase until parity
+// is verified. Once flipped, the supabase.insert() lines can be removed.
+
+async function logDunningEvent(args: {
+  user_id?: string | null
+  stripe_customer_id?: string | null
+  stripe_invoice_id?: string | null
+  event_type:
+    | 'payment_failed'
+    | 'payment_recovered'
+    | 'grace_period_expired'
+    | 'manual_retry'
+    | 'subscription_canceled'
+  attempt_number?: number
+  grace_period_end?: string | null
+  metadata?: Record<string, unknown>
+}): Promise<void> {
+  // Convex write (new authoritative target).
+  try {
+    const convex = getConvexServerClient()
+    await convex.mutation(api.billing.insertDunningEvent, {
+      user_id: args.user_id ?? undefined,
+      stripe_customer_id: args.stripe_customer_id ?? undefined,
+      stripe_invoice_id: args.stripe_invoice_id ?? undefined,
+      event_type: args.event_type,
+      attempt_number: args.attempt_number,
+      grace_period_end: args.grace_period_end
+        ? new Date(args.grace_period_end).getTime()
+        : undefined,
+      metadata: args.metadata,
+    })
+  } catch (err) {
+    stripeLog(
+      `[AI-9537] convex dunning insert failed (continuing): ${err instanceof Error ? err.message : String(err)}`,
+    )
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Dunning / Grace Period Engine
@@ -65,21 +106,35 @@ export async function handlePaymentFailed(
     last_payment_failure_at: new Date().toISOString(),
   }).eq('id', profile.id)
 
-  // Log to dunning_events for audit trail
-  await supabase.from('dunning_events').insert({
-    user_id: profile.id,
-    stripe_customer_id: customerId,
-    stripe_invoice_id: invoiceId,
-    event_type: 'payment_failed',
-    attempt_number: attemptCount || currentFailCount,
-    grace_period_end: graceExpiry.toISOString(),
-    metadata: {
-      grace_days: graceDays,
-      is_first_failure: isFirstFailure,
-    },
-  }).then(({ error }) => {
-    if (error) stripeLog(`Failed to log dunning event: ${error.message}`)
-  })
+  // Log to dunning_events for audit trail (parallel-write to Convex + Supabase).
+  await Promise.all([
+    supabase.from('dunning_events').insert({
+      user_id: profile.id,
+      stripe_customer_id: customerId,
+      stripe_invoice_id: invoiceId,
+      event_type: 'payment_failed',
+      attempt_number: attemptCount || currentFailCount,
+      grace_period_end: graceExpiry.toISOString(),
+      metadata: {
+        grace_days: graceDays,
+        is_first_failure: isFirstFailure,
+      },
+    }).then(({ error }) => {
+      if (error) stripeLog(`Failed to log dunning event: ${error.message}`)
+    }),
+    logDunningEvent({
+      user_id: profile.id,
+      stripe_customer_id: customerId,
+      stripe_invoice_id: invoiceId,
+      event_type: 'payment_failed',
+      attempt_number: attemptCount || currentFailCount,
+      grace_period_end: graceExpiry.toISOString(),
+      metadata: {
+        grace_days: graceDays,
+        is_first_failure: isFirstFailure,
+      },
+    }),
+  ])
 
   stripeLog(
     `Payment failed for ${profile.email} (attempt ${currentFailCount}). ` +
@@ -109,14 +164,21 @@ export async function handlePaymentSucceeded(customerId: string): Promise<void> 
     last_payment_failure_at: null,
   }).eq('stripe_customer_id', customerId)
 
-  // Log recovery
-  await supabase.from('dunning_events').insert({
-    stripe_customer_id: customerId,
-    event_type: 'payment_recovered',
-    metadata: { recovered_at: new Date().toISOString() },
-  }).then(({ error }) => {
-    if (error) stripeLog(`Failed to log recovery event: ${error.message}`)
-  })
+  // Log recovery (parallel-write to Convex + Supabase).
+  await Promise.all([
+    supabase.from('dunning_events').insert({
+      stripe_customer_id: customerId,
+      event_type: 'payment_recovered',
+      metadata: { recovered_at: new Date().toISOString() },
+    }).then(({ error }) => {
+      if (error) stripeLog(`Failed to log recovery event: ${error.message}`)
+    }),
+    logDunningEvent({
+      stripe_customer_id: customerId,
+      event_type: 'payment_recovered',
+      metadata: { recovered_at: new Date().toISOString() },
+    }),
+  ])
 
   stripeLog(`Payment recovered for customer ${customerId}`)
 }

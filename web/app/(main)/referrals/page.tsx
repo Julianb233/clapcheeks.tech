@@ -59,14 +59,15 @@ export default function ReferralsPage() {
 
       setMonthsEarned(profile?.free_months_earned || 0)
 
-      // Get referrals — swallow errors so the page still renders
+      // Get referrals (AI-9537: now via Convex-backed API route).
       try {
-        const { data: refs } = await supabase
-          .from('clapcheeks_referrals')
-          .select('id, referred_id, status, converted_at, rewarded_at, created_at')
-          .eq('referrer_id', user.id)
-          .order('created_at', { ascending: false })
-        setReferrals(refs || [])
+        const r = await fetch('/api/referral/list', { credentials: 'include' })
+        if (r.ok) {
+          const j = await r.json()
+          setReferrals(j.referrals || [])
+        } else {
+          setReferrals([])
+        }
       } catch {
         setReferrals([])
       }

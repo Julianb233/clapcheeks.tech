@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import Anthropic from '@anthropic-ai/sdk'
+import { getConvexServerClient } from '@/lib/convex/server'
+import { api } from '@/convex/_generated/api'
+
+// AI-9537: migrated from Supabase clapcheeks_voice_profiles to Convex voice_profiles.
 
 export async function GET() {
   const supabase = await createClient()
@@ -10,11 +14,8 @@ export async function GET() {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const { data } = await supabase
-    .from('clapcheeks_voice_profiles')
-    .select('*')
-    .eq('user_id', user.id)
-    .single()
+  const convex = getConvexServerClient()
+  const data = await convex.query(api.voice.getProfile, { user_id: user.id })
 
   return NextResponse.json({ profile: data || null })
 }
@@ -85,30 +86,23 @@ Return ONLY a JSON object with these fields:
   }
 
   // Upsert voice profile
-  const { data, error } = await supabase
-    .from('clapcheeks_voice_profiles')
-    .upsert(
-      {
-        user_id: user.id,
-        style_summary: profileData.style_summary,
-        sample_phrases: profileData.sample_phrases || [],
-        tone: profileData.tone || 'casual',
-        profile_data: profileData.profile_data || {},
-        messages_analyzed: sampleMessages.length,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: 'user_id' }
-    )
-    .select()
-    .single()
-
-  if (error) {
-    console.error('Voice profile error:', error)
+  try {
+    const convex = getConvexServerClient()
+    await convex.mutation(api.voice.upsertProfile, {
+      user_id: user.id,
+      style_summary: profileData.style_summary,
+      sample_phrases: profileData.sample_phrases || [],
+      tone: profileData.tone || 'casual',
+      profile_data: profileData.profile_data || {},
+      messages_analyzed: sampleMessages.length,
+    })
+    const data = await convex.query(api.voice.getProfile, { user_id: user.id })
+    return NextResponse.json({ profile: data })
+  } catch (err) {
+    console.error('Voice profile error:', err)
     return NextResponse.json(
       { error: 'Failed to save voice profile' },
       { status: 500 }
     )
   }
-
-  return NextResponse.json({ profile: data })
 }

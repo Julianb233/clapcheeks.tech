@@ -1,4 +1,13 @@
-import type { SupabaseClient } from '@supabase/supabase-js'
+// AI-9537 — Google Calendar OAuth + helpers.
+//
+// Token storage migrated from Supabase google_calendar_tokens to Convex
+// google_calendar_tokens. Both refresh_token and access_token are
+// AES-256-GCM encrypted at rest using the per-user vault from
+// web/lib/crypto/token-vault.ts. Plaintext only exists in-memory inside
+// this Node runtime, never in transit to/from Convex.
+import { encryptToken, decryptToken } from '@/lib/crypto/token-vault'
+import { getConvexServerClient } from '@/lib/convex/server'
+import { api } from '@/convex/_generated/api'
 
 export const CALENDAR_SCOPES = [
   'https://www.googleapis.com/auth/calendar.events',
@@ -99,55 +108,117 @@ export async function fetchUserInfo(accessToken: string): Promise<UserInfo> {
   return (await res.json()) as UserInfo
 }
 
-interface StoredTokens {
+interface DecryptedTokens {
   user_id: string
   google_email: string
   google_sub: string | null
   access_token: string
   refresh_token: string
-  expires_at: string
+  expires_at_ms: number
   scopes: string[]
   calendar_id: string
 }
 
+function bufferToArrayBuffer(buf: Buffer): ArrayBuffer {
+  return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer
+}
+
+function bytesToBuffer(b: ArrayBuffer | Uint8Array | Buffer | null | undefined): Buffer | null {
+  if (!b) return null
+  if (Buffer.isBuffer(b)) return b
+  if (b instanceof Uint8Array) return Buffer.from(b)
+  return Buffer.from(new Uint8Array(b as ArrayBuffer))
+}
+
 /**
- * Get a valid access token for the user, refreshing if necessary.
- * Returns null if the user has not connected their calendar.
+ * AI-9537 — write encrypted Google Calendar tokens to Convex. Used by the
+ * OAuth callback. Both access_token and refresh_token are encrypted with
+ * the per-user AES-256-GCM vault key before crossing the wire.
+ */
+export async function persistCalendarTokensEncrypted(params: {
+  userId: string
+  googleEmail: string
+  googleSub: string | null
+  accessToken: string
+  refreshToken: string
+  expiresAtMs: number
+  scopes: string[]
+  calendarId?: string
+}): Promise<void> {
+  const accessCt = encryptToken(params.accessToken, params.userId)
+  const refreshCt = encryptToken(params.refreshToken, params.userId)
+  const convex = getConvexServerClient()
+  await convex.mutation(api.calendarTokens.upsertEncrypted, {
+    user_id: params.userId,
+    google_email: params.googleEmail,
+    google_sub: params.googleSub ?? undefined,
+    access_token_encrypted: bufferToArrayBuffer(accessCt),
+    refresh_token_encrypted: bufferToArrayBuffer(refreshCt),
+    enc_version: 1,
+    expires_at: params.expiresAtMs,
+    scopes: params.scopes,
+    calendar_id: params.calendarId ?? 'primary',
+  })
+}
+
+/**
+ * AI-9537 — load + decrypt the user's stored tokens. Returns null if the
+ * user has not connected Calendar.
+ */
+export async function loadDecryptedTokens(userId: string): Promise<DecryptedTokens | null> {
+  const convex = getConvexServerClient()
+  const row = await convex.query(api.calendarTokens.getEncryptedForUser, { user_id: userId })
+  if (!row) return null
+  const accessCt = bytesToBuffer(row.access_token_encrypted as ArrayBuffer | Uint8Array)
+  const refreshCt = bytesToBuffer(row.refresh_token_encrypted as ArrayBuffer | Uint8Array)
+  if (!accessCt || !refreshCt) return null
+  const accessToken = decryptToken(accessCt, userId)
+  const refreshToken = decryptToken(refreshCt, userId)
+  return {
+    user_id: row.user_id,
+    google_email: row.google_email,
+    google_sub: row.google_sub ?? null,
+    access_token: accessToken,
+    refresh_token: refreshToken,
+    expires_at_ms: row.expires_at,
+    scopes: row.scopes,
+    calendar_id: row.calendar_id,
+  }
+}
+
+/**
+ * AI-9537 — get a valid access token (refreshing if expired). Replaces the
+ * old getValidAccessToken(supabase, userId) signature; callers no longer
+ * need to pass a Supabase client.
  */
 export async function getValidAccessToken(
-  supabase: SupabaseClient,
   userId: string,
-): Promise<{ accessToken: string; tokens: StoredTokens } | null> {
-  const { data, error } = await supabase
-    .from('google_calendar_tokens')
-    .select('*')
-    .eq('user_id', userId)
-    .maybeSingle()
-
-  if (error || !data) return null
-
-  const tokens = data as StoredTokens
-  const expiresAt = new Date(tokens.expires_at).getTime()
+): Promise<{ accessToken: string; tokens: DecryptedTokens } | null> {
+  const tokens = await loadDecryptedTokens(userId)
+  if (!tokens) return null
   const bufferMs = 60_000
-  if (Date.now() + bufferMs < expiresAt) {
+  if (Date.now() + bufferMs < tokens.expires_at_ms) {
     return { accessToken: tokens.access_token, tokens }
   }
 
-  // Refresh
+  // Refresh upstream and persist new (encrypted) access token.
   const refreshed = await refreshAccessToken(tokens.refresh_token)
-  const newExpiresAt = new Date(Date.now() + refreshed.expires_in * 1000).toISOString()
-  await supabase
-    .from('google_calendar_tokens')
-    .update({
-      access_token: refreshed.access_token,
-      expires_at: newExpiresAt,
-      updated_at: new Date().toISOString(),
-    })
-    .eq('user_id', userId)
+  const newExpiresAtMs = Date.now() + refreshed.expires_in * 1000
+  const newAccessCt = encryptToken(refreshed.access_token, userId)
+  const convex = getConvexServerClient()
+  await convex.mutation(api.calendarTokens.updateAccessTokenEncrypted, {
+    user_id: userId,
+    access_token_encrypted: bufferToArrayBuffer(newAccessCt),
+    expires_at: newExpiresAtMs,
+  })
 
   return {
     accessToken: refreshed.access_token,
-    tokens: { ...tokens, access_token: refreshed.access_token, expires_at: newExpiresAt },
+    tokens: {
+      ...tokens,
+      access_token: refreshed.access_token,
+      expires_at_ms: newExpiresAtMs,
+    },
   }
 }
 

@@ -961,4 +961,387 @@ export default defineSchema({
   })
     .index("by_token", ["token"])
     .index("by_user", ["user_id"]),
+
+  // ==========================================================================
+  // AI-9535 outbound migration — tables migrated from Supabase off the legacy
+  // clapcheeks_* schemas. These mirror the public.clapcheeks_* shapes 1:1 so
+  // the existing Next.js routes + Mac Mini Python pollers can swap call sites
+  // with minimal logic changes. Auth still resolves user_id via Supabase.
+  // ==========================================================================
+
+  // AI-9535 outbound migration — replaces public.clapcheeks_scheduled_messages
+  // (legacy match-name-keyed scheduled outbound messages — separate from the
+  // AI-9196 conversation-keyed `scheduled_messages` table above).
+  outbound_scheduled_messages: defineTable({
+    user_id: v.string(),                  // Supabase auth uuid
+    match_id: v.optional(v.string()),     // platform-specific match id (text)
+    match_name: v.string(),
+    platform: v.string(),                 // "iMessage", "tinder", "hinge", etc.
+    phone: v.optional(v.string()),
+    message_text: v.string(),
+    scheduled_at: v.number(),             // unix ms (was timestamptz on Postgres)
+    status: v.union(
+      v.literal("pending"),
+      v.literal("approved"),
+      v.literal("rejected"),
+      v.literal("sent"),
+      v.literal("failed"),
+    ),
+    sequence_type: v.union(
+      v.literal("follow_up"),
+      v.literal("manual"),
+      v.literal("app_to_text"),
+    ),
+    sequence_step: v.optional(v.number()),
+    delay_hours: v.optional(v.number()),
+    rejection_reason: v.optional(v.string()),
+    sent_at: v.optional(v.number()),
+    god_draft_id: v.optional(v.string()),
+    legacy_id: v.optional(v.string()),    // backfill: original Supabase UUID
+    created_at: v.number(),
+    updated_at: v.number(),
+  })
+    .index("by_user_status", ["user_id", "status"])
+    .index("by_user_match", ["user_id", "match_id"])
+    .index("by_status_due", ["status", "scheduled_at"])
+    .index("by_legacy_id", ["legacy_id"]),
+
+  // AI-9535 outbound migration — replaces public.clapcheeks_followup_sequences
+  // (per-user drip cadence config). One row per user_id (uniqueness enforced
+  // in mutation logic, not at index level).
+  followup_sequences: defineTable({
+    user_id: v.string(),
+    enabled: v.boolean(),
+    delays_hours: v.array(v.number()),    // ordered list, e.g. [24, 72, 168]
+    max_followups: v.number(),
+    app_to_text_enabled: v.boolean(),
+    warmth_threshold: v.number(),         // 0..1
+    min_messages_before_transition: v.number(),
+    optimal_send_start_hour: v.number(),  // 0-23
+    optimal_send_end_hour: v.number(),
+    quiet_hours_start: v.number(),
+    quiet_hours_end: v.number(),
+    timezone: v.string(),
+    legacy_id: v.optional(v.string()),
+    created_at: v.number(),
+    updated_at: v.number(),
+  })
+    .index("by_user", ["user_id"])
+    .index("by_legacy_id", ["legacy_id"]),
+
+  // AI-9535 outbound migration — replaces public.clapcheeks_queued_replies.
+  // Operator-approved or AI-drafted iMessage queue consumed by the Mac Mini
+  // queue_poller within ~30s.
+  queued_replies: defineTable({
+    user_id: v.string(),
+    match_name: v.optional(v.string()),
+    platform: v.optional(v.string()),
+    text: v.optional(v.string()),         // legacy column name
+    body: v.optional(v.string()),         // newer column name (imessage/test)
+    recipient_handle: v.optional(v.string()),
+    source: v.optional(v.string()),       // "web_test", "drip", "ai_suggestion", etc.
+    status: v.union(
+      v.literal("queued"),
+      v.literal("sent"),
+      v.literal("failed"),
+    ),
+    legacy_id: v.optional(v.string()),
+    created_at: v.number(),
+  })
+    .index("by_user_status", ["user_id", "status"])
+    .index("by_user_created", ["user_id", "created_at"])
+    .index("by_user_source", ["user_id", "source"])
+    .index("by_legacy_id", ["legacy_id"]),
+
+  // AI-9535 outbound migration — replaces public.clapcheeks_posting_queue.
+  // 7-day rolling outbound posting schedule consumed by the publisher.
+  posting_queue: defineTable({
+    user_id: v.string(),
+    content_library_id: v.string(),       // FK to clapcheeks_content_library on PG; remains string until that table migrates
+    scheduled_for: v.number(),            // unix ms
+    status: v.union(
+      v.literal("pending"),
+      v.literal("in_progress"),
+      v.literal("posted"),
+      v.literal("failed"),
+      v.literal("cancelled"),
+    ),
+    agent_job_id: v.optional(v.string()), // FK to agent_jobs row id (text); null until claimed
+    posted_at: v.optional(v.number()),
+    error: v.optional(v.string()),
+    legacy_id: v.optional(v.string()),
+    created_at: v.number(),
+  })
+    .index("by_status_due", ["status", "scheduled_for"])
+    .index("by_user_scheduled", ["user_id", "scheduled_for"])
+    .index("by_user_status", ["user_id", "status"])
+    .index("by_content_library", ["content_library_id"])
+    .index("by_legacy_id", ["legacy_id"]),
+
+  // AI-9535 outbound migration — replaces public.clapcheeks_approval_queue.
+  // Generic per-action approval queue used by the autonomy engine. Operator
+  // approves/rejects via /autonomy dashboard.
+  approval_queue: defineTable({
+    user_id: v.string(),
+    action_type: v.string(),
+    match_id: v.optional(v.string()),
+    match_name: v.optional(v.string()),
+    platform: v.optional(v.string()),
+    proposed_text: v.optional(v.string()),
+    proposed_data: v.optional(v.any()),
+    confidence: v.number(),               // 0..1
+    ai_reasoning: v.optional(v.string()),
+    status: v.union(
+      v.literal("pending"),
+      v.literal("approved"),
+      v.literal("rejected"),
+      v.literal("expired"),
+    ),
+    expires_at: v.number(),               // unix ms
+    decided_at: v.optional(v.number()),
+    legacy_id: v.optional(v.string()),
+    created_at: v.number(),
+  })
+    .index("by_user_status", ["user_id", "status"])
+    .index("by_status_expires", ["status", "expires_at"])
+    .index("by_legacy_id", ["legacy_id"]),
+
+  // ==========================================================================
+  // AI-9537 billing+misc migration
+  // Replaces Supabase tables: clapcheeks_subscriptions, dunning_events,
+  // clapcheeks_voice_profiles, user_voice_context, clapcheeks_notification_prefs,
+  // clapcheeks_outbound_notifications, clapcheeks_push_queue,
+  // clapcheeks_report_preferences, clapcheeks_coaching_sessions,
+  // clapcheeks_tip_feedback, clapcheeks_memos, clapcheeks_referrals,
+  // notifications, devices, google_calendar_tokens.
+  //
+  // Stripe webhook reliability: subscriptions + dunning_events run in
+  // parallel-write mode (Supabase + Convex) on first deploy cycle, reads
+  // can flip to Convex once parity is confirmed.
+  // ==========================================================================
+
+  // AI-9537 — Stripe subscription state per user. Mirror of Supabase
+  // clapcheeks_subscriptions. Money-flow: read by dashboard / weekly reports
+  // cron / dogfood / usage gates. Writes happen on Stripe webhook + admin
+  // tooling (parallel-write window).
+  subscriptions: defineTable({
+    user_id: v.string(),                      // Supabase auth uuid
+    stripe_subscription_id: v.optional(v.string()),
+    plan: v.union(
+      v.literal("starter"),
+      v.literal("pro"),
+      v.literal("elite"),
+    ),
+    status: v.string(),                       // active | past_due | canceled | trialing | ...
+    current_period_start: v.optional(v.number()),  // unix ms
+    current_period_end: v.optional(v.number()),
+    created_at: v.number(),
+    updated_at: v.number(),
+  })
+    .index("by_user", ["user_id"])
+    .index("by_stripe_id", ["stripe_subscription_id"])
+    .index("by_status", ["status"]),
+
+  // AI-9537 — Failed-payment / grace-period / recovery audit log.
+  // Reads: admin dashboards, dunning cron. Writes: stripe webhook +
+  // dunning helper.
+  dunning_events: defineTable({
+    user_id: v.optional(v.string()),
+    stripe_customer_id: v.optional(v.string()),
+    stripe_invoice_id: v.optional(v.string()),
+    event_type: v.union(
+      v.literal("payment_failed"),
+      v.literal("payment_recovered"),
+      v.literal("grace_period_expired"),
+      v.literal("manual_retry"),
+      v.literal("subscription_canceled"),
+    ),
+    attempt_number: v.optional(v.number()),
+    grace_period_end: v.optional(v.number()),  // unix ms
+    metadata: v.optional(v.any()),
+    created_at: v.number(),
+  })
+    .index("by_user_ts", ["user_id", "created_at"])
+    .index("by_customer_ts", ["stripe_customer_id", "created_at"]),
+
+  // AI-9537 — Voice cloning settings per user (replaces clapcheeks_voice_profiles).
+  voice_profiles: defineTable({
+    user_id: v.string(),
+    style_summary: v.optional(v.string()),
+    sample_phrases: v.optional(v.array(v.any())),
+    tone: v.optional(v.string()),                 // casual | formal | playful
+    profile_data: v.optional(v.any()),
+    messages_analyzed: v.optional(v.number()),
+    digest: v.optional(v.any()),                  // chat.db-derived style digest
+    boosted_samples: v.optional(v.any()),
+    last_scan_at: v.optional(v.number()),
+    created_at: v.number(),
+    updated_at: v.number(),
+  })
+    .index("by_user", ["user_id"]),
+
+  // AI-9537 — AI First Date interview answers / voice context corpus
+  // (replaces user_voice_context).
+  voice_context: defineTable({
+    user_id: v.string(),
+    answers: v.optional(v.any()),                 // {question_id: answer}
+    summary: v.optional(v.string()),
+    persona_blob: v.optional(v.string()),
+    completed_at: v.optional(v.number()),
+    created_at: v.number(),
+    updated_at: v.number(),
+  })
+    .index("by_user", ["user_id"]),
+
+  // AI-9537 — Notification on/off per channel per event-type
+  // (replaces clapcheeks_notification_prefs).
+  notification_prefs: defineTable({
+    user_id: v.string(),
+    email: v.optional(v.string()),
+    phone_e164: v.optional(v.string()),
+    channels_per_event: v.any(),                  // {event_type: [channel_ids]}
+    quiet_hours_start: v.number(),                // 0-23
+    quiet_hours_end: v.number(),
+    updated_at: v.number(),
+  })
+    .index("by_user", ["user_id"]),
+
+  // AI-9537 — iMessage outbound queue
+  // (replaces clapcheeks_outbound_notifications).
+  outbound_notifications: defineTable({
+    user_id: v.string(),
+    channel: v.string(),                          // "imessage"
+    phone_e164: v.string(),
+    body: v.string(),
+    event_type: v.optional(v.string()),
+    status: v.string(),                           // pending | sent | failed
+    attempts: v.number(),
+    last_error: v.optional(v.string()),
+    created_at: v.number(),
+    sent_at: v.optional(v.number()),
+  })
+    .index("by_user_pending", ["user_id", "status", "created_at"]),
+
+  // AI-9537 — Web push queue (replaces clapcheeks_push_queue).
+  push_queue: defineTable({
+    user_id: v.string(),
+    title: v.string(),
+    body: v.string(),
+    event_type: v.optional(v.string()),
+    payload: v.optional(v.any()),
+    status: v.string(),                           // pending | sent | failed
+    created_at: v.number(),
+    sent_at: v.optional(v.number()),
+  })
+    .index("by_user_pending", ["user_id", "status", "created_at"]),
+
+  // AI-9537 — Weekly report email settings
+  // (replaces clapcheeks_report_preferences).
+  report_preferences: defineTable({
+    user_id: v.string(),
+    email_enabled: v.boolean(),
+    send_day: v.string(),                         // monday..sunday
+    send_hour: v.number(),                        // 0-23
+    created_at: v.number(),
+    updated_at: v.number(),
+  })
+    .index("by_user", ["user_id"]),
+
+  // AI-9537 — AI coaching session transcripts (one per user per week_start).
+  // Replaces clapcheeks_coaching_sessions.
+  coaching_sessions: defineTable({
+    user_id: v.string(),
+    generated_at: v.number(),
+    week_start: v.string(),                       // ISO date YYYY-MM-DD
+    tips: v.any(),                                // JSON array
+    stats_snapshot: v.optional(v.any()),
+    feedback_score: v.optional(v.number()),
+    model_used: v.optional(v.string()),
+    created_at: v.number(),
+  })
+    .index("by_user", ["user_id"])
+    .index("by_user_week", ["user_id", "week_start"]),
+
+  // AI-9537 — Per-tip feedback (helpful y/n) per coaching session.
+  tip_feedback: defineTable({
+    user_id: v.string(),
+    coaching_session_id: v.id("coaching_sessions"),
+    tip_index: v.number(),
+    helpful: v.boolean(),
+    created_at: v.number(),
+  })
+    .index("by_session", ["coaching_session_id"])
+    .index("by_user_session_tip", ["user_id", "coaching_session_id", "tip_index"]),
+
+  // AI-9537 — Operator memo history per contact handle (replaces clapcheeks_memos).
+  memos: defineTable({
+    user_id: v.string(),
+    contact_handle: v.string(),                   // E.164 phone or "tinder:abc123"
+    content: v.string(),
+    created_at: v.number(),
+    updated_at: v.number(),
+  })
+    .index("by_user_handle", ["user_id", "contact_handle"]),
+
+  // AI-9537 — Referral codes / credits (replaces clapcheeks_referrals).
+  referrals: defineTable({
+    referrer_id: v.string(),
+    referred_id: v.optional(v.string()),
+    referral_code: v.string(),
+    status: v.string(),                           // pending | converted | rewarded
+    converted_at: v.optional(v.number()),
+    rewarded_at: v.optional(v.number()),
+    created_at: v.number(),
+  })
+    .index("by_referrer", ["referrer_id"])
+    .index("by_code", ["referral_code"])
+    .index("by_referred", ["referred_id"]),
+
+  // AI-9537 — In-app notification list (replaces public.notifications).
+  notifications: defineTable({
+    user_id: v.string(),
+    title: v.string(),
+    message: v.optional(v.string()),
+    type: v.optional(v.string()),
+    read: v.boolean(),
+    action_url: v.optional(v.string()),
+    created_at: v.number(),
+  })
+    .index("by_user_unread", ["user_id", "read"])
+    .index("by_user_recent", ["user_id", "created_at"]),
+
+  // AI-9537 — Registered iOS / Mac devices per user (replaces public.devices).
+  devices: defineTable({
+    user_id: v.string(),
+    device_name: v.string(),
+    platform: v.string(),                         // ios | mac | linux | windows | other
+    agent_version: v.optional(v.string()),
+    last_seen_at: v.number(),
+    is_active: v.boolean(),
+    created_at: v.number(),
+  })
+    .index("by_user", ["user_id"])
+    .index("by_user_active", ["user_id", "is_active"]),
+
+  // AI-9537 — Google Calendar OAuth refresh tokens (replaces google_calendar_tokens).
+  // SENSITIVE: refresh_token + access_token MUST be encrypted at rest with
+  // the same per-user AES-256-GCM key vault used for platform_tokens
+  // (web/lib/crypto/token-vault.ts).
+  google_calendar_tokens: defineTable({
+    user_id: v.string(),
+    google_email: v.string(),
+    google_sub: v.optional(v.string()),
+    // Encrypted access_token — rotates on refresh.
+    access_token_encrypted: v.bytes(),
+    // Encrypted long-lived refresh_token — never plaintext at rest.
+    refresh_token_encrypted: v.bytes(),
+    enc_version: v.number(),                      // currently 1
+    expires_at: v.number(),                       // unix ms
+    scopes: v.array(v.string()),
+    calendar_id: v.string(),                      // default "primary"
+    created_at: v.number(),
+    updated_at: v.number(),
+  })
+    .index("by_user", ["user_id"])
+    .index("by_email", ["google_email"]),
 });
