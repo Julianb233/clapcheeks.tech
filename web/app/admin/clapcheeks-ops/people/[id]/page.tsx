@@ -320,11 +320,23 @@ function HeaderCard({ person }: { person: any }) {
           )}
         </div>
         <div className="text-xs text-gray-500 sm:text-right sm:max-w-sm">
-          {person.next_best_move && (
+          {person.next_best_move ? (
             <div className="text-purple-300 italic">💡 {person.next_best_move}</div>
+          ) : (
+            <div className="text-gray-600 italic">
+              💡 No next move yet — kick the sweep from{" "}
+              <Link href="/admin/clapcheeks-ops" className="text-purple-400 hover:underline">
+                ops home
+              </Link>
+              {" "}or wait for the 6h cron.
+            </div>
           )}
-          {person.zodiac_sign && (
+          {person.zodiac_sign ? (
             <div className="mt-1 sm:mt-2 capitalize">♈ {person.zodiac_sign} · {person.disc_inference || "DISC ?"}</div>
+          ) : (
+            <div className="mt-1 sm:mt-2 text-gray-600 italic">
+              ♈ Zodiac/age unknown — drop a profile screenshot in your iPhone Shortcut to auto-extract.
+            </div>
           )}
         </div>
       </div>
@@ -833,7 +845,7 @@ function MemoryTab({ person }: { person: any }) {
         </div>
       )}
       <Section title={`Personal details (${details.length})`}>
-        {details.length === 0 ? <Empty /> : (
+        {details.length === 0 ? <Empty text="No facts yet — populated by enrichment sweep from her recent messages." /> : (
           <ul className="space-y-1 text-sm">
             {details.slice(-12).reverse().map((d: any, i: number) => (
               <li key={i} className="text-gray-300">
@@ -848,7 +860,7 @@ function MemoryTab({ person }: { person: any }) {
       </Section>
 
       <Section title={`Open questions (${curiosity.length})`}>
-        {curiosity.length === 0 ? <Empty /> : (
+        {curiosity.length === 0 ? <Empty text="No open questions yet — sweep extracts these from inbound messages every 6h." /> : (
           <ul className="space-y-1 text-sm">
             {curiosity.slice(0, 10).map((q: any, i: number) => (
               <li key={i} className="text-gray-300">
@@ -861,7 +873,7 @@ function MemoryTab({ person }: { person: any }) {
       </Section>
 
       <Section title={`Recent life events (${events.length})`}>
-        {events.length === 0 ? <Empty /> : (
+        {events.length === 0 ? <Empty text="No life events captured — populated by sweep when she mentions plans / milestones." /> : (
           <ul className="space-y-1 text-sm">
             {events.slice(-8).reverse().map((e: any, i: number) => (
               <li key={i} className="text-gray-300">
@@ -878,7 +890,7 @@ function MemoryTab({ person }: { person: any }) {
       </Section>
 
       <Section title={`Topics that lit her up (${lit.length})`}>
-        {lit.length === 0 ? <Empty /> : (
+        {lit.length === 0 ? <Empty text="No 'lit' topics tracked yet — sweep flags these when she sends multiple high-emotion messages on a theme." /> : (
           <ul className="space-y-1 text-sm">
             {lit.slice(0, 10).map((t: any, i: number) => (
               <li key={i} className="text-gray-300">
@@ -896,12 +908,12 @@ function MemoryTab({ person }: { person: any }) {
             <div key={`l${i}`} className="text-green-400">+ {s}</div>)}
           {(person.things_she_dislikes ?? []).map((s: string, i: number) =>
             <div key={`d${i}`} className="text-red-400">– {s}</div>)}
-          {!person.things_she_loves?.length && !person.things_she_dislikes?.length && <Empty />}
+          {!person.things_she_loves?.length && !person.things_she_dislikes?.length && <Empty text="Inferred from sentiment + boundary mentions in recent messages." />}
         </div>
       </Section>
 
       <Section title="Boundaries stated">
-        {(person.boundaries_stated ?? []).length === 0 ? <Empty /> : (
+        {(person.boundaries_stated ?? []).length === 0 ? <Empty text="No boundaries detected — sweep matches phrases like 'not ready', 'just friends', etc." /> : (
           <ul className="text-xs space-y-1">
             {(person.boundaries_stated ?? []).map((b: string, i: number) =>
               <li key={i} className="text-amber-300">⚠ {b}</li>)}

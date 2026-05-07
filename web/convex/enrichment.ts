@@ -18,7 +18,7 @@
  * because the legacy keys ran out of credits.
  */
 
-import { internalAction, internalMutation, internalQuery } from "./_generated/server";
+import { internalAction, internalMutation, internalQuery, mutation } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
 
@@ -438,7 +438,12 @@ export const _appendCourtshipExtras = internalMutation({
 // -------------------------------------------------------------------------
 const ENRICH_STALE_DAYS = 7;          // re-run courtship every 7 days
 const VIBE_STALE_DAYS = 30;           // re-run vibe every 30 days
-const MAX_PER_SWEEP = 10;             // throttle to avoid LLM rate limits + cost
+// AI-9526: bumped 10 -> 30. With ~57 dating-relevant unenriched at start of sweep
+// and 6h cron interval, 10/sweep meant ~1.5 days to backfill. 30/sweep means
+// initial backfill clears in 1 cron run, then steady state easily handles
+// new inbound. Stagger spread (6s/each) means 30 calls span ~3 minutes,
+// well within Gemini 2.0 Flash rate limits.
+const MAX_PER_SWEEP = 30;
 const NINETY_DAYS_MS = 90 * 24 * 60 * 60 * 1000;
 const DATING_CHANNELS = new Set(["imessage", "hinge", "tinder", "bumble", "instagram"]);
 
@@ -1718,5 +1723,34 @@ export const sweepCompetitionSignalCandidates = internalMutation({
     }
 
     return { scheduled, eligible: eligible.length, total_people: all.length };
+  },
+});
+
+// =============================================================================
+// AI-9526 — Public sweep trigger
+// =============================================================================
+// Operator-facing mutations that wrap the internal sweeps so the admin UI
+// (and `npx convex run` from a shell) can manually kick a sweep without
+// waiting 6h for the cron. Used from network/admin pages and one-off
+// backfill operations. Each returns the same shape as the internal sweep.
+
+/**
+ * Manually trigger the courtship enrichment sweep. Same logic as the 6h cron.
+ * Useful when a batch of new people just landed and you don't want to wait.
+ */
+export const triggerCourtshipSweep = mutation({
+  args: {},
+  handler: async (ctx): Promise<{ scheduled: number; eligible: number; total_people: number }> => {
+    return await ctx.runMutation(internal.enrichment.sweepCourtshipCandidates, {});
+  },
+});
+
+/**
+ * Manually trigger the vibe-classification sweep. Same logic as the 6h cron.
+ */
+export const triggerVibeSweep = mutation({
+  args: {},
+  handler: async (ctx): Promise<any> => {
+    return await ctx.runMutation(internal.enrichment.sweepVibeCandidates, {});
   },
 });

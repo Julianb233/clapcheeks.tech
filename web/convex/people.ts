@@ -637,7 +637,12 @@ export const listForUser = query({
     only_cc_tech: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
-    const limit = Math.min(args.limit ?? 100, 500);
+    // AI-9526: bumped 500 -> 2000. The fleet roster is ~1037 people and the
+    // 500 cap was silently truncating ~half the network on the admin page.
+    // Network filters client-side to dating-relevant (~66) so the wire payload
+    // is fine, but the index must surface every active person to compute the
+    // pulse + counts correctly.
+    const limit = Math.min(args.limit ?? 100, 2000);
     if (args.status) {
       return await ctx.db
         .query("people")
