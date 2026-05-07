@@ -1,8 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { ConvexHttpClient } from 'convex/browser'
+
 import { createAdminClient } from '@/lib/supabase/admin'
 import { generateReportData } from '@/lib/reports/generate-report-data'
 import { renderReportPdf } from '@/lib/reports/generate-pdf'
 import { sendReportEmail } from '@/lib/reports/send-report-email'
+import { api } from '@/convex/_generated/api'
+
+// AI-9536 — clapcheeks_weekly_reports migrated to Convex weekly_reports.
 
 export const maxDuration = 300
 
@@ -71,14 +76,22 @@ export async function GET(request: NextRequest) {
             .from('weekly-reports')
             .getPublicUrl(filename)
 
-          // Save report
-          await supabase.from('clapcheeks_weekly_reports').upsert({
-            user_id: userId,
-            week_start: weekStart.toISOString().split('T')[0],
-            week_end: weekEnd.toISOString().split('T')[0],
-            metrics_snapshot: reportData,
-            pdf_url: urlData?.publicUrl || null,
-          }, { onConflict: 'user_id,week_start' })
+          // Save report (Convex)
+          const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL || process.env.CONVEX_URL
+          if (!convexUrl) throw new Error('CONVEX_URL not set')
+          const convex = new ConvexHttpClient(convexUrl)
+          const upsertResult = await convex.mutation(
+            api.reports.upsertWeeklyReport,
+            {
+              user_id: userId,
+              week_start_ms: weekStart.getTime(),
+              week_end_ms: weekEnd.getTime(),
+              week_start_iso: weekStart.toISOString().split('T')[0],
+              metrics_snapshot: reportData,
+              pdf_url: urlData?.publicUrl ?? undefined,
+              report_type: 'standard',
+            },
+          )
 
           // Send email
           const { data: { user } } = await supabase.auth.admin.getUserById(userId)
@@ -91,11 +104,10 @@ export async function GET(request: NextRequest) {
               rizzScore: reportData.rizzScore,
             })
 
-            await supabase
-              .from('clapcheeks_weekly_reports')
-              .update({ sent_at: new Date().toISOString() })
-              .eq('user_id', userId)
-              .eq('week_start', weekStart.toISOString().split('T')[0])
+            await convex.mutation(api.reports.markReportSent, {
+              id: upsertResult._id,
+              pdf_url: urlData?.publicUrl ?? undefined,
+            })
           }
 
           processed++

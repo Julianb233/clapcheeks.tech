@@ -201,10 +201,31 @@ export default async function ConnectionBar() {
   const since = new Date(Date.now() - ONE_DAY_MS).toISOString()
 
   // 4 reads in parallel — keep the bar render cheap.
-  // AI-8926: clapcheeks_device_heartbeats is the modern source-of-truth for
-  // agent freshness (the daemon upserts every heartbeat).  Older `devices`
+  // AI-8926/AI-9536: device_heartbeats lives on Convex. Older `devices`
   // rows can be stale; pick the freshest of the two.
-  const [settingsRes, eventsRes, deviceRes, heartbeatRes] = await Promise.all([
+  const fetchHeartbeat = async (): Promise<{
+    last_heartbeat_at: string | null
+  } | null> => {
+    const url =
+      process.env.NEXT_PUBLIC_CONVEX_URL || process.env.CONVEX_URL
+    if (!url) return null
+    try {
+      const { ConvexHttpClient } = await import('convex/browser')
+      const { api } = await import('@/convex/_generated/api')
+      const convex = new ConvexHttpClient(url)
+      const row = (await convex.query(api.telemetry.getLatestHeartbeat, {
+        user_id: user.id,
+      })) as { last_heartbeat_at?: number } | null
+      if (!row?.last_heartbeat_at) return { last_heartbeat_at: null }
+      return {
+        last_heartbeat_at: new Date(row.last_heartbeat_at).toISOString(),
+      }
+    } catch {
+      return null
+    }
+  }
+
+  const [settingsRes, eventsRes, deviceRes, heartbeatPayload] = await Promise.all([
     (supabase as any)
       .from('clapcheeks_user_settings')
       .select(
@@ -228,19 +249,13 @@ export default async function ConnectionBar() {
       .order('last_seen_at', { ascending: false })
       .limit(1)
       .maybeSingle(),
-    (supabase as any)
-      .from('clapcheeks_device_heartbeats')
-      .select('last_heartbeat_at')
-      .eq('user_id', user.id)
-      .order('last_heartbeat_at', { ascending: false })
-      .limit(1)
-      .maybeSingle(),
+    fetchHeartbeat(),
   ])
 
   const settings = (settingsRes.data as UserSettingsRow | null) ?? null
   const events = ((eventsRes.data as BanEventRow[] | null) ?? []) as BanEventRow[]
   const deviceRow = (deviceRes.data as DeviceRow | null) ?? null
-  const heartbeatRow = (heartbeatRes.data as { last_heartbeat_at: string | null } | null) ?? null
+  const heartbeatRow = heartbeatPayload
 
   // Compose a unified device view: take the freshest last_seen across both
   // sources.  Treat a fresh heartbeat as is_active=true (the daemon only

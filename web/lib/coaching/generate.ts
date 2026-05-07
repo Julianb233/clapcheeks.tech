@@ -1,5 +1,10 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { SupabaseClient } from '@supabase/supabase-js'
+import { ConvexHttpClient } from 'convex/browser'
+
+import { api } from '@/convex/_generated/api'
+
+// AI-9536 — clapcheeks_analytics_daily migrated to Convex analytics_daily.
 
 interface CoachingTip {
   category: 'timing' | 'messaging' | 'platform' | 'general'
@@ -62,17 +67,49 @@ export async function generateCoaching(supabase: SupabaseClient, userId: string)
   const existing = await getLatestCoaching(supabase, userId)
   if (existing) return existing
 
-  // Fetch last 30 days of analytics
+  // Fetch last 30 days of analytics from Convex
   const since = new Date()
   since.setDate(since.getDate() - 30)
   const sinceStr = since.toISOString().split('T')[0]
 
-  const { data: rows } = await supabase
-    .from('clapcheeks_analytics_daily')
-    .select('app, swipes_right, swipes_left, matches, conversations_started, dates_booked, date')
-    .eq('user_id', userId)
-    .gte('date', sinceStr)
-    .order('date', { ascending: false })
+  const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL || process.env.CONVEX_URL
+  let rows: Array<{
+    app: string
+    swipes_right: number
+    swipes_left: number
+    matches: number
+    conversations_started: number
+    dates_booked: number
+    date: string
+  }> = []
+  if (convexUrl) {
+    try {
+      const convex = new ConvexHttpClient(convexUrl)
+      const result = (await convex.query(api.telemetry.getDailyForUser, {
+        user_id: userId,
+        since_day_iso: sinceStr,
+      })) as Array<{
+        app: string
+        day_iso: string
+        swipes_right: number
+        swipes_left: number
+        matches: number
+        conversations_started: number
+        dates_booked: number
+      }>
+      rows = result.map((r) => ({
+        app: r.app,
+        swipes_right: r.swipes_right,
+        swipes_left: r.swipes_left,
+        matches: r.matches,
+        conversations_started: r.conversations_started,
+        dates_booked: r.dates_booked,
+        date: r.day_iso,
+      }))
+    } catch {
+      rows = []
+    }
+  }
 
   if (!rows || rows.length === 0) {
     return null

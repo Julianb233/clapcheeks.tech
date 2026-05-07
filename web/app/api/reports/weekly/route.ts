@@ -1,9 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import Anthropic from '@anthropic-ai/sdk'
+import { ConvexHttpClient } from 'convex/browser'
+
 import { generateReportData } from '@/lib/reports/generate-report-data'
 import { renderWeeklyReportEmail } from '@/lib/email/weekly-report'
 import { Resend } from 'resend'
+import { api } from '@/convex/_generated/api'
+
+// AI-9536 — clapcheeks_weekly_reports migrated to Convex weekly_reports.
 
 export const maxDuration = 300
 
@@ -121,20 +126,22 @@ export async function GET(request: NextRequest) {
             throw new Error(`Resend error: ${sendError.message}`)
           }
 
-          // Record in weekly reports table
+          // Record in weekly_reports (Convex)
           const weekStartStr = weekStart.toISOString().split('T')[0]
-          const weekEndStr = weekEnd.toISOString().split('T')[0]
-
-          await supabaseAdmin.from('clapcheeks_weekly_reports').upsert(
-            {
+          const convexUrl =
+            process.env.NEXT_PUBLIC_CONVEX_URL || process.env.CONVEX_URL
+          if (convexUrl) {
+            const convex = new ConvexHttpClient(convexUrl)
+            await convex.mutation(api.reports.upsertWeeklyReport, {
               user_id: userId,
-              week_start: weekStartStr,
-              week_end: weekEndStr,
+              week_start_ms: weekStart.getTime(),
+              week_end_ms: weekEnd.getTime(),
+              week_start_iso: weekStartStr,
               metrics_snapshot: reportData,
-              sent_at: new Date().toISOString(),
-            },
-            { onConflict: 'user_id,week_start' }
-          )
+              sent_at: Date.now(),
+              report_type: 'weekly',
+            })
+          }
 
           processed++
         } catch (err) {

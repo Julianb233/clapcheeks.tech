@@ -1,6 +1,11 @@
 import { NextResponse } from 'next/server'
+import { ConvexHttpClient } from 'convex/browser'
+
 import { createClient } from '@/lib/supabase/server'
 import { sendReportEmail } from '@/lib/reports/send-report-email'
+import { api } from '@/convex/_generated/api'
+
+// AI-9536 — clapcheeks_weekly_reports migrated to Convex weekly_reports.
 
 export async function POST() {
   try {
@@ -11,16 +16,23 @@ export async function POST() {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    // Fetch latest report
-    const { data: report, error: fetchError } = await supabase
-      .from('clapcheeks_weekly_reports')
-      .select('*')
-      .eq('user_id', user.id)
-      .order('week_start', { ascending: false })
-      .limit(1)
-      .single()
+    const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL || process.env.CONVEX_URL
+    if (!convexUrl) {
+      return NextResponse.json(
+        { error: 'server_unconfigured' },
+        { status: 500 },
+      )
+    }
+    const convex = new ConvexHttpClient(convexUrl)
 
-    if (fetchError || !report) {
+    // Fetch latest report (sorted by week_start_ms desc)
+    const reports = await convex.query(api.reports.getWeeklyReportsForUser, {
+      user_id: user.id,
+      limit: 1,
+    })
+    const report = reports?.[0] ?? null
+
+    if (!report) {
       return NextResponse.json({ error: 'No report found' }, { status: 404 })
     }
 
@@ -39,21 +51,24 @@ export async function POST() {
     }
     const pdfBuffer = Buffer.from(await pdfRes.arrayBuffer())
 
-    const metrics = report.metrics_snapshot as { weekStart: string; weekEnd: string; rizzScore: number }
+    const metrics = report.metrics_snapshot as
+      | { weekStart?: string; weekEnd?: string; rizzScore?: number }
+      | null
 
+    const weekEndIso = new Date(report.week_end_ms).toISOString().split('T')[0]
     await sendReportEmail({
       to: user.email,
       pdfBuffer,
-      weekStart: metrics.weekStart || report.week_start,
-      weekEnd: metrics.weekEnd || report.week_end,
-      rizzScore: metrics.rizzScore || 0,
+      weekStart: metrics?.weekStart || report.week_start_iso,
+      weekEnd: metrics?.weekEnd || weekEndIso,
+      rizzScore: metrics?.rizzScore || 0,
     })
 
     // Update sent_at
-    await supabase
-      .from('clapcheeks_weekly_reports')
-      .update({ sent_at: new Date().toISOString() })
-      .eq('id', report.id)
+    await convex.mutation(api.reports.markReportSent, {
+      id: report._id,
+      pdf_url: report.pdf_url,
+    })
 
     return NextResponse.json({ success: true })
   } catch (error) {

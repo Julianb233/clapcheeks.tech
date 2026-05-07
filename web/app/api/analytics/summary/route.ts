@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { ConvexHttpClient } from 'convex/browser'
+
 import { createClient } from '@/lib/supabase/server'
 import { calculateRizzScore, getRizzTrend, type AnalyticsRow } from '@/lib/rizz'
+import { api } from '@/convex/_generated/api'
 
 const VALID_DAYS = [7, 30, 90] as const
 
@@ -24,13 +27,30 @@ export async function GET(request: NextRequest) {
 
   const fmt = (d: Date) => d.toISOString().split('T')[0]
 
-  const [analyticsRes, convoRes, spendRes] = await Promise.all([
-    supabase
-      .from('clapcheeks_analytics_daily')
-      .select('app, swipes_right, swipes_left, matches, conversations_started, dates_booked, money_spent, date')
-      .eq('user_id', user.id)
-      .gte('date', fmt(rangeStart))
-      .order('date', { ascending: true }),
+  // AI-9536: clapcheeks_analytics_daily migrated to Convex analytics_daily.
+  const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL || process.env.CONVEX_URL
+  const convex = convexUrl ? new ConvexHttpClient(convexUrl) : null
+
+  type AnalyticsDailyRow = {
+    app: string
+    swipes_right: number
+    swipes_left: number
+    matches: number
+    conversations_started: number
+    dates_booked: number
+    money_spent: number
+    date: string
+  }
+
+  const [analyticsRows, convoRes, spendRes] = await Promise.all([
+    convex
+      ? convex
+          .query(api.telemetry.getDailyForUser, {
+            user_id: user.id,
+            since_day_iso: fmt(rangeStart),
+          })
+          .catch(() => [])
+      : Promise.resolve([]),
     supabase
       .from('clapcheeks_conversation_stats')
       .select('platform, messages_sent, messages_received, conversations_started, conversations_replied, conversations_ghosted, date')
@@ -44,7 +64,31 @@ export async function GET(request: NextRequest) {
       .gte('date', fmt(rangeStart)),
   ])
 
-  const analytics = analyticsRes.data || []
+  // Convex returns day_iso; map to legacy `date` field name so the
+  // analytics code below works unchanged.
+  const analytics: AnalyticsDailyRow[] = (
+    analyticsRows as Array<{
+      app: string
+      day_iso: string
+      swipes_right: number
+      swipes_left: number
+      matches: number
+      conversations_started: number
+      dates_booked: number
+      money_spent: number
+    }>
+  )
+    .map((r) => ({
+      app: r.app,
+      swipes_right: r.swipes_right,
+      swipes_left: r.swipes_left,
+      matches: r.matches,
+      conversations_started: r.conversations_started,
+      dates_booked: r.dates_booked,
+      money_spent: r.money_spent,
+      date: r.day_iso,
+    }))
+    .sort((a, b) => a.date.localeCompare(b.date))
   const convos = convoRes.data || []
   const spending = spendRes.data || []
 

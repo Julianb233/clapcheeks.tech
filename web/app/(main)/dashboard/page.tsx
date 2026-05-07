@@ -1,6 +1,12 @@
 import type { Metadata } from 'next'
+import { ConvexHttpClient } from 'convex/browser'
+
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
+import { api } from '@/convex/_generated/api'
+
+// AI-9536 — clapcheeks_analytics_daily + clapcheeks_device_heartbeats
+// migrated to Convex.
 import ManageBillingButton from '@/components/manage-billing-button'
 import PlanBadge from '@/components/plan-badge'
 import EliteOnly from '@/components/elite-only'
@@ -73,13 +79,19 @@ export default async function Dashboard() {
   const fourteenDaysAgo = new Date()
   fourteenDaysAgo.setDate(fourteenDaysAgo.getDate() - 14)
 
-  const [analyticsRes, convoRes, spendRes, deviceRes, subRes, profileRes, heartbeatRes, matchCountRes] = await Promise.all([
-    supabase
-      .from('clapcheeks_analytics_daily')
-      .select('app, swipes_right, swipes_left, matches, conversations_started, dates_booked, money_spent, date')
-      .eq('user_id', user.id)
-      .gte('date', sinceStr)
-      .order('date', { ascending: true }),
+  // AI-9536: analytics_daily + device_heartbeats are on Convex now.
+  const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL || process.env.CONVEX_URL
+  const convex = convexUrl ? new ConvexHttpClient(convexUrl) : null
+
+  const [analyticsRows, convoRes, spendRes, deviceRes, subRes, profileRes, heartbeatRow, matchCountRes] = await Promise.all([
+    convex
+      ? convex
+          .query(api.telemetry.getDailyForUser, {
+            user_id: user.id,
+            since_day_iso: sinceStr,
+          })
+          .catch(() => [])
+      : Promise.resolve([]),
     supabase
       .from('clapcheeks_conversation_stats')
       .select('platform, messages_sent, conversations_started, conversations_replied, date')
@@ -108,21 +120,45 @@ export default async function Dashboard() {
       .select('subscription_tier, subscription_status')
       .eq('id', user.id)
       .single(),
-    // AI-8926: modern device-presence source (daemon upserts every heartbeat).
-    supabase
-      .from('clapcheeks_device_heartbeats')
-      .select('last_heartbeat_at')
-      .eq('user_id', user.id)
-      .order('last_heartbeat_at', { ascending: false })
-      .limit(1)
-      .maybeSingle(),
-    // AI-8926: actual matches count (clapcheeks_analytics_daily can be empty
+    // AI-8926/AI-9536: modern device-presence source on Convex.
+    convex
+      ? convex
+          .query(api.telemetry.getLatestHeartbeat, { user_id: user.id })
+          .catch(() => null)
+      : Promise.resolve(null),
+    // AI-8926: actual matches count (analytics_daily can be empty
     // for users whose agent does not aggregate per-day yet).
     supabase
       .from('clapcheeks_matches')
       .select('id', { count: 'exact', head: true })
       .eq('user_id', user.id),
   ])
+
+  // Map Convex rows (day_iso) into the legacy {date} shape that downstream
+  // dashboard code expects.
+  const analyticsRes = {
+    data: ((analyticsRows as Array<{
+      app: string
+      day_iso: string
+      swipes_right: number
+      swipes_left: number
+      matches: number
+      conversations_started: number
+      dates_booked: number
+      money_spent: number
+    }>) ?? [])
+      .map((r) => ({
+        app: r.app,
+        swipes_right: r.swipes_right,
+        swipes_left: r.swipes_left,
+        matches: r.matches,
+        conversations_started: r.conversations_started,
+        dates_booked: r.dates_booked,
+        money_spent: r.money_spent,
+        date: r.day_iso,
+      }))
+      .sort((a, b) => a.date.localeCompare(b.date)),
+  }
 
   // Fetch coaching session
   const coachingSession = await getLatestCoaching(supabase, user.id)
@@ -136,9 +172,11 @@ export default async function Dashboard() {
   const convos: ConvoRow[] = convoRes.data || []
   const spending = spendRes.data || []
 
-  // AI-8926: pick the freshest of (devices.last_seen_at, clapcheeks_device_heartbeats.last_heartbeat_at).
+  // AI-8926/AI-9536: pick the freshest of (devices.last_seen_at, Convex device_heartbeats.last_heartbeat_at).
   const oldDevice = deviceRes.data?.[0] || null
-  const heartbeatTs = (heartbeatRes.data as { last_heartbeat_at: string | null } | null)?.last_heartbeat_at ?? null
+  const heartbeatTsMs =
+    (heartbeatRow as { last_heartbeat_at?: number } | null)?.last_heartbeat_at ?? null
+  const heartbeatTs = heartbeatTsMs ? new Date(heartbeatTsMs).toISOString() : null
   const candidates: { last_seen_at: string; is_active: boolean }[] = []
   if (oldDevice?.last_seen_at) candidates.push({ last_seen_at: oldDevice.last_seen_at, is_active: oldDevice.is_active })
   if (heartbeatTs) candidates.push({ last_seen_at: heartbeatTs, is_active: true })

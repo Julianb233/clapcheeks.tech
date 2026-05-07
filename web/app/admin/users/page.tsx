@@ -40,18 +40,56 @@ export default async function AdminUsersPage({
   // Get agent connections and today's analytics
   const userIds = (users ?? []).map((u) => u.id)
 
-  const [{ data: agentTokens }, { data: analytics }] = await Promise.all([
+  // AI-9536: clapcheeks_analytics_daily migrated to Convex analytics_daily.
+  // Convex per-user-id index reads in parallel; cross-user filter doesn't
+  // exist in our index strategy.
+  const todayIso = new Date().toISOString().split("T")[0]
+  const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL || process.env.CONVEX_URL
+
+  type AnalyticsRow = {
+    user_id: string
+    swipes_right: number
+    swipes_left: number
+    matches: number
+  }
+
+  const fetchAnalytics = async (): Promise<AnalyticsRow[]> => {
+    if (!convexUrl || userIds.length === 0) return []
+    const { ConvexHttpClient } = await import("convex/browser")
+    const { api } = await import("@/convex/_generated/api")
+    const convex = new ConvexHttpClient(convexUrl)
+    const results = await Promise.allSettled(
+      userIds.map((uid) =>
+        convex.query(api.telemetry.getDailyForUser, {
+          user_id: uid,
+          since_day_iso: todayIso,
+          until_day_iso: todayIso,
+        }),
+      ),
+    )
+    const out: AnalyticsRow[] = []
+    for (let i = 0; i < userIds.length; i++) {
+      const r = results[i]
+      if (r.status !== "fulfilled") continue
+      for (const row of r.value as Array<AnalyticsRow & { user_id?: string }>) {
+        out.push({
+          user_id: userIds[i],
+          swipes_right: row.swipes_right,
+          swipes_left: row.swipes_left,
+          matches: row.matches,
+        })
+      }
+    }
+    return out
+  }
+
+  const [{ data: agentTokens }, analyticsRows] = await Promise.all([
     userIds.length > 0
       ? supabase.from("clapcheeks_agent_tokens").select("user_id, last_seen_at").in("user_id", userIds)
-      : Promise.resolve({ data: [] }),
-    userIds.length > 0
-      ? supabase
-          .from("clapcheeks_analytics_daily")
-          .select("user_id, swipes_right, swipes_left, matches")
-          .in("user_id", userIds)
-          .eq("date", new Date().toISOString().split("T")[0])
-      : Promise.resolve({ data: [] }),
+      : Promise.resolve({ data: [] as Array<{ user_id: string; last_seen_at: string }> }),
+    fetchAnalytics(),
   ])
+  const analytics = analyticsRows
 
   const agentByUser: Record<string, string | null> = {}
   for (const t of agentTokens ?? []) {

@@ -1,7 +1,12 @@
 import type { Metadata } from 'next'
+import { ConvexHttpClient } from 'convex/browser'
+
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import DogfoodDashboard from './dogfood-dashboard'
+import { api } from '@/convex/_generated/api'
+
+// AI-9536 — clapcheeks_friction_points + clapcheeks_weekly_reports on Convex.
 
 export const metadata: Metadata = {
   title: 'Dogfooding — Clapcheeks',
@@ -17,25 +22,33 @@ export default async function DogfoodPage() {
   const since = new Date()
   since.setDate(since.getDate() - 14)
 
-  const [healthRes, frictionRes, reportsRes, subscriptionRes] = await Promise.all([
+  // AI-9536: friction_points + weekly_reports lives on Convex.
+  const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL || process.env.CONVEX_URL
+  const convex = convexUrl ? new ConvexHttpClient(convexUrl) : null
+
+  const [healthRes, frictionRows, reportRows, subscriptionRes] = await Promise.all([
     supabase
       .from('clapcheeks_dogfood_health')
       .select('*')
       .eq('user_id', user.id)
       .gte('date', since.toISOString().split('T')[0])
       .order('date', { ascending: false }),
-    supabase
-      .from('clapcheeks_friction_points')
-      .select('*')
-      .eq('user_id', user.id)
-      .order('created_at', { ascending: false })
-      .limit(50),
-    supabase
-      .from('clapcheeks_weekly_reports')
-      .select('id, week_start, week_end, metrics_snapshot, created_at')
-      .eq('user_id', user.id)
-      .order('week_start', { ascending: false })
-      .limit(4),
+    convex
+      ? convex
+          .query(api.telemetry.listFrictionForUser, {
+            user_id: user.id,
+            limit: 50,
+          })
+          .catch(() => [])
+      : Promise.resolve([]),
+    convex
+      ? convex
+          .query(api.reports.getWeeklyReportsForUser, {
+            user_id: user.id,
+            limit: 4,
+          })
+          .catch(() => [])
+      : Promise.resolve([]),
     supabase
       .from('clapcheeks_subscriptions')
       .select('status, plan_id')
@@ -45,8 +58,45 @@ export default async function DogfoodPage() {
   ])
 
   const health = healthRes.data || []
-  const friction = frictionRes.data || []
-  const reports = reportsRes.data || []
+  const friction = (frictionRows as Array<{
+    _id: string
+    _creationTime: number
+    title: string
+    description?: string
+    severity: string
+    category: string
+    platform?: string
+    auto_detected: boolean
+    resolved: boolean
+    resolution?: string
+    resolved_at?: number
+    created_at: number
+  }>).map((f) => ({
+    id: f._id,
+    title: f.title,
+    description: f.description,
+    severity: f.severity,
+    category: f.category,
+    platform: f.platform ?? null,
+    auto_detected: f.auto_detected,
+    resolved: f.resolved,
+    resolution: f.resolution ?? null,
+    resolved_at: f.resolved_at ? new Date(f.resolved_at).toISOString() : null,
+    created_at: new Date(f.created_at).toISOString(),
+  }))
+  const reports = (reportRows as Array<{
+    _id: string
+    _creationTime: number
+    week_start_iso: string
+    week_end_ms: number
+    metrics_snapshot?: unknown
+  }>).map((r) => ({
+    id: r._id,
+    week_start: r.week_start_iso,
+    week_end: new Date(r.week_end_ms).toISOString().split('T')[0],
+    metrics_snapshot: r.metrics_snapshot ?? {},
+    created_at: new Date(r._creationTime).toISOString(),
+  }))
   const subscription = subscriptionRes.data
 
   // Calculate current streak from health data
