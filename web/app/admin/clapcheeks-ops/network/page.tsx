@@ -1,186 +1,190 @@
-"use client";
+/**
+ * Network — operator's dating-relevant people, ranked by hotness × recency.
+ * Click a person → /admin/clapcheeks-ops/people/[id] for the full dossier.
+ *
+ * Filter (default ON): only show people who are dating-relevant —
+ *   - status in {lead, active, dating, paused} AND
+ *   - (has any iMessage/dating-app handle OR last_inbound_at within 90d
+ *     OR explicitly hotness_rating set OR vibe_classification=="dating")
+ *
+ * Toggle the "Everyone" switch to drop the filter and see all 500+ rows.
+ */
+"use client"
 
-import { useQuery } from "convex/react";
-import { api } from "@/convex/_generated/api";
-import Link from "next/link";
-import { Badge } from "@/components/ui/badge";
-import { useState } from "react";
+import { useQuery } from "convex/react"
+import { api } from "@/convex/_generated/api"
+import Link from "next/link"
+import { useState } from "react"
 
-const STAGE_COLORS: Record<string, string> = {
-  stranger: "bg-gray-700 text-gray-300",
-  aware: "bg-blue-900 text-blue-300",
-  warm: "bg-yellow-900 text-yellow-300",
-  interested: "bg-orange-900 text-orange-300",
-  invested: "bg-purple-900 text-purple-300",
-  committed: "bg-green-900 text-green-300",
-};
+const FLEET_USER_ID = "fleet-julian"
 
-const STATUS_DOT: Record<string, string> = {
-  active: "bg-green-400",
-  lead: "bg-blue-400",
-  paused: "bg-yellow-400",
-  archived: "bg-gray-500",
-};
+const STAGE_ORDER = [
+  "matched", "early_chat", "phone_swap", "pre_date",
+  "first_date_done", "ongoing", "exclusive", "ghosted", "ended",
+]
 
-type StatusFilter = "active" | "lead" | "paused" | "archived" | "ghosted" | "dating" | "ended";
+const NINETY_DAYS = 90 * 24 * 60 * 60 * 1000
 
-function ScoreBar({ value, color }: { value?: number; color: string }) {
-  const pct = Math.round((value ?? 0) * 100);
-  return (
-    <div className="flex items-center gap-1">
-      <div className="h-1.5 w-16 rounded-full bg-gray-700">
-        <div
-          className={`h-1.5 rounded-full ${color}`}
-          style={{ width: `${pct}%` }}
-        />
-      </div>
-      <span className="text-xs text-gray-500">{pct}</span>
-    </div>
-  );
+function isDatingRelevant(p: any): boolean {
+  if (!["lead", "active", "dating", "paused"].includes(p.status)) return false
+  const hasHandle = (p.handles ?? []).some((h: any) =>
+    ["imessage", "hinge", "tinder", "bumble", "instagram"].includes(h.channel)
+  )
+  const hasRecentInbound = p.last_inbound_at && (Date.now() - p.last_inbound_at) < NINETY_DAYS
+  const hasOperatorRating = p.hotness_rating !== undefined || p.effort_rating !== undefined
+  const isDatingVibe = p.vibe_classification === "dating"
+  const isImported = p.imported_from_profile_screenshot === true
+  return Boolean(hasHandle || hasRecentInbound || hasOperatorRating || isDatingVibe || isImported)
 }
 
-function PersonRow({ person }: { person: any }) {
-  const primaryHandle =
-    person.handles?.find((h: any) => h.primary)?.value ??
-    person.handles?.[0]?.value ??
-    person.handle ??
-    "—";
-
-  const platforms: string[] = Array.from(
-    new Set(
-      (person.handles ?? []).map((h: any) => h.platform as string)
-    )
-  );
-
-  return (
-    <Link
-      href={`/admin/clapcheeks-ops/people/${person._id}`}
-      className="flex items-center gap-4 rounded-xl border border-gray-800 bg-gray-900/60 px-4 py-3 transition hover:border-purple-700/50 hover:bg-gray-900"
-    >
-      {/* Status dot */}
-      <span
-        className={`mt-0.5 h-2.5 w-2.5 shrink-0 rounded-full ${STATUS_DOT[person.status] ?? "bg-gray-600"}`}
-      />
-
-      {/* Name + handle */}
-      <div className="min-w-0 flex-1">
-        <p className="truncate font-medium text-white">
-          {person.display_name ?? person.name ?? "Unnamed"}
-        </p>
-        <p className="truncate text-sm text-gray-400">{primaryHandle}</p>
-      </div>
-
-      {/* Stage badge */}
-      {person.courtship_stage && (
-        <Badge
-          className={`shrink-0 text-xs ${STAGE_COLORS[person.courtship_stage] ?? "bg-gray-700 text-gray-300"}`}
-        >
-          {person.courtship_stage}
-        </Badge>
-      )}
-
-      {/* Trust / engagement mini bars */}
-      <div className="hidden flex-col gap-1 sm:flex">
-        <ScoreBar value={person.trust_score} color="bg-purple-500" />
-        <ScoreBar value={person.engagement_score} color="bg-blue-500" />
-      </div>
-
-      {/* Platform badges */}
-      <div className="hidden gap-1 lg:flex">
-        {platforms.slice(0, 3).map((p) => (
-          <Badge key={p} variant="outline" className="border-gray-700 text-xs text-gray-400">
-            {p}
-          </Badge>
-        ))}
-      </div>
-
-      {/* Chevron */}
-      <svg
-        className="ml-2 h-4 w-4 shrink-0 text-gray-600"
-        fill="none"
-        viewBox="0 0 24 24"
-        stroke="currentColor"
-      >
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-      </svg>
-    </Link>
-  );
+function priorityScore(p: any): number {
+  let score = 0
+  if (p.hotness_rating) score += p.hotness_rating * 10
+  if (p.last_inbound_at) {
+    const hoursAgo = (Date.now() - p.last_inbound_at) / 3600000
+    score += Math.max(0, 50 - hoursAgo)
+  }
+  if (p.next_followup_at && p.next_followup_at < Date.now()) score += 20
+  if (p.time_to_ask_score) score += p.time_to_ask_score * 30
+  if (p.whitelist_for_autoreply) score += 5
+  return score
 }
 
 export default function NetworkPage() {
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>("active");
+  const [showAll, setShowAll] = useState(false)
+  const [search, setSearch] = useState("")
+  const people = useQuery(api.people.listForUser, {
+    user_id: FLEET_USER_ID, limit: 500, only_cc_tech: false,
+  })
 
-  const people = useQuery(api.people.list, {
-    status: statusFilter,
-  });
+  if (people === undefined) return <div className="p-8 text-gray-500">Loading…</div>
 
-  const filters: { label: string; value: StatusFilter }[] = [
-    { label: "Active", value: "active" },
-    { label: "Leads", value: "lead" },
-    { label: "Dating", value: "dating" },
-    { label: "Paused", value: "paused" },
-    { label: "Ghosted", value: "ghosted" },
-    { label: "Ended", value: "ended" },
-  ];
+  const filtered = people.filter((p: any) => {
+    if (search) {
+      const q = search.toLowerCase()
+      if (!p.display_name?.toLowerCase().includes(q) &&
+          !p.context_notes?.toLowerCase().includes(q)) return false
+    }
+    return showAll ? true : isDatingRelevant(p)
+  })
+
+  const byStage: Record<string, any[]> = {}
+  for (const p of filtered) {
+    const stage = p.courtship_stage || (p.status === "lead" ? "matched" : "early_chat")
+    byStage[stage] ||= []
+    byStage[stage].push(p)
+  }
 
   return (
-    <div className="min-h-screen bg-gray-950 p-6 text-white">
-      {/* Header */}
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold">Network</h1>
-        <p className="mt-1 text-sm text-gray-400">
-          Everyone you&apos;re building a connection with
-        </p>
-      </div>
-
-      {/* Status filter tabs */}
-      <div className="mb-6 flex gap-2 overflow-x-auto">
-        {filters.map((f) => (
-          <button
-            key={f.value}
-            onClick={() => setStatusFilter(f.value)}
-            className={`shrink-0 rounded-lg px-4 py-1.5 text-sm font-medium transition ${
-              statusFilter === f.value
-                ? "bg-purple-600 text-white"
-                : "bg-gray-800 text-gray-400 hover:bg-gray-700"
-            }`}
-          >
-            {f.label}
-          </button>
-        ))}
-      </div>
-
-      {/* List */}
-      {people === undefined && (
-        <div className="flex justify-center py-12">
-          <div className="h-8 w-8 animate-spin rounded-full border-2 border-purple-500 border-t-transparent" />
-        </div>
-      )}
-
-      {people !== undefined && people.length === 0 && (
-        <div className="flex flex-col items-center gap-4 py-16 text-center">
-          <span className="text-5xl">🤍</span>
-          <p className="text-lg font-medium text-gray-300">No people here yet</p>
-          <p className="text-sm text-gray-500">
-            Import someone from a{" "}
-            <Link
-              href="/admin/clapcheeks-ops/profile-imports"
-              className="text-purple-400 hover:underline"
-            >
-              profile screenshot
-            </Link>{" "}
-            to get started.
+    <div className="p-8 max-w-7xl">
+      <div className="flex justify-between items-start mb-2">
+        <div>
+          <h1 className="text-3xl font-bold">Network</h1>
+          <p className="text-gray-400">
+            {filtered.length} of {people.length} people · ranked by hotness × recency
           </p>
         </div>
-      )}
+        <div className="flex gap-3 items-center">
+          <input
+            type="text"
+            value={search}
+            placeholder="search name…"
+            onChange={(e) => setSearch(e.target.value)}
+            className="bg-gray-950 border border-gray-800 rounded px-3 py-1.5 text-sm w-48"
+          />
+          <label className="flex items-center gap-2 text-xs text-gray-400 cursor-pointer">
+            <input type="checkbox" checked={showAll} onChange={(e) => setShowAll(e.target.checked)} />
+            show all (incl. non-dating)
+          </label>
+        </div>
+      </div>
 
-      {people !== undefined && people.length > 0 && (
-        <div className="flex flex-col gap-2">
-          {people.map((person: any) => (
-            <PersonRow key={person._id} person={person} />
-          ))}
+      <div className="text-xs text-gray-600 mb-6">
+        Default view: lead/active/dating/paused with dating-channel handle, recent inbound, operator rating, or dating vibe.
+      </div>
+
+      {filtered.length === 0 && (
+        <div className="text-center py-12 text-gray-500">
+          {search ? "No matches." : "No dating-relevant people yet — toggle 'show all' to see everyone."}
         </div>
       )}
+
+      {STAGE_ORDER.map((stage) => {
+        const ppl = (byStage[stage] || []).sort((a, b) => priorityScore(b) - priorityScore(a))
+        if (ppl.length === 0) return null
+        return (
+          <section key={stage} className="mb-8">
+            <h2 className="text-xl font-semibold mb-2 capitalize">
+              {stage.replace(/_/g, " ")} ({ppl.length})
+            </h2>
+            <div className="space-y-2">
+              {ppl.map((p) => (
+                <PersonRow key={p._id} p={p} />
+              ))}
+            </div>
+          </section>
+        )
+      })}
     </div>
-  );
+  )
+}
+
+function PersonRow({ p }: { p: any }) {
+  const lastInbound = p.last_inbound_at
+    ? `${Math.round((Date.now() - p.last_inbound_at) / 3600000)}h ago`
+    : "—"
+  const trust = p.trust_score?.toFixed(2) ?? "—"
+  const ttas = p.time_to_ask_score?.toFixed(2) ?? "—"
+  const lastEmotion = (p.emotional_state_recent ?? []).slice(-1)[0]?.state ?? "—"
+  const platforms = Array.from(new Set((p.handles ?? []).map((h: any) => h.channel)))
+  return (
+    <Link
+      href={`/admin/clapcheeks-ops/people/${p._id}`}
+      className="block bg-gray-900 border border-gray-800 rounded-lg p-3 hover:border-purple-700 hover:bg-gray-800/60 transition-colors"
+    >
+      <div className="flex justify-between items-start gap-4">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-baseline gap-2 flex-wrap">
+            <span className="font-medium">{p.display_name}</span>
+            {p.age && <span className="text-gray-500 text-xs">· {p.age}</span>}
+            {p.hotness_rating && (
+              <span className="text-pink-300 text-xs font-mono">🔥 {p.hotness_rating}/10</span>
+            )}
+            {p.effort_rating && (
+              <span className="text-amber-300 text-xs font-mono">⚡ {p.effort_rating}/5</span>
+            )}
+            {p.nurture_state && (
+              <span className="text-purple-300 text-xs uppercase">{p.nurture_state}</span>
+            )}
+            {platforms.length > 0 && (
+              <span className="text-xs text-gray-600">{platforms.join(" · ")}</span>
+            )}
+          </div>
+          <div className="text-xs text-gray-500 mt-1">
+            inbound {lastInbound} · trust {trust} · ask {ttas} · emo {lastEmotion}
+            {p.zodiac_sign && <span className="ml-2 capitalize">♈ {p.zodiac_sign}</span>}
+          </div>
+          {p.next_best_move && (
+            <div className="text-sm text-purple-300 mt-2 line-clamp-1">💡 {p.next_best_move}</div>
+          )}
+          {p.curiosity_ledger && p.curiosity_ledger.filter((q: any) => q.status === "pending").length > 0 && (
+            <div className="text-xs text-gray-400 mt-1 line-clamp-1">
+              Q: {p.curiosity_ledger.filter((q: any) => q.status === "pending")[0]?.question}
+            </div>
+          )}
+        </div>
+        <div className="text-right text-xs text-gray-500 flex-shrink-0">
+          <div>{p.cadence_profile}</div>
+          <div className={p.whitelist_for_autoreply ? "text-green-400" : "text-gray-600"}>
+            {p.whitelist_for_autoreply ? "✓ whitelisted" : "○ manual"}
+          </div>
+          {p.next_followup_at && (
+            <div className="text-amber-400 mt-1">
+              follow-up {new Date(p.next_followup_at).toLocaleDateString()}
+            </div>
+          )}
+        </div>
+      </div>
+    </Link>
+  )
 }

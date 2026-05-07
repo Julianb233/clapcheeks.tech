@@ -1,4 +1,4 @@
-import { mutation, query, internalMutation } from "./_generated/server";
+import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 
 // AI-9449 — Unified person record across iMessage / dating apps / email / Telegram.
@@ -324,20 +324,12 @@ export const upsertFromGoogleContacts = mutation({
 // O(N) over the user's people rows because Convex doesn't index inside
 // arrays-of-objects. Fine at human scale (<10k people per user).
 // ----------------------------------------------------------------------------
-// Single-row reader by id. Used by the Mac Mini convex_runner to resolve
-// person details for drafting.
-export const get = query({
-  args: { id: v.id("people") },
-  handler: async (ctx, args) => await ctx.db.get(args.id),
-});
-
-// ----------------------------------------------------------------------------
-// Wave 2.4 Task B — getDossier(person_id)
+// AI-9500 Wave 2.4 Task B — getDossier(person_id)
 //
-// Bundles everything the dashboard needs to render the per-person deep-dive
-// page in a single round trip: the person row + last 100 messages
-// (denormalized via by_person_recent index) + scheduled touches +
-// recent media uses + active conversations + open pending links.
+// Bundles everything the person dossier deep-dive page needs in a single
+// round trip: person row + last 100 messages (cross-channel via
+// by_person_recent index) + linked conversations + scheduled touches +
+// open pending_links candidates pointing at this person.
 // ----------------------------------------------------------------------------
 export const getDossier = query({
   args: { person_id: v.id("people") },
@@ -345,40 +337,23 @@ export const getDossier = query({
     const person = await ctx.db.get(args.person_id);
     if (!person) return null;
 
-    // Recent messages — by_person_recent index over messages table.
     const messages = await ctx.db
       .query("messages")
       .withIndex("by_person_recent", (q) => q.eq("person_id", args.person_id))
       .order("desc")
       .take(100);
 
-    // Conversations the person is linked to (cross-channel).
     const conversations = await ctx.db
       .query("conversations")
       .withIndex("by_person", (q) => q.eq("person_id", args.person_id))
       .collect();
 
-    // Scheduled + recent fired touches (50 each).
     const scheduledTouches = await ctx.db
       .query("scheduled_touches")
       .withIndex("by_person_status", (q) => q.eq("person_id", args.person_id))
       .order("desc")
       .take(50);
 
-    // Media uses for this person (last 30).
-    const mediaUses = await ctx.db
-      .query("media_uses")
-      .withIndex("by_person", (q) => q.eq("person_id", args.person_id))
-      .order("desc")
-      .take(30);
-
-    // Hydrate media assets referenced by uses (so dashboard can render thumbnails).
-    const mediaAssetIds = Array.from(new Set(mediaUses.map((u) => u.asset_id)));
-    const mediaAssets = await Promise.all(
-      mediaAssetIds.map((id) => ctx.db.get(id)),
-    );
-
-    // Open pending_links pointing at this person as a candidate.
     const allOpenLinks = await ctx.db
       .query("pending_links")
       .withIndex("by_user_status", (q) =>
@@ -391,11 +366,9 @@ export const getDossier = query({
 
     return {
       person,
-      messages,                                              // newest first
+      messages,
       conversations,
       scheduled_touches: scheduledTouches,
-      media_uses: mediaUses,
-      media_assets: mediaAssets.filter((a) => a !== null),
       pending_links: pendingLinks,
     };
   },
@@ -520,86 +493,6 @@ export const linkConversation = mutation({
   },
 });
 
-// Dashboard reader for the pending_links queue. Returns open rows with
-// their candidate person rows + recent message context already joined.
-export const listPendingLinks = query({
-  args: { user_id: v.string(), limit: v.optional(v.number()) },
-  handler: async (ctx, args) => {
-    const rows = await ctx.db
-      .query("pending_links")
-      .withIndex("by_user_status", (q) => q.eq("user_id", args.user_id).eq("status", "open"))
-      .order("desc")
-      .take(Math.min(args.limit ?? 50, 200));
-    const out = [] as any[];
-    for (const r of rows) {
-      const conv = await ctx.db.get(r.conversation_id);
-      const candidates: any[] = [];
-      for (const pid of r.candidate_person_ids) {
-        const p = await ctx.db.get(pid);
-        if (p) candidates.push({
-          _id: p._id, display_name: p.display_name,
-          courtship_stage: p.courtship_stage, status: p.status,
-          handles: p.handles?.slice(0, 3),
-        });
-      }
-      out.push({
-        _id: r._id, handle_channel: r.handle_channel, handle_value: r.handle_value,
-        raw_context: r.raw_context, created_at: r.created_at,
-        conversation: conv ? {
-          _id: conv._id, last_message_at: conv.last_message_at,
-          imessage_handle: conv.imessage_handle,
-        } : null,
-        candidates,
-      });
-    }
-    return out;
-  },
-});
-
-// Resolve a pending_link row to a chosen person — patches conversation +
-// associated messages with person_id, marks the link resolved.
-export const resolvePendingLink = mutation({
-  args: { pending_id: v.id("pending_links"), person_id: v.id("people") },
-  handler: async (ctx, args) => {
-    const link = await ctx.db.get(args.pending_id);
-    if (!link) return { error: "not_found" };
-    const person = await ctx.db.get(args.person_id);
-    if (!person) return { error: "person_not_found" };
-    // Patch conversation
-    await ctx.db.patch(link.conversation_id, {
-      person_id: args.person_id, updated_at: Date.now(),
-    });
-    // Patch messages in this conversation that lack person_id
-    const msgs = await ctx.db
-      .query("messages")
-      .withIndex("by_conversation", (q) => q.eq("conversation_id", link.conversation_id))
-      .collect();
-    let patched = 0;
-    for (const m of msgs) {
-      if (!m.person_id) {
-        await ctx.db.patch(m._id, { person_id: args.person_id });
-        patched++;
-      }
-    }
-    // Mark link resolved
-    await ctx.db.patch(args.pending_id, {
-      status: "resolved", resolved_person_id: args.person_id, updated_at: Date.now(),
-    });
-    return { resolved: true, conversations: 1, messages_patched: patched };
-  },
-});
-
-// Ignore a pending_link (e.g. spam / unknown number). Marks ignored.
-export const ignorePendingLink = mutation({
-  args: { pending_id: v.id("pending_links") },
-  handler: async (ctx, args) => {
-    await ctx.db.patch(args.pending_id, {
-      status: "ignored", updated_at: Date.now(),
-    });
-    return { ignored: true };
-  },
-});
-
 // ----------------------------------------------------------------------------
 // recordPendingLink
 //
@@ -659,26 +552,23 @@ export const listForUser = query({
     user_id: v.string(),
     status: v.optional(PERSON_STATUS),
     limit: v.optional(v.number()),
+    // Wave 2.4 — accepted for backwards compat with the old dashboard call.
+    // The current network page filters dating-relevance client-side; this flag
+    // is currently a no-op but the validator must accept it.
     only_cc_tech: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     const limit = Math.min(args.limit ?? 100, 500);
-    let rows;
     if (args.status) {
-      rows = await ctx.db
+      return await ctx.db
         .query("people")
         .withIndex("by_user_status", (q) => q.eq("user_id", args.user_id).eq("status", args.status!))
         .take(limit);
-    } else {
-      rows = await ctx.db
-        .query("people")
-        .withIndex("by_user", (q) => q.eq("user_id", args.user_id))
-        .take(limit);
     }
-    if (args.only_cc_tech) {
-      rows = rows.filter((p) => (p.google_contacts_labels ?? []).includes("CC TECH"));
-    }
-    return rows;
+    return await ctx.db
+      .query("people")
+      .withIndex("by_user", (q) => q.eq("user_id", args.user_id))
+      .take(limit);
   },
 });
 
@@ -767,69 +657,6 @@ export const updateVibe = mutation({
 // signals + "next best move" suggestion the dashboard can show.
 // ----------------------------------------------------------------------------
 export const updateCourtship = mutation({
-  args: {
-    person_id: v.id("people"),
-    trust_score: v.optional(v.number()),
-    courtship_stage: v.optional(v.union(
-      v.literal("matched"), v.literal("early_chat"), v.literal("phone_swap"),
-      v.literal("pre_date"), v.literal("first_date_done"), v.literal("ongoing"),
-      v.literal("exclusive"), v.literal("ghosted"), v.literal("ended"),
-    )),
-    trust_signals_observed: v.optional(v.array(v.string())),
-    trust_signals_missing: v.optional(v.array(v.string())),
-    things_she_loves: v.optional(v.array(v.string())),
-    things_she_dislikes: v.optional(v.array(v.string())),
-    boundaries_stated: v.optional(v.array(v.string())),
-    green_flags: v.optional(v.array(v.string())),
-    red_flags: v.optional(v.array(v.string())),
-    compliments_that_landed: v.optional(v.array(v.string())),
-    references_to_callback: v.optional(v.array(v.string())),
-    her_love_languages: v.optional(v.array(v.string())),
-    next_best_move: v.optional(v.string()),
-    next_best_move_confidence: v.optional(v.number()),
-  },
-  handler: async (ctx, args) => {
-    const { person_id, ...rest } = args;
-    const patch: Record<string, unknown> = {
-      courtship_last_analyzed: Date.now(),
-      updated_at: Date.now(),
-    };
-    for (const [k, v] of Object.entries(rest)) {
-      if (v !== undefined) patch[k] = v;
-    }
-    await ctx.db.patch(person_id, patch);
-  },
-});
-
-// ----------------------------------------------------------------------------
-// _updateVibeInternal / _updateCourtshipInternal
-//
-// internalMutation versions of updateVibe / updateCourtship — called by
-// convex/enrichment.ts internalActions which can't invoke public mutations
-// on themselves. Same signature, internal access only.
-// ----------------------------------------------------------------------------
-export const _updateVibeInternal = internalMutation({
-  args: {
-    person_id: v.id("people"),
-    vibe_classification: v.union(
-      v.literal("dating"), v.literal("platonic"),
-      v.literal("professional"), v.literal("unclear"),
-    ),
-    vibe_confidence: v.number(),
-    vibe_evidence: v.optional(v.string()),
-  },
-  handler: async (ctx, args) => {
-    await ctx.db.patch(args.person_id, {
-      vibe_classification: args.vibe_classification,
-      vibe_confidence: args.vibe_confidence,
-      vibe_evidence: args.vibe_evidence,
-      vibe_classified_at: Date.now(),
-      updated_at: Date.now(),
-    });
-  },
-});
-
-export const _updateCourtshipInternal = internalMutation({
   args: {
     person_id: v.id("people"),
     trust_score: v.optional(v.number()),
@@ -1170,6 +997,75 @@ export const patchEnrichment = mutation({
 });
 
 // ----------------------------------------------------------------------------
+// AI-9500 Wave 2.4 Task J — patchPerson
+//
+// Operator-facing edit mutation. The dossier page uses this to update any
+// editable field (hotness_rating, effort_rating, nurture_state, status,
+// whitelist_for_autoreply, cadence_profile, operator_notes, etc.) without
+// touching daemon-owned live state.
+// ----------------------------------------------------------------------------
+export const patchPerson = mutation({
+  args: {
+    person_id: v.id("people"),
+    display_name: v.optional(v.string()),
+    status: v.optional(v.union(
+      v.literal("lead"), v.literal("active"), v.literal("paused"),
+      v.literal("ghosted"), v.literal("dating"), v.literal("ended"),
+    )),
+    cadence_profile: v.optional(CADENCE_PROFILE),
+    whitelist_for_autoreply: v.optional(v.boolean()),
+    courtship_stage: v.optional(v.union(
+      v.literal("matched"), v.literal("early_chat"), v.literal("phone_swap"),
+      v.literal("pre_date"), v.literal("first_date_done"), v.literal("ongoing"),
+      v.literal("exclusive"), v.literal("ghosted"), v.literal("ended"),
+    )),
+    hotness_rating: v.optional(v.number()),
+    effort_rating: v.optional(v.number()),
+    nurture_state: v.optional(v.union(
+      v.literal("active_pursuit"), v.literal("steady"), v.literal("nurture"),
+      v.literal("dormant"), v.literal("close"),
+    )),
+    next_followup_kind: v.optional(v.union(
+      v.literal("reply"), v.literal("nudge"), v.literal("date_ask"),
+      v.literal("pattern_interrupt"), v.literal("event_followup"), v.literal("none"),
+    )),
+    operator_notes: v.optional(v.string()),
+    interests: v.optional(v.array(v.string())),
+    boundaries_stated: v.optional(v.array(v.string())),
+    things_she_loves: v.optional(v.array(v.string())),
+    things_she_dislikes: v.optional(v.array(v.string())),
+    active_hours_local: v.optional(v.object({
+      tz: v.string(),
+      start_hour: v.number(),
+      end_hour: v.number(),
+    })),
+  },
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    const patch: Record<string, any> = { updated_at: now };
+    const allowed = [
+      "display_name", "status", "cadence_profile", "whitelist_for_autoreply",
+      "courtship_stage", "hotness_rating", "effort_rating", "nurture_state",
+      "next_followup_kind", "operator_notes", "interests", "boundaries_stated",
+      "things_she_loves", "things_she_dislikes", "active_hours_local",
+    ];
+    for (const k of allowed) {
+      const v_ = (args as any)[k];
+      if (v_ !== undefined) patch[k] = v_;
+    }
+    // Validate ranges.
+    if (patch.hotness_rating !== undefined) {
+      patch.hotness_rating = Math.max(1, Math.min(10, Math.round(patch.hotness_rating)));
+    }
+    if (patch.effort_rating !== undefined) {
+      patch.effort_rating = Math.max(1, Math.min(5, Math.round(patch.effort_rating)));
+    }
+    await ctx.db.patch(args.person_id, patch);
+    return { ok: true, fields_set: Object.keys(patch).length - 1 };
+  },
+});
+
+// ----------------------------------------------------------------------------
 // updateLiveState
 //
 // Daemon-only writer. Called whenever inbound/outbound activity occurs on
@@ -1194,278 +1090,3 @@ export const updateLiveState = mutation({
     await ctx.db.patch(args.person_id, patch);
   },
 });
-
-// ============================================================================
-// WAVE 2.4 — DOSSIER ROUTE (AI-9501)
-// ============================================================================
-
-// Simple list for the /network page. Returns people ordered by most recently
-// updated, filtered by status. Supports all status values from the schema.
-export const list = query({
-  args: {
-    user_id: v.optional(v.string()),
-    status: v.optional(v.string()),
-  },
-  handler: async (ctx, args) => {
-    const status = (args.status ?? "active") as
-      | "lead"
-      | "active"
-      | "paused"
-      | "ghosted"
-      | "dating"
-      | "ended";
-
-    if (args.user_id) {
-      return await ctx.db
-        .query("people")
-        .withIndex("by_user_status", (q) =>
-          q.eq("user_id", args.user_id!).eq("status", status),
-        )
-        .order("desc")
-        .take(200);
-    }
-    return await ctx.db
-      .query("people")
-      .withIndex("by_user_status", (q) => q.eq("user_id", "fleet-julian").eq("status", status))
-      .order("desc")
-      .take(200);
-  },
-});
-
-// Full dossier — person row + related tables joined in one reactive query.
-// Powers /admin/clapcheeks-ops/people/[id].
-export const getDossier = query({
-  args: { person_id: v.id("people") },
-  handler: async (ctx, args) => {
-    const person = await ctx.db.get(args.person_id);
-    if (!person) return null;
-
-    // Last 100 messages from the conversation(s) linked to this person.
-    // Walk all conversations where person_id matches, or fall back to the
-    // primary imessage handle if person_id isn't set on conversations yet.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const rawMessages: any[] = [];
-
-    // First: try by person_id on conversations (AI-9449 field)
-    const convsByPerson = await ctx.db
-      .query("conversations")
-      .withIndex("by_person", (q) => q.eq("person_id", args.person_id))
-      .take(10);
-
-    // Fallback: match via primary imessage handle
-    let convIds = convsByPerson.map((c) => c._id);
-    if (convIds.length === 0 && person.handles?.length) {
-      const primaryHandle = person.handles.find((h) => h.primary) ?? person.handles[0];
-      if (primaryHandle) {
-        const conv = await ctx.db
-          .query("conversations")
-          .withIndex("by_imessage_handle", (q) =>
-            q.eq("imessage_handle", primaryHandle.value),
-          )
-          .first();
-        if (conv) convIds = [conv._id];
-      }
-    }
-
-    // Collect last 100 messages across matched conversations
-    for (const convId of convIds.slice(0, 3)) {
-      const msgs = await ctx.db
-        .query("messages")
-        .withIndex("by_conversation", (q) => q.eq("conversation_id", convId))
-        .order("desc")
-        .take(100);
-      rawMessages.push(...msgs);
-    }
-    // Sort by sent_at desc, take 100, then reverse for chronological display
-    rawMessages.sort((a, b) => b.sent_at - a.sent_at);
-    const messages = rawMessages.slice(0, 100).reverse();
-
-    // Active + pending scheduled touches
-    const scheduledTouches = await ctx.db
-      .query("scheduled_touches")
-      .withIndex("by_person", (q) => q.eq("person_id", args.person_id))
-      .order("desc")
-      .take(50);
-
-    const pendingTouches = scheduledTouches.filter(
-      (t) => t.status === "pending" || t.status === "approved",
-    );
-
-    // Latest 20 media uses
-    const mediaUses = await ctx.db
-      .query("media_uses")
-      .withIndex("by_person", (q) => q.eq("person_id", args.person_id))
-      .order("desc")
-      .take(20);
-
-    return {
-      person,
-      messages,
-      scheduledTouches,
-      pendingTouches,
-      mediaUses,
-    };
-  },
-});
-
-// Schedule a manual touch for a person.
-// "Send a touch now" button → type="reply", scheduled_for=now+5min.
-//
-// AI-9500-G: extended with preview_only flag.
-//   When preview_only=true: inserts a row with is_preview=true + status="scheduled"
-//   but does NOT enqueue a fireOne job. Returns {touch_id, preview:true, draft_body,
-//   template_kind, scheduled_for_iso}.  The draft_body is either the caller-supplied
-//   body or a stock preview generated from the template name.
-//   Commit the previewed touch via commitDraftedTouch() below.
-export const scheduleOne = mutation({
-  args: {
-    person_id: v.id("people"),
-    user_id: v.string(),
-    type: v.optional(v.string()),
-    draft_body: v.optional(v.string()),
-    scheduled_for: v.optional(v.number()),
-    // AI-9500-G: when true, create a preview row only — no fireOne enqueue.
-    preview_only: v.optional(v.boolean()),
-  },
-  handler: async (ctx, args) => {
-    const now = Date.now();
-    const touchType = (args.type ?? "reply") as
-      | "reply" | "nudge" | "callback_reference" | "date_ask"
-      | "date_confirm_24h" | "date_dayof" | "date_postmortem"
-      | "reengage_low_temp" | "birthday_wish" | "event_day_check"
-      | "pattern_interrupt" | "phone_swap_followup" | "first_call_invite"
-      | "morning_text" | "digest_inclusion";
-
-    if (args.preview_only) {
-      // Generate a stock preview body for the template so Julian can edit it
-      // before committing. The Mac Mini Python runner (_draft_with_template)
-      // can update draft_body via a follow-up patch once it processes the row.
-      // TODO(AI-9500-G-followup): wire clapcheeks-local convex_runner to pick
-      // up is_preview=true rows and call _draft_with_template, then patch
-      // draft_body. For now we use a stock opening line per template.
-      const stockDraft = _stockPreviewBody(touchType);
-      const scheduledFor = args.draft_body ? now + 30 * 1000 : now + 5 * 60 * 1000;
-      const touchId = await ctx.db.insert("scheduled_touches", {
-        person_id: args.person_id,
-        user_id: args.user_id,
-        type: touchType,
-        draft_body: args.draft_body ?? stockDraft,
-        status: "scheduled",
-        is_preview: true,
-        scheduled_for: scheduledFor,
-        created_at: now,
-        updated_at: now,
-      });
-      return {
-        touch_id: touchId,
-        preview: true as const,
-        draft_body: args.draft_body ?? stockDraft,
-        template_kind: touchType,
-        scheduled_for_iso: new Date(scheduledFor).toISOString(),
-      };
-    }
-
-    // Normal (non-preview) path — unchanged from pre-G.
-    return await ctx.db.insert("scheduled_touches", {
-      person_id: args.person_id,
-      user_id: args.user_id,
-      type: touchType,
-      draft_body: args.draft_body,
-      status: "pending",
-      scheduled_for: args.scheduled_for ?? now + 5 * 60 * 1000,
-      created_at: now,
-      updated_at: now,
-    });
-  },
-});
-
-// AI-9500-G: Commit a previewed touch.
-//   Takes a touch_id (must have is_preview=true + status="scheduled"), sets
-//   the edited body, clears is_preview, and pushes scheduled_for to now+30s
-//   so the existing fireOne machinery picks it up.
-//   D's anti-loop check in fireOne runs normally on commit — no bypass.
-export const commitDraftedTouch = mutation({
-  args: {
-    touch_id: v.id("scheduled_touches"),
-    edited_body: v.string(),
-  },
-  handler: async (ctx, args) => {
-    const touch = await ctx.db.get(args.touch_id);
-    if (!touch) return { not_found: true };
-    if (!touch.is_preview) return { skipped: true, reason: "not_a_preview_touch" };
-    if (touch.status !== "scheduled") {
-      return { skipped: true, reason: `status_${touch.status}` };
-    }
-
-    // Check whitelist brake — person must be whitelisted for autoreply
-    // (digest_inclusion is the one exception that bypasses whitelist in fireOne,
-    // but for manual compose we still require it to prevent accidents).
-    const person = await ctx.db.get(touch.person_id);
-    if (!person) return { skipped: true, reason: "person_not_found" };
-    if (!person.whitelist_for_autoreply) {
-      return { skipped: true, reason: "not_whitelisted" };
-    }
-
-    const now = Date.now();
-    const scheduledFor = now + 30 * 1000; // fire in 30s
-
-    await ctx.db.patch(args.touch_id, {
-      draft_body: args.edited_body,
-      is_preview: false,
-      scheduled_for: scheduledFor,
-      status: "scheduled",
-      updated_at: now,
-    });
-
-    return {
-      committed: true,
-      touch_id: args.touch_id,
-      scheduled_for_iso: new Date(scheduledFor).toISOString(),
-    };
-  },
-});
-
-// ---------------------------------------------------------------------------
-// _stockPreviewBody — returns a template-appropriate opening line so the
-// dashboard compose panel has something editable immediately (before the Mac
-// Mini Python runner patches the actual AI-generated body).
-//
-// TODO(AI-9500-G-followup): remove / override when convex_runner wires
-// _draft_with_template → patch draft_body on is_preview=true rows.
-// ---------------------------------------------------------------------------
-function _stockPreviewBody(type: string): string {
-  switch (type) {
-    case "reply":
-      return "Hey, been thinking about what you said… wanted to follow up on that.";
-    case "nudge":
-      return "Hey you 👋 just checking in — how's your week going?";
-    case "callback_reference":
-      return "Did you end up doing that thing you mentioned? Curious how it went.";
-    case "date_ask":
-      return "Hey, I'd love to actually meet up — are you free this week?";
-    case "date_confirm_24h":
-      return "Just confirming we're still on for tomorrow — looking forward to it.";
-    case "date_dayof":
-      return "Today's the day! See you tonight.";
-    case "date_postmortem":
-      return "Had such a good time last night. Hope you got home safe.";
-    case "reengage_low_temp":
-      return "Hey, it's been a minute — just thinking about you.";
-    case "birthday_wish":
-      return "Happy birthday! Hope your day is as amazing as you are 🎂";
-    case "event_day_check":
-      return "Today's the big day, right? Rooting for you — you've got this.";
-    case "pattern_interrupt":
-      return "Random question out of nowhere… but I have to ask.";
-    case "phone_swap_followup":
-      return "Hey it's Julian from [app] — glad we got each other's numbers!";
-    case "first_call_invite":
-      return "I'm way better on a call than over text — want to chat sometime this week?";
-    case "morning_text":
-      return "Good morning ☀️ Hope you slept well.";
-    case "digest_inclusion":
-      return "Hey, wanted to reach out — what are you up to this week?";
-    default:
-      return "Hey, wanted to reach out.";
-  }
-}

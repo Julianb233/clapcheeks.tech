@@ -124,6 +124,59 @@ export const listForUser = query({
   },
 });
 
+// AI-9500-C: Enqueue a sync_hinge job for the Mac Mini agent.
+// Called by the 5-minute cron in crons.ts.
+// Dedup guard: skips insert if a queued or running sync_hinge job already
+// exists for the user to prevent queue flooding.
+export const enqueueHingeSync = internalMutation({
+  args: {
+    user_id: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const userId = args.user_id ?? "fleet-julian";
+    const now = Date.now();
+
+    // Check for an already-queued or running job of this type
+    const existing = await ctx.db
+      .query("agent_jobs")
+      .withIndex("by_user_status", (q) =>
+        q.eq("user_id", userId).eq("status", "queued"),
+      )
+      .filter((q) => q.eq(q.field("job_type"), "sync_hinge"))
+      .first();
+
+    if (existing) {
+      return { enqueued: false, reason: "already_queued", job_id: existing._id };
+    }
+
+    const running = await ctx.db
+      .query("agent_jobs")
+      .withIndex("by_user_status", (q) =>
+        q.eq("user_id", userId).eq("status", "running"),
+      )
+      .filter((q) => q.eq(q.field("job_type"), "sync_hinge"))
+      .first();
+
+    if (running) {
+      return { enqueued: false, reason: "already_running", job_id: running._id };
+    }
+
+    const id = await ctx.db.insert("agent_jobs", {
+      user_id: userId,
+      job_type: "sync_hinge",
+      payload: {},
+      status: "queued",
+      priority: 0,
+      attempts: 0,
+      max_attempts: 3,
+      created_at: now,
+      updated_at: now,
+    });
+
+    return { enqueued: true, reason: null, job_id: id };
+  },
+});
+
 // Cron: any 'running' job whose lock expired without complete/fail is
 // considered stuck. Requeue it (or fail if attempts maxed).
 export const reapStuck = internalMutation({
@@ -159,39 +212,5 @@ export const reapStuck = internalMutation({
   },
 });
 
-// AI-9500-C: Enqueue a Hinge sync job for the Mac Mini agent to pick up.
-// Called by the 5-min cron in crons.ts. Includes a dedup guard so a second
-// cron tick cannot pile up if the previous job is still queued or running.
-export const enqueueHingeSync = internalMutation({
-  args: {},
-  handler: async (ctx) => {
-    const now = Date.now();
-    const existing = await ctx.db
-      .query("agent_jobs")
-      .withIndex("by_user_type", (q) =>
-        q.eq("user_id", "fleet-julian").eq("job_type", "sync_hinge"),
-      )
-      .filter((q) =>
-        q.or(
-          q.eq(q.field("status"), "queued"),
-          q.eq(q.field("status"), "running"),
-        ),
-      )
-      .first();
-    if (existing) {
-      return { skipped: true, reason: "already_queued_or_running" };
-    }
-    const id = await ctx.db.insert("agent_jobs", {
-      user_id: "fleet-julian",
-      job_type: "sync_hinge",
-      payload: {},
-      status: "queued",
-      priority: 1,
-      attempts: 0,
-      max_attempts: 2,
-      created_at: now,
-      updated_at: now,
-    });
-    return { skipped: false, id };
-  },
-});
+// (Duplicate enqueueHingeSync from main was removed during integration→main merge.
+// The canonical version above accepts an optional user_id arg.)

@@ -330,77 +330,53 @@ export default defineSchema({
     courtship_last_analyzed: v.optional(v.number()),            // unix ms of last enrich_courtship run
 
     // -----------------------------------------------------------------
-    // FEELS-SEEN-HEARD-UNDERSTOOD intelligence (Julian: "make her feel seen,
-    // heard, understood, and feel like I'm interested in getting to know
-    // them"). Same enrich_courtship pass extracts these. The reply generator
-    // pulls from them so every outbound message references something specific
-    // she's said vs. generic "how's your week".
+    // FEELS-SEEN-HEARD intelligence — populated by enrich_courtship.
     // -----------------------------------------------------------------
-    personal_details: v.optional(v.array(v.object({              // durable facts about her life
-      fact: v.string(),                                          // e.g. "rescue puppy named Beans"
+    personal_details: v.optional(v.array(v.object({
+      fact: v.string(),
       source_msg_external_guid: v.optional(v.string()),
       learned_at: v.number(),
       validated_by_julian: v.optional(v.boolean()),
     }))),
-    recent_life_events: v.optional(v.array(v.object({            // events with dates → schedulable touches
-      event: v.string(),                                         // "job interview at Acme"
+    recent_life_events: v.optional(v.array(v.object({
+      event: v.string(),
       date_mentioned_ms: v.number(),
       event_date_estimated_ms: v.optional(v.number()),
-      status: v.union(                                           // pending → happened → faded
-        v.literal("pending"), v.literal("happened"), v.literal("missed"), v.literal("faded"),
+      status: v.union(
+        v.literal("pending"), v.literal("happened"),
+        v.literal("missed"), v.literal("faded"),
       ),
     }))),
-    topics_that_lit_her_up: v.optional(v.array(v.object({        // topics where engagement spiked
+    topics_that_lit_her_up: v.optional(v.array(v.object({
       topic: v.string(),
       signal_count: v.number(),
       last_lit_at_ms: v.number(),
-      signal_strength: v.optional(v.number()),                   // 0..1
+      signal_strength: v.optional(v.number()),
     }))),
-    curiosity_ledger: v.optional(v.array(v.object({              // open questions to ask
+    curiosity_ledger: v.optional(v.array(v.object({
       question: v.string(),
       topic: v.optional(v.string()),
-      priority: v.number(),                                      // 1=high
+      priority: v.number(),
       status: v.union(
-        v.literal("pending"), v.literal("asked"), v.literal("answered"), v.literal("retired"),
+        v.literal("pending"), v.literal("asked"),
+        v.literal("answered"), v.literal("retired"),
       ),
       added_at_ms: v.number(),
       asked_at_ms: v.optional(v.number()),
     }))),
-    emotional_state_recent: v.optional(v.array(v.object({        // sliding window of inferred state
+    emotional_state_recent: v.optional(v.array(v.object({
       state: v.union(
         v.literal("stressed"), v.literal("excited"), v.literal("playful"),
         v.literal("vulnerable"), v.literal("flirty"), v.literal("bored"),
         v.literal("tired"), v.literal("proud"), v.literal("anxious"), v.literal("neutral"),
       ),
-      intensity: v.number(),                                     // 0..1
+      intensity: v.number(),
       observed_at_ms: v.number(),
       message_external_guid: v.optional(v.string()),
     }))),
 
     // -----------------------------------------------------------------
-    // PER-GIRL CADENCE OVERRIDES + ASK-READINESS (Phase A/B/C of the
-    // optimization plan). recalibrate_cadence sweep updates weekly.
-    // -----------------------------------------------------------------
-    cadence_overrides: v.optional(v.object({
-      min_reply_gap_ms: v.optional(v.number()),
-      max_reply_gap_ms: v.optional(v.number()),
-      preferred_send_hour_local: v.optional(v.number()),
-      compliment_throttle_ms: v.optional(v.number()),
-      banter_density_target: v.optional(v.number()),             // 0..1
-      emoji_density_target: v.optional(v.number()),
-      message_length_target: v.optional(v.number()),
-      // AI-9500-E: set by recalibrateCadenceForOne (reply-velocity mirror)
-      computed_at: v.optional(v.number()),                       // unix ms — last calibration run
-      sample_pairs: v.optional(v.number()),                      // reply pairs used for median
-    })),
-    time_to_ask_score: v.optional(v.number()),                   // 0..1 — when crosses 0.7 → schedule date-ask
-    last_ask_attempted_at: v.optional(v.number()),               // unix ms — throttle re-asks
-
-    // -----------------------------------------------------------------
-    // AI-9500 Wave 2.4A — Profile-screenshot import enrichment.
-    // Set when a person row is created via createFromProfileAnalysis
-    // (Julian screenshots a Tinder/Bumble/Hinge/IG profile, AI extracts).
-    // Operator can override any of these via Obsidian frontmatter.
+    // Wave 2.4A — Profile-screenshot import enrichment (set when imported).
     // -----------------------------------------------------------------
     age: v.optional(v.number()),
     zodiac_sign: v.optional(v.union(
@@ -409,23 +385,61 @@ export default defineSchema({
       v.literal("libra"), v.literal("scorpio"), v.literal("sagittarius"),
       v.literal("capricorn"), v.literal("aquarius"), v.literal("pisces"),
     )),
-    zodiac_analysis: v.optional(v.string()),                     // 2-4 sentences: how to talk to her, what to avoid
-    disc_inference: v.optional(v.string()),                      // composite letter ("D/I", "S/C", etc.) inferred from bio + photos
-    disc_inference_reasoning: v.optional(v.string()),            // 1-2 sentences explaining the inference
-    opener_suggestions: v.optional(v.array(v.string())),         // 3 calibrated openers (zodiac+DISC-aware)
-    location_observed: v.optional(v.string()),                   // city / neighborhood from profile
-    occupation_observed: v.optional(v.string()),                 // job / industry from bio
-    bio_text: v.optional(v.string()),                            // her self-written bio
-    profile_prompts_observed: v.optional(v.array(v.object({       // Hinge-style prompt + answer pairs
+    zodiac_analysis: v.optional(v.string()),
+    disc_inference: v.optional(v.string()),
+    disc_inference_reasoning: v.optional(v.string()),
+    opener_suggestions: v.optional(v.array(v.string())),
+    location_observed: v.optional(v.string()),
+    occupation_observed: v.optional(v.string()),
+    bio_text: v.optional(v.string()),
+    profile_prompts_observed: v.optional(v.array(v.object({
       prompt: v.string(),
       answer: v.string(),
     }))),
-    photos_observed: v.optional(v.array(v.string())),            // brief AI description of each photo
+    photos_observed: v.optional(v.array(v.string())),
     imported_from_profile_screenshot: v.optional(v.boolean()),
     imported_from_platform: v.optional(v.union(
       v.literal("tinder"), v.literal("bumble"), v.literal("hinge"),
       v.literal("instagram"), v.literal("other"),
     )),
+
+    // -----------------------------------------------------------------
+    // AI-9500-E — Per-person cadence overrides (auto-tuned weekly).
+    // -----------------------------------------------------------------
+    cadence_overrides: v.optional(v.object({
+      min_reply_gap_ms: v.optional(v.number()),
+      max_reply_gap_ms: v.optional(v.number()),
+      preferred_send_hour_local: v.optional(v.number()),
+      compliment_throttle_ms: v.optional(v.number()),
+      banter_density_target: v.optional(v.number()),
+      emoji_density_target: v.optional(v.number()),
+      message_length_target: v.optional(v.number()),
+    })),
+    time_to_ask_score: v.optional(v.number()),
+    last_ask_attempted_at: v.optional(v.number()),
+
+    // -----------------------------------------------------------------
+    // Wave 2.4 Task J — Operator-facing ratings + nurture state.
+    // Editable from the dossier page; AI uses these to prioritize attention.
+    // -----------------------------------------------------------------
+    hotness_rating: v.optional(v.number()),       // 1-10, operator-set
+    effort_rating: v.optional(v.number()),        // 1-5, operator's effort budget
+    nurture_state: v.optional(v.union(            // explicit nurture mode
+      v.literal("active_pursuit"),                // chase, fast cadence, willing to put in
+      v.literal("steady"),                        // consistent but not aggressive
+      v.literal("nurture"),                       // light-touch keep-warm
+      v.literal("dormant"),                       // re-awaken occasionally
+      v.literal("close"),                         // wind down — stop sending
+    )),
+    next_followup_kind: v.optional(v.union(       // what we should send next
+      v.literal("reply"),
+      v.literal("nudge"),
+      v.literal("date_ask"),
+      v.literal("pattern_interrupt"),
+      v.literal("event_followup"),
+      v.literal("none"),
+    )),
+    operator_notes: v.optional(v.string()),       // free-form notes from dashboard
 
     // Cadence + timing — drives the cadence_runner thread.
     cadence_profile: v.union(
@@ -440,9 +454,6 @@ export default defineSchema({
       start_hour: v.number(),                       // 0-23
       end_hour: v.number(),
     })),
-    // AI-9500-E: Hour ints (0-23) where her inbound volume exceeds 1/3 of the
-    // peak hour. Derived from the same 30d window as cadence_overrides.
-    active_hours_computed: v.optional(v.array(v.float64())),
 
     // Live state (computed by daemon, NOT from Obsidian).
     last_inbound_at: v.optional(v.number()),
@@ -518,6 +529,8 @@ export default defineSchema({
   // exactly the right moment instead of a global cron scanning for due rows.
   // Powers ask-for-the-date, logistics cascade, ghost-recovery, hot-fast-track,
   // birthday/event-day, and the daily digest queue.
+  //
+  // AI-9500 Wave 2.4D — added fired_body_shape for anti-loop dedup.
   // -----------------------------------------------------------------------
   scheduled_touches: defineTable({
     user_id: v.string(),
@@ -558,14 +571,15 @@ export default defineSchema({
     generated_by_run_id: v.optional(v.string()),    // trace id of the enrichment that generated this
     skip_reason: v.optional(v.string()),
     fired_at: v.optional(v.number()),
-    // Wave 2.4 Task G — preview/compose-from-dashboard touches.
-    // is_preview=true: Mac Mini drafts body asynchronously and writes back.
-    // commit() flips is_preview=false + scheduled_for=now to actually fire.
+    // AI-9500 Wave 2.4D — anti-loop fingerprint.
+    // sha1( type + ":" + draftBody[0..50] ) stored at fire time so fireOne
+    // can detect duplicate-body sends across all people in the last 7 days.
+    fired_body_shape: v.optional(v.string()),
+    // AI-9500 Wave 2.4G — preview/compose-from-dashboard touches.
+    // is_preview=true: dashboard inserted a "draft this for me" row. Mac Mini's
+    // draft_preview job_handler fills draft_body and calls touches:setPreviewDraft.
+    // touches:commitPreview clears is_preview and runs the standard fireOne path.
     is_preview: v.optional(v.boolean()),
-    // Wave 2.4 Task D — anti-loop pattern hash.
-    // sha256(prompt_template + ":" + first_50_chars(draft_body)) at fire time.
-    // Used by fireOne to detect cross-person template collision in last 7 days.
-    pattern_hash: v.optional(v.string()),
     created_at: v.number(),
     updated_at: v.number(),
   })
@@ -573,63 +587,53 @@ export default defineSchema({
     .index("by_person_status", ["person_id", "status"])
     .index("by_due", ["status", "scheduled_for"])
     .index("by_conversation", ["conversation_id"])
-    // Wave 2.4 Task D — fast 7-day anti-loop scan per user.
-    .index("by_user_fired", ["user_id", "fired_at"]),
+    .index("by_user_fired_at", ["user_id", "fired_at"]),  // AI-9500D: recent-fired scan
 
   // -----------------------------------------------------------------------
   // AI-9449 — Media library. Photos / videos / voice memos / memes Julian
-  // has approved for AI to send in context (puppy, beach house, gym selfie,
-  // memes that match her humor, etc.). AI selects from this library based
-  // on conversation signals and a context-hook match.
+  // has approved for AI to send in context. AI selects from this library
+  // based on conversation signals and a context-hook match.
   // -----------------------------------------------------------------------
   media_assets: defineTable({
     user_id: v.string(),
-    asset_id: v.string(),                              // stable external id (not Convex Id) — survives re-uploads
+    asset_id: v.string(),                              // stable external id
     kind: v.union(
       v.literal("image"), v.literal("video"),
       v.literal("voice_memo"), v.literal("meme"), v.literal("gif"),
     ),
-    storage_url: v.string(),                           // Convex storage URL or external CDN
+    storage_url: v.string(),
     thumbnail_url: v.optional(v.string()),
     file_size_bytes: v.optional(v.number()),
     mime_type: v.optional(v.string()),
-    caption: v.optional(v.string()),                   // Julian's note: "Tahoe deck at sunset"
-    tags: v.array(v.string()),                         // ["puppy","dog","outdoors"]
-    context_hooks: v.array(v.string()),                // ["she mentions weekends","she likes hiking"]
+    caption: v.optional(v.string()),
+    tags: v.array(v.string()),
+    context_hooks: v.array(v.string()),
     vibe: v.optional(v.union(
       v.literal("playful"), v.literal("flex"), v.literal("vulnerable"),
       v.literal("funny"), v.literal("adventurous"), v.literal("romantic"),
       v.literal("mundane"),
     )),
-    flex_level: v.optional(v.number()),                // 0..5 — "boat at sunset" = 5
+    flex_level: v.optional(v.number()),
     smile_detected: v.optional(v.boolean()),
     with_friends: v.optional(v.boolean()),
     with_pet: v.optional(v.boolean()),
-    location_taken: v.optional(v.string()),
-    date_taken_ms: v.optional(v.number()),
     upload_source: v.optional(v.union(
       v.literal("iphone"), v.literal("google_drive"),
       v.literal("manual"), v.literal("vps_cli"),
     )),
     approval_status: v.union(
-      v.literal("pending"),                            // uploaded but Julian hasn't confirmed tags
-      v.literal("approved"),                           // OK for AI to send
-      v.literal("deprecated"),                         // never send (e.g. ex appears in photo)
+      v.literal("pending"),
+      v.literal("approved"),
+      v.literal("deprecated"),
     ),
-    auto_tag_run_id: v.optional(v.string()),           // trace id of the Vision call that tagged it
-
-    // AI-9500 Wave 2.4A — profile-screenshot mode.
-    // When set, this asset is treated as a screenshot of someone's dating-app
-    // profile (Tinder/Bumble/Hinge/IG). media:analyzeAsProfile fires Vision
-    // against it and writes the extracted info here. Dashboard surfaces it
-    // for one-click create-person-row.
+    auto_tag_run_id: v.optional(v.string()),
+    // Wave 2.4A — profile screenshot mode.
     analysis_kind: v.optional(v.union(
-      v.literal("media"),                              // default — used for AI-attached sends
-      v.literal("profile_screenshot"),                 // analyze as a person's profile
+      v.literal("media"),
+      v.literal("profile_screenshot"),
     )),
-    profile_screenshot_data: v.optional(v.any()),      // structured Vision output (see analyzeAsProfile)
-    profile_imported_to_person_id: v.optional(v.id("people")),  // set after createFromProfileAnalysis fires
-
+    profile_screenshot_data: v.optional(v.any()),
+    profile_imported_to_person_id: v.optional(v.id("people")),
     used_count: v.optional(v.number()),
     last_used_at_ms: v.optional(v.number()),
     last_used_with_person_id: v.optional(v.id("people")),
@@ -641,22 +645,22 @@ export default defineSchema({
     .index("by_asset_id", ["asset_id"]),
 
   // -----------------------------------------------------------------------
-  // AI-9449 Wave 2.2 — calendar_slots cache. Mac Mini periodically pulls
-  // Julian's gws calendars (primary + CONSULTING + SALES CALLS + Work IN
-  // THE Business) and writes free-busy windows here. Date-ask drafts read
-  // from this so AI never proposes a time Julian's already booked.
+  // AI-9449 Wave 2.2 — calendar_slots cache.
+  // Mac Mini periodically pulls Julian's gws calendars and writes free-busy
+  // windows here. Date-ask drafts read from this so AI never proposes a
+  // time he's already booked.
   // -----------------------------------------------------------------------
   calendar_slots: defineTable({
     user_id: v.string(),
-    slot_start_ms: v.number(),                       // unix ms — slot window start
-    slot_end_ms: v.number(),                         // unix ms — slot window end
+    slot_start_ms: v.number(),
+    slot_end_ms: v.number(),
     slot_kind: v.union(
-      v.literal("free"),                             // proposable
-      v.literal("busy"),                             // booked, do not propose
-      v.literal("date_proposed"),                    // we proposed this to a girl
-      v.literal("date_confirmed"),                   // she said yes
+      v.literal("free"),
+      v.literal("busy"),
+      v.literal("date_proposed"),
+      v.literal("date_confirmed"),
     ),
-    label_local: v.optional(v.string()),             // e.g. "Thu 7pm Pacific"
+    label_local: v.optional(v.string()),
     proposed_to_person_id: v.optional(v.id("people")),
     fetched_at_ms: v.number(),
   })
@@ -671,7 +675,7 @@ export default defineSchema({
     conversation_id: v.optional(v.id("conversations")),
     sent_at: v.number(),
     message_external_guid: v.optional(v.string()),
-    fire_context: v.optional(v.string()),              // e.g. "ghost_recovery", "phone_swap_followup"
+    fire_context: v.optional(v.string()),
   })
     .index("by_user_recent", ["user_id", "sent_at"])
     .index("by_asset", ["asset_id"])
