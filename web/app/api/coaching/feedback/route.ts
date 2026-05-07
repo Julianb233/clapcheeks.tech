@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { getConvexServerClient } from '@/lib/convex/server'
 import { api } from '@/convex/_generated/api'
 import type { Id } from '@/convex/_generated/dataModel'
+import { getFleetUserId } from '@/lib/fleet-user'
 
 // AI-9537: tip feedback now lives on Convex tip_feedback.
 
@@ -24,7 +25,7 @@ export async function POST(req: NextRequest) {
   try {
     const convex = getConvexServerClient()
     await convex.mutation(api.coaching.upsertTipFeedback, {
-      user_id: user.id,
+      user_id: getFleetUserId(),
       coaching_session_id: sessionId as Id<'coaching_sessions'>,
       tip_index: tipIndex,
       helpful,

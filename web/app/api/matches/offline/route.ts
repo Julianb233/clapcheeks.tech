@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { api } from '@/convex/_generated/api'
 import { getConvexServerClient } from '@/lib/convex/server'
 import { createClient } from '@/lib/supabase/server'
+import { getFleetUserId } from '@/lib/fleet-user'
 
 /**
  * Phase F (AI-8320): Offline contact ingestion.
@@ -90,7 +91,7 @@ export async function POST(req: Request) {
   let upserted: { _id: string; external_id?: string } | null = null
   try {
     const result = await convex.mutation(api.matches.upsertOffline, {
-      user_id: user.id,
+      user_id: getFleetUserId(),
       external_match_id: externalId,
       match_id: externalId,
       external_id: externalId,

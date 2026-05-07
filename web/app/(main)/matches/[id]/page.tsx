@@ -7,6 +7,7 @@ import { mapConvexMatchRowToLegacy } from '@/lib/matches/convex-mapper'
 import type { ChatMessage } from './conversation-thread'
 import { getConvexServerClient } from '@/lib/convex/server'
 import { api } from '@/convex/_generated/api'
+import { getFleetUserId } from '@/lib/fleet-user'
 
 // AI-9534/AI-9537: matches and memos on Convex.
 
@@ -35,7 +36,8 @@ export default async function MatchDetailPage({
   const rawMatch = (await convex.query(api.matches.resolveByAnyId, { id })) as
     | (Record<string, unknown> & { user_id?: string })
     | null
-  if (!rawMatch || rawMatch.user_id !== user.id) notFound()
+  // AI-9582: ownership check compares Convex-stored fleet user_id (not Supabase auth UUID)
+  if (!rawMatch || rawMatch.user_id !== getFleetUserId()) notFound()
 
   // The MatchProfileView expects a wider shape than the shared legacy mapper
   // produces (it has its own MatchRow type with first_impression, attributes,
@@ -140,7 +142,7 @@ export default async function MatchDetailPage({
   if (externalId) {
     try {
       const conv = await convex.query(api.conversations.getByMatchId, {
-        user_id: user.id,
+        user_id: getFleetUserId(),
         external_match_id: externalId,
       })
       if (conv) convexConversationId = conv._id
@@ -173,7 +175,7 @@ export default async function MatchDetailPage({
   if (memoHandle) {
     try {
       const memoRow = await convex.query(api.memos.getForContact, {
-        user_id: user.id,
+        user_id: getFleetUserId(),
         contact_handle: memoHandle,
       })
       memoInitial = memoRow

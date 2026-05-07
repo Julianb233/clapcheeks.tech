@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { getConvexServerClient } from '@/lib/convex/server'
 import { api } from '@/convex/_generated/api'
+import { getFleetUserId } from '@/lib/fleet-user'
 
 export async function GET() {
   const supabase = await createClient()
@@ -13,10 +14,10 @@ export async function GET() {
     const convex = getConvexServerClient()
     const [pending, inProgress] = await Promise.all([
       convex.query(api.queues.listPostsForUser, {
-        user_id: user.id, status: 'pending', limit: 100,
+        user_id: getFleetUserId(), status: 'pending', limit: 100,
       }),
       convex.query(api.queues.listPostsForUser, {
-        user_id: user.id, status: 'in_progress', limit: 100,
+        user_id: getFleetUserId(), status: 'in_progress', limit: 100,
       }),
     ])
     const queue = [...(pending ?? []), ...(inProgress ?? [])]

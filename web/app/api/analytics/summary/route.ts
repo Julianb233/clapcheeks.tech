@@ -4,6 +4,7 @@ import { ConvexHttpClient } from 'convex/browser'
 import { createClient } from '@/lib/supabase/server'
 import { calculateRizzScore, getRizzTrend, type AnalyticsRow } from '@/lib/rizz'
 import { api } from '@/convex/_generated/api'
+import { getFleetUserId } from '@/lib/fleet-user'
 
 const VALID_DAYS = [7, 30, 90] as const
 
@@ -47,7 +48,7 @@ export async function GET(request: NextRequest) {
     convex
       ? convex
           .query(api.telemetry.getDailyForUser, {
-            user_id: user.id,
+            user_id: getFleetUserId(),
             since_day_iso: fmt(rangeStart),
           })
           .catch(() => [])
@@ -55,7 +56,7 @@ export async function GET(request: NextRequest) {
     convex
       ? convex
           .query(api.conversation_stats.listForUser, {
-            user_id: user.id,
+            user_id: getFleetUserId(),
             since_date: fmt(rangeStart),
           })
           .catch(() => [])
@@ -63,7 +64,7 @@ export async function GET(request: NextRequest) {
     convex
       ? convex
           .query(api.spending.listForUser, {
-            user_id: user.id,
+            user_id: getFleetUserId(),
             since_date: fmt(rangeStart),
           })
           .catch(() => [])

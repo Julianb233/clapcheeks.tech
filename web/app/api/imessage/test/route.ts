@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { getConvexServerClient } from '@/lib/convex/server'
 import { api } from '@/convex/_generated/api'
+import { getFleetUserId } from '@/lib/fleet-user'
 
 function normalizePhone(raw: string): string | null {
   const digits = raw.replace(/\D/g, '')
@@ -41,7 +42,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const data = await getConvexServerClient().mutation(api.queues.enqueueReply, {
-      user_id: user.id,
+      user_id: getFleetUserId(),
       recipient_handle: handle,
       body: body_text,
       status: 'queued',
@@ -66,7 +67,7 @@ export async function GET(_request: NextRequest) {
 
   try {
     const data = await getConvexServerClient().query(api.queues.listRepliesForUser, {
-      user_id: user.id, source: 'web_test', limit: 20,
+      user_id: getFleetUserId(), source: 'web_test', limit: 20,
     })
     return NextResponse.json({ messages: data || [] })
   } catch (err) {
