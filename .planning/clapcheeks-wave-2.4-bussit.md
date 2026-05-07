@@ -208,14 +208,10 @@ You can run **two terminals on (A + C)**, **three on (A + C + H)**, or **four on
 ### Task H — Demo data wipe procedure
 
 Run from the repo root (VPS or Mac Mini with `NEXT_PUBLIC_CONVEX_URL` or
-`CONVEX_URL` in environment / `web/.env.local`):
+`CONVEX_URL` in environment / web/.env.local):
 
 ```bash
-# Dry-run first (no writes)
 cd /opt/agency-workspace/clapcheeks.tech
-python clapcheeks-local/scripts/seed_demo_data.py --wipe --dry-run
-
-# Apply
 python clapcheeks-local/scripts/seed_demo_data.py --wipe
 ```
 
@@ -226,20 +222,12 @@ python clapcheeks-local/scripts/seed_demo_data.py --wipe \
   --convex-url https://valiant-oriole-651.convex.cloud
 ```
 
-**How wipe works**: calls `people:deleteByObsidianPath` for each of the three
-synthetic obsidian paths (`Synthetic/Demo-Sarah.md`, `Synthetic/Demo-Kate.md`,
-`Synthetic/Demo-Maya.md`). The mutation hard-deletes the people row and nulls
-`person_id` on linked conversations + messages. Orphaned `scheduled_messages`
-and `scheduled_touches` rows are harmlessly inert — no dashboard query
-surfaces rows whose linked person_id no longer exists. For a full reset run
-`npx convex reset` on the dev deployment (dev only — never production).
+The wipe uses `display_name LIKE 'Demo: %'` as the filter — it calls the
+`people:deleteDemoRows` mutation which cascades to conversations, messages,
+scheduled_touches, and pending_links. It does NOT touch any row where
+`display_name` does not start with `"Demo: "`, so real data is safe.
 
-No real data is at risk. Demo rows use the reserved `+1555111xxxx` phone
-range and `Synthetic/Demo-*` obsidian paths, which are absent from any real
-Obsidian vault.
-
-Verify clean: `/admin/clapcheeks-ops/network` should show 0 "Demo" people
-after wipe.
+Verify clean: `/admin/clapcheeks-ops/network` should show 0 people after wipe.
 
 ---
 

@@ -1,4 +1,5 @@
 import { mutation, query } from "./_generated/server";
+import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import { Id } from "./_generated/dataModel";
 
@@ -97,6 +98,34 @@ export const upsertFromWebhook = mutation({
     read_at: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
+    // AI-9449 — Inline person linking. Resolve the handle to a people row
+    // (created by obsidian_sync / google_contacts_sync / supabase_migration)
+    // so messages + conversations carry person_id from the moment they land.
+    // Without this, every backfilled iMessage is orphaned and the courtship
+    // / vibe enrichment skips them with "not_enough_messages".
+    //
+    // Channel resolution: '@' in handle -> email. Otherwise we accept either
+    // imessage or sms-tagged person handles (chat.db doesn't distinguish).
+    const handleNorm = args.handle.trim().toLowerCase();
+    const isEmail = handleNorm.includes("@");
+    const allPeople = await ctx.db
+      .query("people")
+      .withIndex("by_user", (q) => q.eq("user_id", args.user_id))
+      .collect();
+    const matches = allPeople.filter((p) =>
+      p.handles.some((h) => {
+        const v = h.value.trim().toLowerCase();
+        if (isEmail) return h.channel === "email" && v === handleNorm;
+        return (h.channel === "imessage" || h.channel === "sms") && v === handleNorm;
+      }),
+    );
+    let resolvedPersonId: Id<"people"> | undefined;
+    const ambiguousMatches = matches.length > 1 ? matches.map((p) => p._id) : [];
+    if (matches.length === 1) {
+      resolvedPersonId = matches[0]._id;
+    }
+    // Multi-match pending_links row is written after convId is known (below).
+
     // 1. Find or create conversation for this handle
     let convId: Id<"conversations">;
     const existingConv = await ctx.db
@@ -122,11 +151,45 @@ export const upsertFromWebhook = mutation({
         unread_count: args.direction === "inbound" ? 1 : 0,
         line: args.line,
         imessage_handle: args.handle,
+        person_id: resolvedPersonId,
         created_at: now,
         updated_at: now,
       });
     } else {
       convId = existingConv._id;
+      // Backfill person_id on conversation if previously orphaned + we now resolve.
+      if (resolvedPersonId && !existingConv.person_id) {
+        await ctx.db.patch(convId, { person_id: resolvedPersonId });
+      }
+    }
+
+    // 1b. Multi-match -> record once for human disambiguation. Schema requires
+    // conversation_id so this can only run after convId is known.
+    if (ambiguousMatches.length > 0) {
+      const existingPending = await ctx.db
+        .query("pending_links")
+        .withIndex("by_conversation", (q) => q.eq("conversation_id", convId))
+        .filter((q) =>
+          q.and(
+            q.eq(q.field("handle_value"), handleNorm),
+            q.eq(q.field("status"), "open"),
+          ),
+        )
+        .first();
+      if (!existingPending) {
+        const now = Date.now();
+        await ctx.db.insert("pending_links", {
+          user_id: args.user_id,
+          conversation_id: convId,
+          handle_channel: isEmail ? "email" : "imessage",
+          handle_value: handleNorm,
+          candidate_person_ids: ambiguousMatches,
+          raw_context: args.body.slice(0, 200),
+          status: "open",
+          created_at: now,
+          updated_at: now,
+        });
+      }
     }
 
     // 2. Dedup check by external_guid
@@ -212,7 +275,29 @@ export const upsertFromWebhook = mutation({
       attachments_summary: args.attachments_summary,
       send_error: args.send_error,
       ai_metadata: args.ai_metadata,
+      person_id: resolvedPersonId,
     });
+
+    // 3b. Update people.last_inbound_at / last_outbound_at when linked.
+    if (resolvedPersonId) {
+      const person = await ctx.db.get(resolvedPersonId);
+      if (person) {
+        const isInbound = args.direction === "inbound";
+        const patch: Record<string, unknown> = { updated_at: Date.now() };
+        if (isInbound) {
+          if (!person.last_inbound_at || person.last_inbound_at < args.sent_at) {
+            patch.last_inbound_at = args.sent_at;
+          }
+        } else {
+          if (!person.last_outbound_at || person.last_outbound_at < args.sent_at) {
+            patch.last_outbound_at = args.sent_at;
+          }
+        }
+        if (Object.keys(patch).length > 1) {
+          await ctx.db.patch(resolvedPersonId, patch);
+        }
+      }
+    }
 
     // 4. Update conversation stats + sticky-line
     const conv = await ctx.db
@@ -231,6 +316,26 @@ export const upsertFromWebhook = mutation({
       };
       if (args.line && !conv.line) patches.line = args.line;
       await ctx.db.patch(convId, patches);
+    }
+
+    // 5. AI-9449 Phase B — Fire the inbound interpreter on every new inbound
+    // message to a linked person. This is the brain: extracts intent, urgency,
+    // emotional state, ask-readiness; appends personal_details / lit_topics /
+    // recent_life_events to the person row; schedules touches.
+    //
+    // Only fires for genuinely-new inbound messages with a linked person, on a
+    // best-effort basis (skips backfill rows older than 7 days to avoid burning
+    // LLM credits interpreting ancient transcripts during chat.db backfill).
+    const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
+    const isFreshInbound =
+      args.direction === "inbound"
+      && resolvedPersonId
+      && args.sent_at > Date.now() - SEVEN_DAYS_MS;
+    if (isFreshInbound) {
+      await ctx.scheduler.runAfter(0, internal.inbound.interpretInboundForOne, {
+        person_id: resolvedPersonId,
+        inbound_external_guid: args.external_guid,
+      });
     }
 
     return { conversation_id: convId, message_id: messageId };
@@ -264,6 +369,52 @@ export const markRead = mutation({
       updated_at: now,
     });
     return { marked: unread.length };
+  },
+});
+
+// AI-9449 — Cross-channel message feed for a single person. Pulls all
+// messages for a given person_id (across iMessage / Hinge / Bumble / etc.)
+// in chronological order. Used by:
+//   - convex_runner classify_conversation_vibe (last 50 -> Claude)
+//   - convex_runner enrich_person (style profiler input)
+//   - dashboard person panel ("recent activity")
+//
+// Falls back to a conversation-walk if no messages have a person_id set
+// yet (older rows from before the person_linker existed).
+export const listForPerson = query({
+  args: {
+    person_id: v.id("people"),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const limit = Math.min(args.limit ?? 50, 500);
+
+    // Primary path: messages with person_id set.
+    let rows = await ctx.db
+      .query("messages")
+      .withIndex("by_person_recent", (q) => q.eq("person_id", args.person_id))
+      .order("desc")
+      .take(limit);
+
+    // Fallback: collect via every conversation linked to this person.
+    if (rows.length === 0) {
+      const convs = await ctx.db
+        .query("conversations")
+        .withIndex("by_person", (q) => q.eq("person_id", args.person_id))
+        .collect();
+      const collected: typeof rows = [];
+      for (const c of convs) {
+        const msgs = await ctx.db
+          .query("messages")
+          .withIndex("by_conversation", (q) => q.eq("conversation_id", c._id))
+          .order("desc")
+          .take(limit);
+        collected.push(...msgs);
+      }
+      collected.sort((a, b) => (b.sent_at || 0) - (a.sent_at || 0));
+      rows = collected.slice(0, limit);
+    }
+    return rows;
   },
 });
 
