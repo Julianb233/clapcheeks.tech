@@ -143,8 +143,15 @@ function SummaryCard({ summary, callStats }: { summary: any; callStats: any }) {
 
   const callsTotal = callStats?.total_30d ?? "—"
 
+  // AI-9526 — show dating-active separately from total active so the operator
+  // can see at-a-glance that ~half the active threads are professional/platonic.
+  const datingActive = summary.active_dating_threads
+  const datingLabel =
+    typeof datingActive === "number" && datingActive !== summary.active_threads
+      ? `${datingActive} (of ${summary.active_threads} total)`
+      : summary.active_threads
   const kpis = [
-    { label: "Active threads", value: summary.active_threads },
+    { label: "Dating threads", value: datingLabel },
     { label: "Dates this week", value: summary.dates_this_week },
     {
       label: "Ghost rate (30d)",

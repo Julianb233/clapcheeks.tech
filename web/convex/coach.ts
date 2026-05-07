@@ -537,8 +537,18 @@ export const getDashboardSummary = query({
             (replyRates.reduce((a, b) => a + b, 0) / replyRates.length) * 100
           ) / 100;
 
+    // AI-9526 — also report dating-only count so the roster card doesn't
+    // overstate by counting Sean Gelt (Hafnia, vibe=professional) and the
+    // other 60+ professional/platonic active threads.
+    const datingActive = activePeople.filter(
+      (p: any) =>
+        p.vibe_classification !== "professional" &&
+        p.vibe_classification !== "platonic"
+    );
+
     return {
       active_threads: activePeople.length,
+      active_dating_threads: datingActive.length,
       dates_this_week: datesThisWeek.length,
       ghost_rate_this_month: ghostRate,
       kissed_this_month: kissedCount,
@@ -584,7 +594,15 @@ export const getRosterKPIs = query({
       .collect();
 
     const active = all.filter((p) =>
-      isDatingRelevant(p, now) && (p.status === "active" || p.status === "dating")
+      isDatingRelevant(p, now) &&
+      (p.status === "active" || p.status === "dating") &&
+      // AI-9526 — exclude vibe=professional/platonic from roster KPIs so the
+      // capacity reading + cooling threats reflect actual dating threads, not
+      // Sean Gelt (Hafnia client, vibe=professional) or Anagha (Script.IQ
+      // co-founder, vibe=professional). Vibe=undefined still counts so
+      // unenriched people surface for operator review.
+      p.vibe_classification !== "professional" &&
+      p.vibe_classification !== "platonic"
     );
     const capacity = target - active.length;
 

@@ -463,7 +463,8 @@ export default async function Dashboard() {
           </div>
         )}
 
-        {/* Elite Features */}
+        {/* Elite Features — AI-9526: copy now reflects whether your agent
+            is reporting data, not promotional fluff */}
         <div className="space-y-4 mb-8">
           <h2 className="font-display text-2xl text-white uppercase tracking-wide gold-text">
             Elite Features
@@ -473,27 +474,47 @@ export default async function Dashboard() {
               <div className="bg-white/5 border border-white/10 rounded-xl p-5">
                 <div className="flex items-center justify-between mb-2">
                   <h3 className="text-white font-semibold text-sm">Autopilot</h3>
-                  <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+                  <div className={`w-2 h-2 rounded-full ${
+                    hasAgent && totals.swipes_right > 0 ? "bg-green-400 animate-pulse" : "bg-gray-600"
+                  }`} />
                 </div>
-                <p className="text-white/40 text-xs">Auto-swiping is active across all platforms.</p>
+                <p className="text-white/40 text-xs">
+                  {hasAgent && totals.swipes_right > 0
+                    ? `Active — ${totals.swipes_right} right-swipes in last 30 days.`
+                    : hasAgent
+                    ? "Agent connected, but no swipes yet. Run `clapcheeks swipe` to start."
+                    : "Install the Mac agent to enable auto-swiping."}
+                </p>
               </div>
             </EliteOnly>
             <EliteOnly isElite={userIsElite} featureName="Match Intel">
               <div className="bg-white/5 border border-white/10 rounded-xl p-5">
                 <h3 className="text-white font-semibold text-sm mb-2">Match Intel</h3>
-                <p className="text-white/40 text-xs">Deep profile analysis on your latest matches.</p>
+                <p className="text-white/40 text-xs">
+                  {realMatchCount > 0
+                    ? `${realMatchCount} matches analyzed. Open Matches to see profile insights.`
+                    : "No matches yet — connect a dating app to start collecting profiles."}
+                </p>
               </div>
             </EliteOnly>
             <EliteOnly isElite={userIsElite} featureName="Ghost Hunter">
               <div className="bg-white/5 border border-white/10 rounded-xl p-5">
                 <h3 className="text-white font-semibold text-sm mb-2">Ghost Hunter</h3>
-                <p className="text-white/40 text-xs">Detect and re-engage inactive matches.</p>
+                <p className="text-white/40 text-xs">
+                  {convoTotals.conversations_started > 0
+                    ? `Tracking ${convoTotals.conversations_started} conversations for re-engagement opportunities.`
+                    : "No conversations yet — start chatting to enable ghost detection."}
+                </p>
               </div>
             </EliteOnly>
             <EliteOnly isElite={userIsElite} featureName="Date Closer">
               <div className="bg-white/5 border border-white/10 rounded-xl p-5">
                 <h3 className="text-white font-semibold text-sm mb-2">Date Closer</h3>
-                <p className="text-white/40 text-xs">AI-assisted date scheduling and booking.</p>
+                <p className="text-white/40 text-xs">
+                  {totals.dates > 0
+                    ? `${totals.dates} dates booked in last 30 days. Keep the streak going.`
+                    : "No dates booked yet — your AI proposes options when she's ready."}
+                </p>
               </div>
             </EliteOnly>
           </div>
