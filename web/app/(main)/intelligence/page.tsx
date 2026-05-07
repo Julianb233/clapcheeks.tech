@@ -322,7 +322,7 @@ export default function IntelligencePage() {
               <div className="bg-white/[0.03] rounded-xl p-4">
                 <div className="text-white/40 text-[10px] uppercase tracking-wider mb-2">They Respond Best To</div>
                 <div className="text-lg font-bold text-white mb-1">
-                  {abTest ? getBestStyle(abTest.styles) : 'Warm'}
+                  {abTest ? getBestStyle(abTest.styles) : '--'}
                 </div>
                 <div className="text-white/40 text-xs leading-relaxed">
                   {abTest?.winner
@@ -337,7 +337,7 @@ export default function IntelligencePage() {
                 <div className="text-lg font-bold text-white mb-1">
                   {stats.best_send_time
                     ? `${stats.best_send_time.day} ${stats.best_send_time.hour}:00`
-                    : 'Eve / Weekends'}
+                    : '--'}
                 </div>
                 <div className="text-white/40 text-xs leading-relaxed">
                   {stats.best_send_time
