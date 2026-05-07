@@ -35,16 +35,24 @@ function timeAgo(dateStr: string): string {
 export default function AgentStatusBadge({ initialDevice }: AgentStatusBadgeProps) {
   const [device, setDevice] = useState<DeviceStatus | null>(initialDevice)
   const [agentToken, setAgentToken] = useState<AgentTokenStatus | null>(null)
+  const [failCount, setFailCount] = useState(0)
+  const FAIL_THRESHOLD = 3
 
   const fetchStatus = useCallback(async () => {
     try {
       const res = await fetch('/api/agent/status')
-      if (!res.ok) return
+      if (!res.ok) {
+        // AI-9574: count consecutive non-ok responses
+        setFailCount((n) => n + 1)
+        return
+      }
       const json = await res.json()
       setDevice(json.device)
       setAgentToken(json.agentToken)
+      setFailCount(0)
     } catch {
-      // silently ignore -- keep stale data
+      // AI-9574: count consecutive failures — badge flips to 'unavailable' at threshold
+      setFailCount((n) => n + 1)
     }
   }, [])
 
@@ -84,6 +92,17 @@ export default function AgentStatusBadge({ initialDevice }: AgentStatusBadgeProp
   const isDegraded = agentToken?.status === 'degraded'
   const degradedPlatform = agentToken?.degraded_platform
   const degradedReason = agentToken?.degraded_reason
+
+  // AI-9574: after 3 consecutive failures, show neutral 'unavailable' rather
+  // than falsely showing 'offline' (which implies we know the agent is down).
+  if (failCount >= FAIL_THRESHOLD) {
+    return (
+      <div className="inline-flex items-center gap-2 border border-white/10 bg-white/5 rounded-full px-4 py-1.5">
+        <div className="w-1.5 h-1.5 rounded-full bg-white/30" />
+        <span className="text-xs font-medium text-white/40">Status unavailable</span>
+      </div>
+    )
+  }
 
   // No device found
   if (!device) {
