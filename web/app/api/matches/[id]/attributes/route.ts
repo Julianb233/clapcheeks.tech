@@ -3,9 +3,14 @@
  *
  * GET  /api/matches/[id]/attributes → return current attributes JSONB
  * POST /api/matches/[id]/attributes → dismiss a chip (action: "dismiss")
+ *
+ * AI-9534 — match data on Convex; auth on Supabase.
  */
 
 import { NextRequest, NextResponse } from 'next/server'
+import { api } from '@/convex/_generated/api'
+import type { Id } from '@/convex/_generated/dataModel'
+import { getConvexServerClient } from '@/lib/convex/server'
 import { createClient } from '@/lib/supabase/server'
 
 export async function GET(
@@ -19,14 +24,15 @@ export async function GET(
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const { data, error } = await (supabase as any)
-    .from('clapcheeks_matches')
-    .select('attributes, attributes_updated_at')
-    .eq('id', id)
-    .eq('user_id', user.id)
-    .single()
-
-  if (error || !data) {
+  const convex = getConvexServerClient()
+  const data = (await convex.query(api.matches.resolveByAnyId, { id })) as
+    | (Record<string, unknown> & {
+        user_id?: string
+        attributes?: unknown
+        attributes_updated_at?: string | null
+      })
+    | null
+  if (!data || data.user_id !== user.id) {
     return NextResponse.json({ error: 'Match not found' }, { status: 404 })
   }
 
@@ -68,15 +74,19 @@ export async function POST(
     return NextResponse.json({ error: 'Missing value' }, { status: 400 })
   }
 
-  // Fetch current attributes
-  const { data: matchRow, error: fetchError } = await (supabase as any)
-    .from('clapcheeks_matches')
-    .select('attributes')
-    .eq('id', id)
-    .eq('user_id', user.id)
-    .single()
+  // Fetch current attributes from Convex.
+  const convex = getConvexServerClient()
+  const matchRow = (await convex.query(api.matches.resolveByAnyId, {
+    id,
+  })) as
+    | (Record<string, unknown> & {
+        _id?: Id<'matches'>
+        user_id?: string
+        attributes?: Record<string, unknown> | null
+      })
+    | null
 
-  if (fetchError || !matchRow) {
+  if (!matchRow || !matchRow._id || matchRow.user_id !== user.id) {
     return NextResponse.json({ error: 'Match not found' }, { status: 404 })
   }
 
@@ -106,14 +116,15 @@ export async function POST(
     _dismissed: dismissed,
   }
 
-  const { error: patchError } = await (supabase as any)
-    .from('clapcheeks_matches')
-    .update({ attributes: updatedAttrs })
-    .eq('id', id)
-    .eq('user_id', user.id)
-
-  if (patchError) {
-    console.error('[attributes] patch failed:', patchError.message)
+  try {
+    await convex.mutation(api.matches.patchByUser, {
+      id: matchRow._id,
+      user_id: user.id,
+      attributes: updatedAttrs,
+      attributes_updated_at: new Date().toISOString(),
+    })
+  } catch (err) {
+    console.error('[attributes] patch failed:', err)
     return NextResponse.json({ error: 'Update failed' }, { status: 500 })
   }
 

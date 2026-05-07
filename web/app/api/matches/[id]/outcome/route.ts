@@ -1,4 +1,7 @@
 import { NextResponse } from 'next/server'
+import { api } from '@/convex/_generated/api'
+import type { Id } from '@/convex/_generated/dataModel'
+import { getConvexServerClient } from '@/lib/convex/server'
 import { createClient } from '@/lib/supabase/server'
 
 /**
@@ -70,34 +73,33 @@ export async function POST(
     )
   }
 
-  // Make sure the match belongs to this user before we patch anything.
-  const { data: matchRow, error: fetchErr } = await supabase
-    .from('clapcheeks_matches')
-    .select('id, user_id, outcome, status')
-    .eq('id', id)
-    .single()
+  // AI-9534 — match data lives on Convex; auth still on Supabase.
+  const convex = getConvexServerClient()
+  const matchRow = (await convex.query(api.matches.resolveByAnyId, {
+    id,
+  })) as
+    | (Record<string, unknown> & { _id?: Id<'matches'>; user_id?: string })
+    | null
 
-  if (fetchErr || !matchRow) {
+  if (!matchRow || !matchRow._id) {
     return NextResponse.json({ error: 'match not found' }, { status: 404 })
   }
   if (matchRow.user_id !== user.id) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
-  const { error: updateErr } = await supabase
-    .from('clapcheeks_matches')
-    .update({
+  try {
+    await convex.mutation(api.matches.patchByUser, {
+      id: matchRow._id,
+      user_id: user.id,
       outcome,
       status: OUTCOME_TO_STATUS[outcome],
       stage: OUTCOME_TO_STAGE[outcome],
     })
-    .eq('id', id)
-
-  if (updateErr) {
-    return NextResponse.json(
-      { error: updateErr.message ?? 'update failed' },
-      { status: 500 },
-    )
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : 'update failed'
+    const status = msg === 'forbidden' ? 403 : msg === 'not_found' ? 404 : 500
+    return NextResponse.json({ error: msg }, { status })
   }
 
   return NextResponse.json({
