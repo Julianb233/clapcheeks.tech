@@ -1401,6 +1401,38 @@ export default defineSchema({
     last_activity_at: v.optional(v.number()),
     // Optional: Supabase-source tracking so backfill is idempotent + auditable
     supabase_match_id: v.optional(v.string()),    // original public.clapcheeks_matches.id
+
+    // AI-9534 — additional columns lifted from clapcheeks_matches so the
+    // 16 remaining call sites can stop hitting Supabase. Everything here is
+    // optional + carried through patch/upsert for round-trip safety.
+    her_phone: v.optional(v.string()),                   // E.164 phone for offline / iMessage
+    source: v.optional(v.string()),                       // 'imessage' | 'manual-add' | 'agent' etc.
+    primary_channel: v.optional(v.string()),
+    handoff_complete: v.optional(v.boolean()),
+    julian_shared_phone: v.optional(v.boolean()),
+    handoff_detected_at: v.optional(v.number()),         // ms epoch
+    met_at: v.optional(v.string()),                       // freeform date/time string
+    first_impression: v.optional(v.string()),
+    instagram_intel: v.optional(v.any()),                 // jsonb blob (bio, follower_count, recent_captions, ...)
+    instagram_fetched_at: v.optional(v.string()),         // ISO string preserved for back-compat
+    birth_date: v.optional(v.string()),                   // ISO date 'YYYY-MM-DD'
+    prompts_jsonb: v.optional(v.any()),                   // Hinge prompts array
+    spotify_artists: v.optional(v.array(v.string())),
+    vision_summary: v.optional(v.string()),
+    outcome: v.optional(v.string()),                      // 'closed' | 'second_date' | 'nope'
+    opener_sent_at: v.optional(v.string()),
+    attributes_updated_at: v.optional(v.string()),
+    match_id: v.optional(v.string()),                     // legacy mirror of external_match_id
+    external_id: v.optional(v.string()),                  // legacy mirror; some old code reads this
+    ai_active: v.optional(v.boolean()),                   // per-match AI on/off (AI-8809)
+    close_probability: v.optional(v.number()),
+    mutual_friends_count: v.optional(v.number()),
+    mutual_friends_list: v.optional(v.any()),
+    social_risk_band: v.optional(v.string()),             // 'safe' | 'watch' | 'high_risk' | 'auto_flag'
+    friend_cluster_id: v.optional(v.string()),
+    cluster_rank: v.optional(v.number()),
+    social_graph_confidence: v.optional(v.number()),
+    social_graph_sources: v.optional(v.array(v.string())),
   })
     .index("by_user_platform_external", ["user_id", "platform", "external_match_id"])
     .index("by_user_rank", ["user_id", "julian_rank"])
