@@ -26,9 +26,9 @@ export default function ClapcheeksOpsOverview() {
   const orphanStatus = useQuery(api.backfill.orphanStatus, { user_id: FLEET_USER_ID })
 
   return (
-    <div className="p-8 max-w-7xl">
-      <h1 className="text-3xl font-bold mb-2">Clapcheeks Ops</h1>
-      <p className="text-gray-400 mb-8">
+    <div className="p-4 sm:p-8 max-w-7xl">
+      <h1 className="text-2xl sm:text-3xl font-bold mb-2">Clapcheeks Ops</h1>
+      <p className="text-gray-400 text-sm mb-6 sm:mb-8">
         Your dating co-pilot — live state, ranked surfaces, one-tap controls.
       </p>
 
@@ -62,7 +62,7 @@ export default function ClapcheeksOpsOverview() {
         </div>
       </Link>
 
-      <div className="grid grid-cols-2 gap-4 mb-8">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8">
         <Card title="Pending media for approval"
               value={pendingMedia?.length ?? "—"}
               href="/admin/clapcheeks-ops/media" />

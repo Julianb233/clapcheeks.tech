@@ -163,13 +163,14 @@ crons.interval(
   internal.touches.softNoRecoveryDetectorCron,
 );
 
-// AI-9500 W1 — Competition signal sweep every 12h.
-// Finds dating-relevant people whose competition_signal_computed_at is null or
-// >14 days stale, schedules _computeCompetitionSignal per person staggered 6s.
+// AI-9500 Wave2 #K — Pre-date debrief extraction every 24 hours.
+// Runs an LLM over each person's last 30 inbound messages to auto-populate
+// things_mentioned with category tags (food, music, career, family, etc.).
+// Source="auto". Staggered 5s per person, max 20 per sweep.
 crons.interval(
-  "competition-signal-sweep",
-  { hours: 12 },
-  internal.enrichment.sweepCompetitionSignalCandidates,
+  "debrief-extraction-sweep",
+  { hours: 24 },
+  internal.debrief.sweepDebriefExtraction,
 );
 
 export default crons;
