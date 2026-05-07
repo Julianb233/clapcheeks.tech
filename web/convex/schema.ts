@@ -916,4 +916,49 @@ export default defineSchema({
     .index("by_user_recent", ["user_id", "sent_at"])
     .index("by_asset", ["asset_id"])
     .index("by_person", ["person_id"]),
+
+  // -----------------------------------------------------------------------
+  // AI-9524 — Platform auth-token vault. Replaces Supabase
+  // clapcheeks_user_settings.{tinder,hinge,instagram}_auth_token_enc and
+  // bumble_session_enc. The ciphertext is AES-256-GCM produced by
+  // web/lib/crypto/token-vault.ts (Node) or clapcheeks/auth/token_vault.py
+  // (Python) — wire-compatible. Decryption happens client-side (the VPS
+  // daemon already has CLAPCHEEKS_TOKEN_MASTER_KEY).
+  //
+  // One row per (user_id, platform). The composite index by_user_platform
+  // lets the upsert lookup a single row in a single fetch.
+  // -----------------------------------------------------------------------
+  platform_tokens: defineTable({
+    user_id: v.string(),                 // Supabase auth uuid (existing identifier)
+    platform: v.union(
+      v.literal("tinder"),
+      v.literal("hinge"),
+      v.literal("instagram"),
+      v.literal("bumble"),
+    ),
+    ciphertext: v.bytes(),               // AES-256-GCM blob (wire format from token-vault.ts)
+    enc_version: v.number(),             // currently 1
+    source: v.string(),                  // "chrome-extension" | "mitmproxy-mac-mini" | "manual" | "supabase-backfill-*"
+    updated_at: v.number(),              // unix ms
+    device_name: v.optional(v.string()),
+  })
+    .index("by_user_platform", ["user_id", "platform"])
+    .index("by_user", ["user_id"]),
+
+  // -----------------------------------------------------------------------
+  // AI-9524 — Device tokens for the Chrome extension + Mac Mini mitmproxy
+  // ingest path. Replaces Supabase clapcheeks_agent_tokens. Each opaque
+  // token is bound to a user_id; the ingest endpoint validates by token
+  // before writing platform_tokens.
+  // -----------------------------------------------------------------------
+  agent_device_tokens: defineTable({
+    token: v.string(),                   // opaque random string (32+ bytes base64)
+    user_id: v.string(),
+    device_name: v.optional(v.string()),
+    last_seen_at: v.optional(v.number()),
+    created_at: v.number(),
+    revoked: v.boolean(),
+  })
+    .index("by_token", ["token"])
+    .index("by_user", ["user_id"]),
 });
