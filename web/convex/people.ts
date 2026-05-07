@@ -552,6 +552,10 @@ export const listForUser = query({
     user_id: v.string(),
     status: v.optional(PERSON_STATUS),
     limit: v.optional(v.number()),
+    // Wave 2.4 — accepted for backwards compat with the old dashboard call.
+    // The current network page filters dating-relevance client-side; this flag
+    // is currently a no-op but the validator must accept it.
+    only_cc_tech: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     const limit = Math.min(args.limit ?? 100, 500);
@@ -989,6 +993,75 @@ export const patchEnrichment = mutation({
     }
     await ctx.db.patch(target._id, patch);
     return { matched: true, person_id: target._id, fields_set: Object.keys(patch).length - 1 };
+  },
+});
+
+// ----------------------------------------------------------------------------
+// AI-9500 Wave 2.4 Task J — patchPerson
+//
+// Operator-facing edit mutation. The dossier page uses this to update any
+// editable field (hotness_rating, effort_rating, nurture_state, status,
+// whitelist_for_autoreply, cadence_profile, operator_notes, etc.) without
+// touching daemon-owned live state.
+// ----------------------------------------------------------------------------
+export const patchPerson = mutation({
+  args: {
+    person_id: v.id("people"),
+    display_name: v.optional(v.string()),
+    status: v.optional(v.union(
+      v.literal("lead"), v.literal("active"), v.literal("paused"),
+      v.literal("ghosted"), v.literal("dating"), v.literal("ended"),
+    )),
+    cadence_profile: v.optional(CADENCE_PROFILE),
+    whitelist_for_autoreply: v.optional(v.boolean()),
+    courtship_stage: v.optional(v.union(
+      v.literal("matched"), v.literal("early_chat"), v.literal("phone_swap"),
+      v.literal("pre_date"), v.literal("first_date_done"), v.literal("ongoing"),
+      v.literal("exclusive"), v.literal("ghosted"), v.literal("ended"),
+    )),
+    hotness_rating: v.optional(v.number()),
+    effort_rating: v.optional(v.number()),
+    nurture_state: v.optional(v.union(
+      v.literal("active_pursuit"), v.literal("steady"), v.literal("nurture"),
+      v.literal("dormant"), v.literal("close"),
+    )),
+    next_followup_kind: v.optional(v.union(
+      v.literal("reply"), v.literal("nudge"), v.literal("date_ask"),
+      v.literal("pattern_interrupt"), v.literal("event_followup"), v.literal("none"),
+    )),
+    operator_notes: v.optional(v.string()),
+    interests: v.optional(v.array(v.string())),
+    boundaries_stated: v.optional(v.array(v.string())),
+    things_she_loves: v.optional(v.array(v.string())),
+    things_she_dislikes: v.optional(v.array(v.string())),
+    active_hours_local: v.optional(v.object({
+      tz: v.string(),
+      start_hour: v.number(),
+      end_hour: v.number(),
+    })),
+  },
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    const patch: Record<string, any> = { updated_at: now };
+    const allowed = [
+      "display_name", "status", "cadence_profile", "whitelist_for_autoreply",
+      "courtship_stage", "hotness_rating", "effort_rating", "nurture_state",
+      "next_followup_kind", "operator_notes", "interests", "boundaries_stated",
+      "things_she_loves", "things_she_dislikes", "active_hours_local",
+    ];
+    for (const k of allowed) {
+      const v_ = (args as any)[k];
+      if (v_ !== undefined) patch[k] = v_;
+    }
+    // Validate ranges.
+    if (patch.hotness_rating !== undefined) {
+      patch.hotness_rating = Math.max(1, Math.min(10, Math.round(patch.hotness_rating)));
+    }
+    if (patch.effort_rating !== undefined) {
+      patch.effort_rating = Math.max(1, Math.min(5, Math.round(patch.effort_rating)));
+    }
+    await ctx.db.patch(args.person_id, patch);
+    return { ok: true, fields_set: Object.keys(patch).length - 1 };
   },
 });
 
