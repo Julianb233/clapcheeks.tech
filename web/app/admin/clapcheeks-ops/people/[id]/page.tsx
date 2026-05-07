@@ -719,6 +719,11 @@ function ScheduleTab({ person, touches }: { person: any; touches: any[] }) {
   const commitPostDateChoice = useMutation(api.touches.commitPostDateChoice)
   const FLEET_USER_ID = "fleet-julian"
 
+  // AI-9500 W2 #I — date logistics checklists for this person
+  const dateChecklists = useQuery(api.date_logistics.listForPerson, { person_id: person._id })
+  const tickItemMut = useMutation(api.date_logistics.tickItem)
+  const completeChecklistMut = useMutation(api.date_logistics.complete)
+
   const [showDateDoneForm, setShowDateDoneForm] = useState(false)
   const [dateNotesText, setDateNotesText] = useState("")
   const [dateMarkingId, setDateMarkingId] = useState<string | null>(null)
@@ -829,6 +834,89 @@ function ScheduleTab({ person, touches }: { person: any; touches: any[] }) {
               </button>
             </div>
           ))}
+        </Section>
+      )}
+
+      {/* ------------------------------------------------------------------ */}
+      {/* AI-9500 W2 #I — Date logistics checklists                           */}
+      {/* ------------------------------------------------------------------ */}
+      {dateChecklists && dateChecklists.length > 0 && (
+        <Section title={`Date logistics (${dateChecklists.length})`}>
+          <div className="space-y-6">
+            {dateChecklists.map((cl: any) => {
+              const allDone = cl.items.every((it: any) => it.done)
+              const doneCnt = cl.items.filter((it: any) => it.done).length
+              const dateLabel = new Date(cl.date_time_ms).toLocaleDateString(undefined, {
+                weekday: "short", month: "short", day: "numeric",
+              })
+              return (
+                <div
+                  key={cl._id}
+                  className={`rounded-lg border p-4 ${
+                    allDone
+                      ? "border-green-700 bg-green-950/20"
+                      : "border-purple-800/50 bg-purple-950/10"
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-3">
+                    <div>
+                      <span className="text-sm font-semibold text-purple-300">
+                        Date: {dateLabel}
+                      </span>
+                      {cl.venue && (
+                        <span className="ml-2 text-xs text-gray-400">@ {cl.venue}</span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className={`text-xs font-mono ${allDone ? "text-green-400" : "text-gray-500"}`}>
+                        {doneCnt}/{cl.items.length}
+                      </span>
+                      {!allDone && (
+                        <button
+                          onClick={() => completeChecklistMut({ checklist_id: cl._id })}
+                          className="text-xs px-2 py-0.5 rounded bg-green-800 hover:bg-green-700 text-white"
+                        >
+                          Mark all done
+                        </button>
+                      )}
+                      {allDone && (
+                        <span className="text-xs text-green-400 font-semibold">All done!</span>
+                      )}
+                    </div>
+                  </div>
+                  <ul className="space-y-2">
+                    {cl.items.map((item: any) => (
+                      <li key={item.key} className="flex items-start gap-2">
+                        <input
+                          type="checkbox"
+                          checked={item.done}
+                          onChange={(e) => tickItemMut({
+                            checklist_id: cl._id,
+                            key: item.key,
+                            done: e.target.checked,
+                          })}
+                          className="mt-0.5 accent-green-500 cursor-pointer"
+                        />
+                        <div className="flex-1">
+                          <span className={`text-sm ${item.done ? "line-through text-gray-500" : "text-gray-200"}`}>
+                            {item.label}
+                          </span>
+                          {item.done_at_ms && (
+                            <span className="ml-2 text-xs text-gray-600">
+                              {new Date(item.done_at_ms).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}
+                            </span>
+                          )}
+                          {item.notes && (
+                            <div className="text-xs text-gray-500 italic mt-0.5">{item.notes}</div>
+                          )}
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )
+            })}
+          </div>
         </Section>
       )}
 
