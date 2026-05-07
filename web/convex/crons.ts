@@ -163,4 +163,15 @@ crons.interval(
   internal.touches.softNoRecoveryDetectorCron,
 );
 
+
+// AI-9500 W2 #G — Voice-memo trigger sweep every 6 hours.
+// Detects phone-swap +24h, 3rd inbound reply, and post-second-date moments.
+// Parks a voice_memo touch with a 1-2 sentence script for the operator to record.
+// Does NOT auto-fire — operator records on phone and calls markVoiceMemoSent.
+crons.interval(
+  "voice-memo-trigger-sweep",
+  { hours: 6 },
+  internal.touches.sweepVoiceMemoCandidates,
+);
+
 export default crons;
