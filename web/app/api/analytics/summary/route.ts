@@ -89,8 +89,18 @@ export async function GET(request: NextRequest) {
       date: r.day_iso,
     }))
     .sort((a, b) => a.date.localeCompare(b.date))
-  const convos = convoRes.data || []
-  const spending = spendRes.data || []
+  type ConvoRow = {
+    platform: string
+    messages_sent: number
+    messages_received: number
+    conversations_started: number
+    conversations_replied: number
+    conversations_ghosted: number
+    date: string
+  }
+  type SpendingRow = { amount: number | string; category: string; date: string }
+  const convos: ConvoRow[] = (convoRes.data as ConvoRow[] | null) ?? []
+  const spending: SpendingRow[] = (spendRes.data as SpendingRow[] | null) ?? []
 
   // Range aggregates
   const totals = analytics.reduce(

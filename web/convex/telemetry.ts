@@ -334,13 +334,13 @@ export const getDailyForUser = query({
   handler: async (ctx, args) => {
     const rows = await ctx.db
       .query("analytics_daily")
-      .withIndex("by_user_day", (q) => {
-        let r = q.eq("user_id", args.user_id).gte("day_iso", args.since_day_iso);
-        if (args.until_day_iso) r = r.lte("day_iso", args.until_day_iso);
-        return r;
-      })
+      .withIndex("by_user_day", (q) =>
+        q.eq("user_id", args.user_id).gte("day_iso", args.since_day_iso),
+      )
       .collect();
-    return rows;
+    if (!args.until_day_iso) return rows;
+    const upper = args.until_day_iso;
+    return rows.filter((r) => r.day_iso <= upper);
   },
 });
 

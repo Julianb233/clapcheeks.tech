@@ -170,7 +170,8 @@ export default async function Dashboard() {
 
   const rows: DailyRow[] = analyticsRes.data || []
   const convos: ConvoRow[] = convoRes.data || []
-  const spending = spendRes.data || []
+  type SpendingRow = { amount: number | string; category: string; date: string }
+  const spending: SpendingRow[] = (spendRes.data as SpendingRow[] | null) ?? []
 
   // AI-8926/AI-9536: pick the freshest of (devices.last_seen_at, Convex device_heartbeats.last_heartbeat_at).
   const oldDevice = deviceRes.data?.[0] || null

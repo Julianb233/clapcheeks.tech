@@ -74,14 +74,12 @@ export default async function DogfoodPage() {
   }>).map((f) => ({
     id: f._id,
     title: f.title,
-    description: f.description,
+    description: f.description ?? '',
     severity: f.severity,
     category: f.category,
     platform: f.platform ?? null,
-    auto_detected: f.auto_detected,
     resolved: f.resolved,
     resolution: f.resolution ?? null,
-    resolved_at: f.resolved_at ? new Date(f.resolved_at).toISOString() : null,
     created_at: new Date(f.created_at).toISOString(),
   }))
   const reports = (reportRows as Array<{
@@ -94,7 +92,7 @@ export default async function DogfoodPage() {
     id: r._id,
     week_start: r.week_start_iso,
     week_end: new Date(r.week_end_ms).toISOString().split('T')[0],
-    metrics_snapshot: r.metrics_snapshot ?? {},
+    metrics_snapshot: (r.metrics_snapshot ?? {}) as Record<string, unknown>,
     created_at: new Date(r._creationTime).toISOString(),
   }))
   const subscription = subscriptionRes.data

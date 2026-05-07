@@ -62,7 +62,12 @@ export async function GET() {
     dates_booked: r.dates_booked,
     date: r.day_iso,
   }))
-  const convos = convoRes.data || []
+  type ConvoRow = {
+    conversations_started: number
+    conversations_replied: number
+    date: string
+  }
+  const convos: ConvoRow[] = (convoRes.data as ConvoRow[] | null) ?? []
 
   // Aggregate totals
   const totals = rows.reduce(
