@@ -9,12 +9,21 @@
  */
 
 import type * as agent_jobs from "../agent_jobs.js";
+import type * as backfill from "../backfill.js";
+import type * as calendar from "../calendar.js";
 import type * as conversations from "../conversations.js";
 import type * as crons from "../crons.js";
+import type * as digest from "../digest.js";
 import type * as drip from "../drip.js";
+import type * as enrichment from "../enrichment.js";
+import type * as http from "../http.js";
+import type * as inbound from "../inbound.js";
+import type * as media from "../media.js";
 import type * as messages from "../messages.js";
 import type * as people from "../people.js";
+import type * as profile_import from "../profile_import.js";
 import type * as scheduled_messages from "../scheduled_messages.js";
+import type * as touches from "../touches.js";
 
 import type {
   ApiFromModules,
@@ -24,12 +33,21 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   agent_jobs: typeof agent_jobs;
+  backfill: typeof backfill;
+  calendar: typeof calendar;
   conversations: typeof conversations;
   crons: typeof crons;
+  digest: typeof digest;
   drip: typeof drip;
+  enrichment: typeof enrichment;
+  http: typeof http;
+  inbound: typeof inbound;
+  media: typeof media;
   messages: typeof messages;
   people: typeof people;
+  profile_import: typeof profile_import;
   scheduled_messages: typeof scheduled_messages;
+  touches: typeof touches;
 }>;
 
 /**
