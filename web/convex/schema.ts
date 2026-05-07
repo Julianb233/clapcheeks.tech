@@ -1566,4 +1566,33 @@ export default defineSchema({
   })
     .index("by_device", ["device_token_id"])
     .index("by_user_heartbeat", ["user_id", "last_heartbeat_at"]),
+
+  // AI-9575 — clapcheeks_conversation_stats migration
+  conversation_stats: defineTable({
+    user_id: v.string(),
+    date: v.string(),                      // YYYY-MM-DD
+    platform: v.string(),
+    messages_sent: v.number(),
+    messages_received: v.number(),
+    conversations_started: v.number(),
+    conversations_replied: v.number(),
+    conversations_ghosted: v.number(),
+    avg_response_time_mins: v.optional(v.number()),
+    created_at: v.number(),
+  })
+    .index("by_user_date", ["user_id", "date"])
+    .index("by_user_platform_date", ["user_id", "platform", "date"]),
+
+  // AI-9575 — clapcheeks_spending migration
+  spending: defineTable({
+    user_id: v.string(),
+    date: v.string(),                      // YYYY-MM-DD
+    platform: v.optional(v.string()),
+    category: v.string(),
+    amount: v.number(),
+    description: v.optional(v.string()),
+    created_at: v.number(),
+  })
+    .index("by_user_date", ["user_id", "date"])
+    .index("by_user_category", ["user_id", "category"]),
 });

@@ -29,7 +29,8 @@ export async function GET() {
   const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL || process.env.CONVEX_URL
   const convex = convexUrl ? new ConvexHttpClient(convexUrl) : null
 
-  const [analyticsRows, convoRes] = await Promise.all([
+  // AI-9575: conversation_stats migrated to Convex.
+  const [analyticsRows, convoRows] = await Promise.all([
     convex
       ? convex
           .query(api.telemetry.getDailyForUser, {
@@ -38,11 +39,14 @@ export async function GET() {
           })
           .catch(() => [])
       : Promise.resolve([]),
-    supabase
-      .from('clapcheeks_conversation_stats')
-      .select('conversations_started, conversations_replied, date')
-      .eq('user_id', user.id)
-      .gte('date', sinceStr),
+    convex
+      ? convex
+          .query(api.conversation_stats.listForUser, {
+            user_id: user.id,
+            since_date: sinceStr,
+          })
+          .catch(() => [])
+      : Promise.resolve([]),
   ])
 
   const rows = (analyticsRows as Array<{
@@ -67,7 +71,8 @@ export async function GET() {
     conversations_replied: number
     date: string
   }
-  const convos: ConvoRow[] = (convoRes.data as ConvoRow[] | null) ?? []
+  // AI-9575: Convex returns typed arrays directly (no .data wrapper).
+  const convos: ConvoRow[] = (convoRows as ConvoRow[]) ?? []
 
   // Aggregate totals
   const totals = rows.reduce(
