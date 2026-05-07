@@ -6,6 +6,11 @@
  *
  * Wave 2.4 Task G — Compose panel ("Send a touch now"):
  *   pick template → click Preview → Mac Mini drafts → editable textarea → Send.
+ *
+ * AI-9500 W2 #D — Unified cross-platform thread (Timeline tab):
+ *   Interleaves iMessage + Hinge + IG + Telegram + email messages into one
+ *   chronological feed. Each message gets a platform pill. Toggle to single-
+ *   platform view. Powered by messages.unifiedThreadForPerson Convex query.
  */
 "use client"
 
@@ -85,7 +90,7 @@ export default function PersonDossierPage() {
       </div>
 
       <div className="bg-gray-900 border border-gray-800 border-t-0 rounded-b-md p-6 mb-8">
-        {tab === "Timeline" && <TimelineTab messages={messages} conversations={conversations} />}
+        {tab === "Timeline" && <TimelineTab messages={messages} conversations={conversations} personId={personId} />}
         {tab === "Memory" && <MemoryTab person={person} />}
         {tab === "Schedule" && <ScheduleTab person={person} touches={scheduled_touches} />}
         {tab === "Media" && <MediaTab uses={media_uses} assets={media_assets} />}
@@ -344,31 +349,125 @@ function Select({
 }
 
 // ---------------------------------------------------------------------------
-// Timeline tab — recent messages, ascending (oldest first within the slice)
+// Platform pill colors for the unified thread feed
 // ---------------------------------------------------------------------------
-function TimelineTab({ messages, conversations }: { messages: any[]; conversations: any[] }) {
-  const ordered = useMemo(() => [...messages].reverse(), [messages]) // newest at bottom
-  if (!ordered.length) {
+const PLATFORM_STYLES: Record<string, string> = {
+  hinge:     "bg-rose-900/60 text-rose-300 border-rose-700/50",
+  tinder:    "bg-orange-900/60 text-orange-300 border-orange-700/50",
+  bumble:    "bg-yellow-900/60 text-yellow-300 border-yellow-700/50",
+  imessage:  "bg-blue-900/60 text-blue-300 border-blue-700/50",
+  instagram: "bg-fuchsia-900/60 text-fuchsia-300 border-fuchsia-700/50",
+  telegram:  "bg-sky-900/60 text-sky-300 border-sky-700/50",
+  email:     "bg-emerald-900/60 text-emerald-300 border-emerald-700/50",
+  other:     "bg-gray-800 text-gray-400 border-gray-700",
+}
+function platformStyle(p: string) {
+  return PLATFORM_STYLES[p] ?? PLATFORM_STYLES.other
+}
+
+// ---------------------------------------------------------------------------
+// Timeline tab — AI-9500 W2 #D unified cross-platform thread
+//
+// Unified mode (default): fetches unifiedThreadForPerson from Convex — merges
+// all platforms (iMessage, Hinge, IG, Telegram, email…) into one chronological
+// feed. Each message gets a platform pill.
+// Per-platform mode: shows only the dossier messages (existing behavior).
+// Toggle hidden when only one platform is present (_handles_summary.length < 2).
+// ---------------------------------------------------------------------------
+function TimelineTab({ messages: dossierMessages, conversations, personId }: {
+  messages: any[];
+  conversations: any[];
+  personId: string;
+}) {
+  const [mode, setMode] = useState<"unified" | "platform">("unified")
+
+  // Unified thread query (always subscribed so switching is instant)
+  const unified = useQuery(api.messages.unifiedThreadForPerson, {
+    person_id: personId as Id<"people">,
+    limit: 200,
+  })
+
+  const handlesSummary: string[] = unified?._handles_summary ?? []
+  const multiPlatform = handlesSummary.length > 1
+
+  // Active message list — unified is oldest-first from the query;
+  // dossier list is newest-first so we reverse it for chronological display.
+  const activeMessages: any[] = mode === "unified"
+    ? (unified?.messages ?? [])
+    : [...dossierMessages].reverse()
+
+  const isLoading = mode === "unified" && unified === undefined
+
+  if (isLoading) {
+    return <div className="text-gray-500 text-sm">Loading unified thread…</div>
+  }
+  if (!activeMessages.length) {
     return <div className="text-gray-500 text-sm">No messages yet.</div>
   }
-  const platforms = Array.from(new Set(conversations.map((c) => c.platform)))
+
+  const platforms = Array.from(new Set(conversations.map((c: any) => c.platform)))
+
   return (
     <div>
-      <div className="text-xs text-gray-500 mb-3">
-        {ordered.length} messages across {conversations.length} conversation(s) · {platforms.join(", ")}
+      {/* Header bar */}
+      <div className="flex items-center justify-between mb-3">
+        <div className="text-xs text-gray-500">
+          {activeMessages.length} message{activeMessages.length !== 1 ? "s" : ""}
+          {" · "}
+          {mode === "unified"
+            ? handlesSummary.join(", ") || platforms.join(", ")
+            : `${conversations.length} conversation(s) · ${platforms.join(", ")}`}
+        </div>
+
+        {/* Toggle — only shown when more than one platform exists */}
+        {multiPlatform && (
+          <div className="flex rounded border border-gray-700 overflow-hidden text-xs">
+            <button
+              onClick={() => setMode("unified")}
+              className={`px-3 py-1 transition-colors ${
+                mode === "unified"
+                  ? "bg-purple-700 text-white"
+                  : "bg-gray-900 text-gray-400 hover:text-gray-200"
+              }`}
+            >
+              unified
+            </button>
+            <button
+              onClick={() => setMode("platform")}
+              className={`px-3 py-1 transition-colors border-l border-gray-700 ${
+                mode === "platform"
+                  ? "bg-purple-700 text-white"
+                  : "bg-gray-900 text-gray-400 hover:text-gray-200"
+              }`}
+            >
+              this platform
+            </button>
+          </div>
+        )}
       </div>
+
+      {/* Message feed */}
       <div className="space-y-2 max-h-[60vh] overflow-y-auto pr-2">
-        {ordered.map((m: any) => {
+        {activeMessages.map((m: any, idx: number) => {
           const isOut = m.direction === "outbound"
           const ts = new Date(m.sent_at).toLocaleString()
+          const platform: string = m._platform ?? "imessage"
           return (
-            <div key={m._id} className={`flex ${isOut ? "justify-end" : "justify-start"}`}>
+            <div key={m._id ?? idx} className={`flex ${isOut ? "justify-end" : "justify-start"}`}>
               <div className={`max-w-[75%] rounded-lg px-3 py-2 ${
                 isOut ? "bg-purple-700/40 border border-purple-700/60" : "bg-gray-800 border border-gray-700"
               }`}>
                 <div className="text-sm whitespace-pre-wrap">{m.body}</div>
-                <div className="text-[10px] text-gray-500 mt-1">
-                  {ts} · {m.transport ?? m.source ?? "—"}
+                <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                  <span className="text-[10px] text-gray-500">{ts}</span>
+                  {mode === "unified" && (
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded border font-medium ${platformStyle(platform)}`}>
+                      {platform}
+                    </span>
+                  )}
+                  {(m.transport || m.source) && (
+                    <span className="text-[10px] text-gray-600">{m.transport ?? m.source}</span>
+                  )}
                 </div>
               </div>
             </div>
