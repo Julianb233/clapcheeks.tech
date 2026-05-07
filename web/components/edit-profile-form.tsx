@@ -5,6 +5,7 @@ import type React from "react"
 import { createClient } from "@/lib/supabase/client"
 import { useRouter } from "next/navigation"
 import { useState } from "react"
+import { toast } from "sonner"
 import { VoiceInput, VoiceTextarea } from "@/components/voice"
 
 type Profile = {
@@ -52,7 +53,7 @@ export function EditProfileForm({ profile, userId }: { profile: Profile | null; 
       router.push("/profile")
     } catch (error) {
       console.error("Error updating profile:", error)
-      alert("Failed to update profile. Please try again.")
+      toast.error("Failed to update profile. Please try again.")
     } finally {
       setLoading(false)
     }

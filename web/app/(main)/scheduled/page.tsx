@@ -3,6 +3,23 @@
 import { useEffect, useState, useCallback } from 'react'
 import { formatDistanceToNow, format, parseISO, isBefore } from 'date-fns'
 import { VoiceInput, VoiceTextarea } from '@/components/voice'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 
 type ScheduledMessage = {
   id: string
@@ -58,6 +75,15 @@ export default function ScheduledPage() {
   const [composing, setComposing] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  // Reject dialog state — PWA-safe replacement for prompt()
+  const [rejectDialogOpen, setRejectDialogOpen] = useState(false)
+  const [rejectId, setRejectId] = useState<string | null>(null)
+  const [rejectReason, setRejectReason] = useState('')
+
+  // Delete confirm dialog state — PWA-safe replacement for confirm()
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
+  const [deleteId, setDeleteId] = useState<string | null>(null)
+
   const loadMessages = useCallback(async () => {
     setLoading(true)
     try {
@@ -84,16 +110,24 @@ export default function ScheduledPage() {
     setActionLoading(null)
   }
 
-  async function reject(id: string) {
-    const reason = prompt('Rejection reason (optional):') ?? ''
-    setActionLoading(id + '-reject')
-    await fetch(`/api/scheduled-messages/${id}`, {
+  function openRejectDialog(id: string) {
+    setRejectId(id)
+    setRejectReason('')
+    setRejectDialogOpen(true)
+  }
+
+  async function confirmReject() {
+    if (!rejectId) return
+    setRejectDialogOpen(false)
+    setActionLoading(rejectId + '-reject')
+    await fetch(`/api/scheduled-messages/${rejectId}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status: 'rejected', rejection_reason: reason }),
+      body: JSON.stringify({ status: 'rejected', rejection_reason: rejectReason }),
     })
     await loadMessages()
     setActionLoading(null)
+    setRejectId(null)
   }
 
   async function sendNow(id: string) {
@@ -109,12 +143,19 @@ export default function ScheduledPage() {
     setActionLoading(null)
   }
 
-  async function deleteMsg(id: string) {
-    if (!confirm('Delete this scheduled message?')) return
-    setActionLoading(id + '-delete')
-    await fetch(`/api/scheduled-messages/${id}`, { method: 'DELETE' })
+  function openDeleteDialog(id: string) {
+    setDeleteId(id)
+    setDeleteDialogOpen(true)
+  }
+
+  async function confirmDelete() {
+    if (!deleteId) return
+    setDeleteDialogOpen(false)
+    setActionLoading(deleteId + '-delete')
+    await fetch(`/api/scheduled-messages/${deleteId}`, { method: 'DELETE' })
     await loadMessages()
     setActionLoading(null)
+    setDeleteId(null)
   }
 
   async function submitCompose() {
@@ -369,7 +410,7 @@ export default function ScheduledPage() {
                             {actionLoading === msg.id + '-approve' ? '...' : '✓ Approve'}
                           </button>
                           <button
-                            onClick={() => reject(msg.id)}
+                            onClick={() => openRejectDialog(msg.id)}
                             disabled={actionLoading === msg.id + '-reject'}
                             className="px-3 py-1.5 rounded-lg bg-red-500/10 text-red-400 border border-red-500/20 text-xs font-medium hover:bg-red-500/20 transition-all disabled:opacity-50"
                           >
@@ -387,7 +428,7 @@ export default function ScheduledPage() {
                         </button>
                       )}
                       <button
-                        onClick={() => deleteMsg(msg.id)}
+                        onClick={() => openDeleteDialog(msg.id)}
                         disabled={!!actionLoading}
                         className="px-3 py-1.5 rounded-lg bg-white/5 text-white/30 border border-white/10 text-xs hover:text-white/60 hover:bg-white/10 transition-all disabled:opacity-50"
                       >
@@ -401,6 +442,60 @@ export default function ScheduledPage() {
           </div>
         )}
       </div>
+
+      {/* Reject dialog — PWA-safe replacement for prompt() */}
+      <Dialog open={rejectDialogOpen} onOpenChange={setRejectDialogOpen}>
+        <DialogContent className="bg-[#0a0a14] border border-white/10 text-white">
+          <DialogHeader>
+            <DialogTitle>Rejection reason</DialogTitle>
+          </DialogHeader>
+          <input
+            type="text"
+            placeholder="Optional reason..."
+            value={rejectReason}
+            onChange={e => setRejectReason(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && confirmReject()}
+            className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-white/30 focus:outline-none focus:border-red-500/50"
+          />
+          <DialogFooter className="flex gap-2">
+            <button
+              onClick={() => setRejectDialogOpen(false)}
+              className="flex-1 px-4 py-2 rounded-lg border border-white/10 text-sm text-white/60 hover:text-white hover:border-white/20 transition-all"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={confirmReject}
+              className="flex-1 px-4 py-2 rounded-lg bg-red-600 hover:bg-red-500 text-sm font-medium transition-all"
+            >
+              Reject
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete confirm dialog — PWA-safe replacement for confirm() */}
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent className="bg-[#0a0a14] border border-white/10 text-white">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete scheduled message?</AlertDialogTitle>
+            <AlertDialogDescription className="text-white/50">
+              This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="bg-white/5 border-white/10 text-white hover:bg-white/10">
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={confirmDelete}
+              className="bg-red-600 hover:bg-red-500 text-white"
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

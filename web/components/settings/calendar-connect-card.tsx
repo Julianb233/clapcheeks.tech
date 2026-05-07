@@ -4,6 +4,16 @@ import * as React from 'react'
 import { Calendar as CalendarIcon, Check, ExternalLink, Loader2, Unplug } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 
 interface ConnectionStatus {
   connected: boolean
@@ -17,6 +27,7 @@ export function CalendarConnectCard({ nextPath = '/settings' }: { nextPath?: str
   const [status, setStatus] = React.useState<ConnectionStatus | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [disconnecting, setDisconnecting] = React.useState(false)
+  const [confirmOpen, setConfirmOpen] = React.useState(false)
 
   const load = React.useCallback(async () => {
     setLoading(true)
@@ -44,7 +55,6 @@ export function CalendarConnectCard({ nextPath = '/settings' }: { nextPath?: str
   }
 
   const handleDisconnect = async () => {
-    if (!confirm('Disconnect Google Calendar? Your AI co-pilot will no longer schedule dates automatically.')) return
     setDisconnecting(true)
     try {
       await fetch('/api/auth/google/disconnect', { method: 'POST' })
@@ -55,6 +65,7 @@ export function CalendarConnectCard({ nextPath = '/settings' }: { nextPath?: str
   }
 
   return (
+    <>
     <Card className="p-5 space-y-4">
       <div className="flex items-start gap-3">
         <div className="rounded-md bg-primary/10 text-primary p-2">
@@ -97,7 +108,7 @@ export function CalendarConnectCard({ nextPath = '/settings' }: { nextPath?: str
             <Button
               variant="ghost"
               size="sm"
-              onClick={handleDisconnect}
+              onClick={() => setConfirmOpen(true)}
               disabled={disconnecting}
               className="text-destructive hover:text-destructive"
             >
@@ -117,5 +128,27 @@ export function CalendarConnectCard({ nextPath = '/settings' }: { nextPath?: str
         </Button>
       )}
     </Card>
+
+      {/* PWA-safe replacement for confirm() */}
+      <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Disconnect Google Calendar?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Your AI co-pilot will no longer schedule dates automatically.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDisconnect}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Disconnect
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   )
 }
