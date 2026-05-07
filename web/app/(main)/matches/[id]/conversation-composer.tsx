@@ -24,12 +24,14 @@ type Props = {
   matchId: string
   /** iMessage recipient: E.164 phone OR platform:externalId */
   handle?: string
+  /** Human-readable name of the match, used as the recipient display name in the send API */
+  matchName?: string | null
 }
 
 const TYPING_IDLE_MS = 5000   // stop indicator after 5s of no keystroke
 const TYPING_DEBOUNCE_MS = 200  // debounce before firing start-typing
 
-export default function ConversationComposer({ matchId, handle }: Props) {
+export default function ConversationComposer({ matchId, handle, matchName }: Props) {
   const [text, setText] = useState('')
   const [sending, setSending] = useState(false)
   const [attaching, setAttaching] = useState(false)
@@ -115,7 +117,7 @@ export default function ConversationComposer({ matchId, handle }: Props) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           text: trimmed,
-          matchName: matchId,
+          matchName: matchName ?? matchId,
           platform: handle?.includes(':') ? handle.split(':')[0] : 'imessage',
         }),
       })
@@ -130,7 +132,7 @@ export default function ConversationComposer({ matchId, handle }: Props) {
     } finally {
       setSending(false)
     }
-  }, [text, sending, matchId, handle, stopTyping])
+  }, [text, sending, matchId, matchName, handle, stopTyping])
 
   // ── Attach file ───────────────────────────────────────────────────────────
 

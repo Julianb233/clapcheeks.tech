@@ -309,6 +309,7 @@ export default function MatchProfileView({
           <ConversationComposer
             matchId={m.id}
             handle={memoHandle ?? undefined}
+            matchName={m.name ?? m.match_name ?? undefined}
           />
         </div>
       )}
