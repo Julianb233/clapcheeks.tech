@@ -6,12 +6,14 @@ import { internal } from "./_generated/api";
 
 const crons = cronJobs();
 
-// Drain due scheduled_messages every 30 seconds. Replaces the previous
-// PG worker that polled clapcheeks_scheduled_messages.
+// AI-9598 — Drain due outbound_scheduled_messages every 60 seconds.
+// Replaces the broken pointer to internal.scheduled_messages.sendDue
+// (legacy table). Finds approved rows whose scheduled_at has passed,
+// inserts agent_jobs send_imessage rows, and marks them sent atomically.
 crons.interval(
   "send-due-scheduled-messages",
-  { seconds: 30 },
-  internal.scheduled_messages.sendDue,
+  { seconds: 60 },
+  internal.outbound.sendDue,
 );
 
 // Advance the drip state machine every 5 minutes. Replaces the periodic
