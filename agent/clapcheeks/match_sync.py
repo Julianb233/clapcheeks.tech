@@ -471,6 +471,76 @@ def _upsert_match(
     except Exception as exc:
         result.errors.append(f"upsert {platform}/{external_id}: {exc}")
 
+    # AI-9526 — Dual-write to Convex matches table. Failures here do NOT
+    # block the Supabase upsert (which already succeeded above), so the
+    # legacy read path stays consistent during the migration window.
+    try:
+        _upsert_match_convex(
+            user_id=user_id,
+            platform=platform,
+            external_id=str(external_id),
+            payload=payload,
+            photos=photos_enriched,
+        )
+    except Exception as exc:
+        logger.info("convex match upsert failed for %s/%s: %s", platform, external_id, exc)
+
+
+def _upsert_match_convex(
+    *,
+    user_id: str,
+    platform: str,
+    external_id: str,
+    payload: dict,
+    photos: list[dict],
+) -> None:
+    """AI-9526 — Mirror the Supabase clapcheeks_matches upsert into Convex.
+
+    Idempotent on (user_id, platform, external_match_id). Photos are passed
+    through with their existing `url` + `supabase_path` fields preserved so
+    the Vercel UI can keep rendering Supabase-served images during the
+    migration window. Convex File Storage migration of the photo binaries
+    happens in the backfill step (scripts/backfill_matches_supabase_to_convex.py),
+    not in the live sync hot path.
+    """
+    try:
+        from clapcheeks.convex_client import mutation as convex_mutation
+    except Exception as exc:  # noqa: BLE001
+        logger.info("convex_client unavailable for matches upsert: %s", exc)
+        return
+
+    # Map Supabase platform names to Convex literal union.
+    if platform not in ("hinge", "tinder", "bumble", "imessage", "offline"):
+        return
+
+    convex_args: dict = {
+        "user_id": user_id,
+        "platform": platform,
+        "external_match_id": external_id,
+        "photos": [
+            {
+                "url": p.get("url") or None,
+                "supabase_path": p.get("supabase_path") or None,
+                "width": p.get("width"),
+                "height": p.get("height"),
+                "idx": p.get("idx"),
+            }
+            for p in photos
+            if p.get("url") or p.get("supabase_path")
+        ],
+    }
+    # Carry the rest of the payload through verbatim (skip Supabase-only keys).
+    skip = {"user_id", "platform", "match_id", "external_id", "photos_jsonb",
+            "prompts_jsonb", "spotify_artists", "birth_date"}
+    for k, v in payload.items():
+        if k in skip:
+            continue
+        if v in (None, "", []):
+            continue
+        convex_args[k] = v
+
+    convex_mutation("matches:upsertByExternal", convex_args)
+
 
 # ---------------------------------------------------------------------------
 # Token invalidation
