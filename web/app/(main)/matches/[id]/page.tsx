@@ -95,12 +95,21 @@ export default async function MatchDetailPage({
   }
   const externalId = legacy.external_id
   const herPhone =
-    typeof rawMatch.her_phone === 'string' ? rawMatch.her_phone : null
+    typeof rawMatch.her_phone === 'string' && rawMatch.her_phone.trim()
+      ? rawMatch.her_phone
+      : null
+  // AI-9526 F1 — surface imessage_handle (set by BB inbound + sticky-line lookup)
+  // as another fallback so iMessage matches with no external_id still resolve.
+  const imessageHandle =
+    typeof rawMatch.imessage_handle === 'string' && rawMatch.imessage_handle.trim()
+      ? rawMatch.imessage_handle
+      : null
   const platform: string | null = legacy.platform ?? null
 
-  // Memo handle prefers E.164 phone, falls back to platform:external_id.
+  // Memo handle prefers E.164 phone, falls back to imessage_handle, then platform:external_id.
   let memoHandle: string | null = null
   if (herPhone) memoHandle = herPhone
+  else if (imessageHandle) memoHandle = imessageHandle
   else if (externalId) memoHandle = platform ? `${platform}:${externalId}` : externalId
 
   // Canonical match_id for realtime subscription.
@@ -115,6 +124,9 @@ export default async function MatchDetailPage({
         : externalId
   } else if (herPhone) {
     conversationMatchId = `imessage:${herPhone}`
+  } else if (imessageHandle) {
+    // AI-9526 F1 — fallback when external_id and her_phone are both null.
+    conversationMatchId = `imessage:${imessageHandle}`
   }
 
   // Unified cross-channel conversation fetch (AI-8807, AI-8926).
