@@ -52,19 +52,28 @@ function priorityScore(p: any): number {
 
 export default function NetworkPage() {
   const [showAll, setShowAll] = useState(false)
+  const [showArchived, setShowArchived] = useState(false)
   const [search, setSearch] = useState("")
   const people = useQuery(api.people.listForUser, {
     user_id: FLEET_USER_ID, limit: 500, only_cc_tech: false,
   })
+  const archivedPeople = useQuery(api.people.listArchived, {
+    user_id: FLEET_USER_ID,
+  })
 
   if (people === undefined) return <div className="p-8 text-gray-500">Loading…</div>
 
-  const filtered = people.filter((p: any) => {
+  // Separate active vs archived pools.
+  const activePeople = (people as any[]).filter((p: any) => !p.archived_at)
+  const archivedCount = archivedPeople?.length ?? 0
+
+  const filtered = (showArchived ? (archivedPeople ?? []) : activePeople).filter((p: any) => {
     if (search) {
       const q = search.toLowerCase()
       if (!p.display_name?.toLowerCase().includes(q) &&
           !p.context_notes?.toLowerCase().includes(q)) return false
     }
+    if (showArchived) return true
     return showAll ? true : isDatingRelevant(p)
   })
 
@@ -114,10 +123,13 @@ export default function NetworkPage() {
         <div>
           <h1 className="text-2xl sm:text-3xl font-bold">Network</h1>
           <p className="text-gray-400 text-sm">
-            {filtered.length} of {people.length} people · ranked by hotness × recency
+            {showArchived
+              ? `${filtered.length} archived · ${activePeople.length} active`
+              : `${filtered.length} of ${activePeople.length} active · ${archivedCount} archived`
+            } · ranked by hotness × recency
           </p>
         </div>
-        <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
+        <div className="flex flex-col sm:flex-row gap-2 sm:items-center flex-wrap sm:justify-end">
           <input
             type="text"
             value={search}
@@ -125,46 +137,76 @@ export default function NetworkPage() {
             onChange={(e) => setSearch(e.target.value)}
             className="bg-gray-950 border border-gray-800 rounded px-3 py-1.5 text-sm w-full sm:w-48"
           />
-          <label className="flex items-center gap-2 text-xs text-gray-400 cursor-pointer">
-            <input type="checkbox" checked={showAll} onChange={(e) => setShowAll(e.target.checked)} />
-            show all (incl. non-dating)
-          </label>
+          {!showArchived && (
+            <label className="flex items-center gap-2 text-xs text-gray-400 cursor-pointer">
+              <input type="checkbox" checked={showAll} onChange={(e) => setShowAll(e.target.checked)} />
+              show all (incl. non-dating)
+            </label>
+          )}
+          <button
+            onClick={() => { setShowArchived((v) => !v); setSearch("") }}
+            className={`text-xs px-3 py-1.5 rounded border transition-colors ${
+              showArchived
+                ? "bg-red-900/40 text-red-300 border-red-700/50 hover:bg-red-800/60"
+                : "bg-gray-900 text-gray-400 border-gray-700 hover:border-gray-500"
+            }`}
+          >
+            {showArchived ? "← Active" : `🗂 Archived (${archivedCount})`}
+          </button>
         </div>
       </div>
 
       <div className="text-xs text-gray-600 mb-4">
-        Default view: lead/active/dating/paused with dating-channel handle, recent inbound, operator rating, or dating vibe.
+        {showArchived
+          ? "Archived people — auto-cut after 30d silence or manually cut from the cut list."
+          : "Default view: lead/active/dating/paused with dating-channel handle, recent inbound, operator rating, or dating vibe."
+        }
       </div>
 
-      <PulseCard needsResponse={needsResponse} cooling={cooling} followupDue={followupDue} />
+      {!showArchived && (
+        <PulseCard needsResponse={needsResponse} cooling={cooling} followupDue={followupDue} />
+      )}
 
       {filtered.length === 0 && (
         <div className="text-center py-12 text-gray-500">
-          {search ? "No matches." : "No dating-relevant people yet — toggle 'show all' to see everyone."}
+          {search
+            ? "No matches."
+            : showArchived
+            ? "No archived people yet — archive candidates from the Coach Cut list."
+            : "No dating-relevant people yet — toggle 'show all' to see everyone."}
         </div>
       )}
 
-      {STAGE_ORDER.map((stage) => {
-        const ppl = (byStage[stage] || []).sort((a, b) => priorityScore(b) - priorityScore(a))
-        if (ppl.length === 0) return null
-        return (
-          <section key={stage} className="mb-8">
-            <h2 className="text-xl font-semibold mb-2 capitalize">
-              {stage.replace(/_/g, " ")} ({ppl.length})
-            </h2>
-            <div className="space-y-2">
-              {ppl.map((p) => (
-                <PersonRow key={p._id} p={p} />
-              ))}
-            </div>
-          </section>
-        )
-      })}
+      {showArchived ? (
+        // Flat list for archived view, sorted by archived_at desc (already sorted by query)
+        <div className="space-y-2">
+          {filtered.map((p: any) => (
+            <PersonRow key={p._id} p={p} showArchiveInfo />
+          ))}
+        </div>
+      ) : (
+        STAGE_ORDER.map((stage) => {
+          const ppl = (byStage[stage] || []).sort((a: any, b: any) => priorityScore(b) - priorityScore(a))
+          if (ppl.length === 0) return null
+          return (
+            <section key={stage} className="mb-8">
+              <h2 className="text-xl font-semibold mb-2 capitalize">
+                {stage.replace(/_/g, " ")} ({ppl.length})
+              </h2>
+              <div className="space-y-2">
+                {ppl.map((p: any) => (
+                  <PersonRow key={p._id} p={p} />
+                ))}
+              </div>
+            </section>
+          )
+        })
+      )}
     </div>
   )
 }
 
-function PersonRow({ p }: { p: any }) {
+function PersonRow({ p, showArchiveInfo }: { p: any; showArchiveInfo?: boolean }) {
   const now = Date.now()
   const lastInbound = p.last_inbound_at
     ? `${Math.round((now - p.last_inbound_at) / 3600000)}h ago`
@@ -173,6 +215,9 @@ function PersonRow({ p }: { p: any }) {
   const ttas = p.time_to_ask_score?.toFixed(2) ?? "—"
   const lastEmotion = (p.emotional_state_recent ?? []).slice(-1)[0]?.state ?? "—"
   const platforms = Array.from(new Set((p.handles ?? []).map((h: any) => h.channel)))
+  const archivedDaysAgo = p.archived_at
+    ? Math.floor((now - p.archived_at) / (24 * 60 * 60 * 1000))
+    : null
 
   // AI-9500 #1 — quiet thread badge
   const questionRatio: number | null = p.her_question_ratio_7d ?? null
@@ -183,13 +228,24 @@ function PersonRow({ p }: { p: any }) {
   return (
     <Link
       href={`/admin/clapcheeks-ops/people/${p._id}`}
-      className="block bg-gray-900 border border-gray-800 rounded-lg p-3 hover:border-purple-700 hover:bg-gray-800/60 transition-colors"
+      className={`block bg-gray-900 border rounded-lg p-3 hover:bg-gray-800/60 transition-colors ${
+        showArchiveInfo
+          ? "border-gray-700 hover:border-gray-500"
+          : "border-gray-800 hover:border-purple-700"
+      }`}
     >
       <div className="flex justify-between items-start gap-2 sm:gap-4">
         <div className="flex-1 min-w-0">
           <div className="flex items-baseline gap-1.5 sm:gap-2 flex-wrap">
             <span className="font-medium">{p.display_name}</span>
             {p.age && <span className="text-gray-500 text-xs">· {p.age}</span>}
+            {/* AI-9500 W2 #E — archive badge */}
+            {showArchiveInfo && archivedDaysAgo !== null && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-800 text-gray-400 border border-gray-700">
+                archived {archivedDaysAgo === 0 ? "today" : `${archivedDaysAgo}d ago`}
+                {p.archive_reason ? ` · ${p.archive_reason}` : ""}
+              </span>
+            )}
             {p.hotness_rating && (
               <span className="text-pink-300 text-xs font-mono">🔥 {p.hotness_rating}/10</span>
             )}

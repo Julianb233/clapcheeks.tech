@@ -390,6 +390,20 @@ export const upsertFromWebhook = mutation({
             ask_outcome: outcome,
             updated_at: Date.now(),
           } as any);
+
+          // AI-9500 W2 #B — Soft-no recovery: schedule a +14d re-ask touch
+          // immediately when we classify ask_outcome=soft_no. Smaller ask, lower
+          // pressure, references something specific she said.
+          // recovery_scheduled_at guard (inside _scheduleSoftNoRecovery) ensures
+          // we don't double-schedule if this branch runs twice.
+          if (outcome === "soft_no") {
+            await ctx.scheduler.runAfter(0, internal.touches._scheduleSoftNoRecovery, {
+              source_touch_id: recentAsk._id,
+              user_id: recentAsk.user_id,
+              person_id: recentAsk.person_id,
+              conversation_id: recentAsk.conversation_id,
+            });
+          }
         }
       }
     }
@@ -534,5 +548,83 @@ export const listForProxy = query({
       rows = rows.filter((r) => convIds.has(r.conversation_id));
     }
     return rows.slice(0, limit);
+  },
+});
+
+// AI-9500 W2 #D — Unified cross-platform thread for the dossier Timeline tab.
+//
+// Interleaves messages from ALL conversations linked to a person (iMessage,
+// Hinge, Bumble, IG, Telegram, email…) into a single chronological feed.
+// Each message is annotated with a `_platform` tag derived from its source
+// conversation's `platform` field so the UI can render per-platform pills.
+//
+// Also returns `_handles_summary` — the distinct platforms present — so the
+// caller can hide the toggle when only one platform exists.
+//
+// Cap: 200 most-recent messages (configurable via `limit`, max 200).
+export const unifiedThreadForPerson = query({
+  args: {
+    person_id: v.id("people"),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const limit = Math.min(args.limit ?? 200, 200);
+
+    // Step 1: find all conversations for this person.
+    const convs = await ctx.db
+      .query("conversations")
+      .withIndex("by_person", (q) => q.eq("person_id", args.person_id))
+      .collect();
+
+    // Build a lookup: conversation_id → platform.
+    const platformByConvId: Record<string, string> = {};
+    for (const c of convs) {
+      platformByConvId[c._id] = c.platform;
+    }
+
+    // Step 2: collect messages from each conversation.
+    // We over-fetch per conv so we don't miss messages after the final merge-sort.
+    const collected: Array<Record<string, unknown>> = [];
+
+    if (convs.length > 0) {
+      for (const c of convs) {
+        const msgs = await ctx.db
+          .query("messages")
+          .withIndex("by_conversation", (q) => q.eq("conversation_id", c._id))
+          .order("desc")
+          .take(limit);
+        for (const m of msgs) {
+          collected.push({ ...m, _platform: c.platform });
+        }
+      }
+    }
+
+    // Step 3: fallback — if no conv-linked messages, try messages by person_id directly.
+    // This covers older rows that have person_id but whose conversation lacks by_person index entry.
+    if (collected.length === 0) {
+      const directMsgs = await ctx.db
+        .query("messages")
+        .withIndex("by_person_recent", (q) => q.eq("person_id", args.person_id))
+        .order("desc")
+        .take(limit);
+      for (const m of directMsgs) {
+        const platform = platformByConvId[m.conversation_id as string] ?? "imessage";
+        collected.push({ ...m, _platform: platform });
+      }
+    }
+
+    // Step 4: sort by sent_at ascending (oldest first — UI can reverse if needed)
+    // and keep the 200 most-recent.
+    collected.sort((a, b) => ((a.sent_at as number) || 0) - ((b.sent_at as number) || 0));
+    const sliced = collected.slice(-limit);
+
+    // Step 5: derive handles_summary — distinct platforms present.
+    const platformsSet = new Set<string>();
+    for (const m of sliced) {
+      if (m._platform) platformsSet.add(m._platform as string);
+    }
+    const _handles_summary = Array.from(platformsSet);
+
+    return { messages: sliced, _handles_summary };
   },
 });

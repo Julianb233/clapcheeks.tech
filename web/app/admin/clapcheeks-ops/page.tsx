@@ -32,6 +32,21 @@ export default function ClapcheeksOpsOverview() {
         Your dating co-pilot — live state, ranked surfaces, one-tap controls.
       </p>
 
+      {/* AI-9500 W2 #M — Cohort retro nav card */}
+      <Link href="/admin/clapcheeks-ops/cohort"
+            className="block mb-4 bg-gradient-to-r from-indigo-950 to-gray-900 border border-indigo-800 rounded-xl p-5 hover:border-indigo-600 transition">
+        <div className="flex items-center gap-3">
+          <span className="text-2xl">📊</span>
+          <div>
+            <div className="font-bold text-lg text-white">Cohort retro analysis</div>
+            <div className="text-sm text-indigo-300">
+              12-month funnel: matched → reply → date → dating. Opener length, day-of-week, LLM insights.
+            </div>
+          </div>
+          <span className="ml-auto text-indigo-400 text-xl">→</span>
+        </div>
+      </Link>
+
       {/* AI-9500 #7 — Self-coaching nav card */}
       <Link href="/admin/clapcheeks-ops/coach"
             className="block mb-6 bg-gradient-to-r from-purple-950 to-gray-900 border border-purple-800 rounded-xl p-5 hover:border-purple-600 transition">
