@@ -14,9 +14,10 @@
  */
 "use client"
 
-import { useQuery } from "convex/react"
+import { useQuery, useMutation } from "convex/react"
 import { api } from "@/convex/_generated/api"
 import Link from "next/link"
+import { useState } from "react"
 
 const FLEET_USER_ID = "fleet-julian"
 
@@ -301,9 +302,13 @@ function OpenerOveruseCard({ data }: { data: any[] | undefined }) {
 }
 
 // ---------------------------------------------------------------------------
-// Cut-list candidates card
+// Cut-list candidates card — with one-click Archive button per row
 // ---------------------------------------------------------------------------
 function CutListCard({ data }: { data: any[] | undefined }) {
+  const archivePerson = useMutation(api.people.archivePerson)
+  const [archiving, setArchiving] = useState<Record<string, boolean>>({})
+  const [archived, setArchived] = useState<Record<string, boolean>>({})
+
   if (!data) return <CardShell title="Cut list" loading />
   if (data.length === 0)
     return (
@@ -312,8 +317,21 @@ function CutListCard({ data }: { data: any[] | undefined }) {
       </CardShell>
     )
 
-  const top = data[0]
-  const action = `Stop putting energy into ${top.display_name} — effort=${top.effort_rating}/5, hotness=${top.hotness_rating ?? "?"}/10, she's at ${Math.round(top.her_word_ratio * 100)}% reciprocity.`
+  const visible = data.filter((p: any) => !archived[p.person_id])
+  const top = visible[0]
+  const action = top
+    ? `Stop putting energy into ${top.display_name} — effort=${top.effort_rating}/5, hotness=${top.hotness_rating ?? "?"}/10, she's at ${Math.round(top.her_word_ratio * 100)}% reciprocity.`
+    : "All cut candidates archived — nice cleanup."
+
+  async function handleArchive(personId: string) {
+    setArchiving((prev) => ({ ...prev, [personId]: true }))
+    try {
+      await archivePerson({ person_id: personId as any, reason: "manual_cut" })
+      setArchived((prev) => ({ ...prev, [personId]: true }))
+    } finally {
+      setArchiving((prev) => ({ ...prev, [personId]: false }))
+    }
+  }
 
   return (
     <CardShell title="Cut list" action={action}>
@@ -323,12 +341,13 @@ function CutListCard({ data }: { data: any[] | undefined }) {
             <th className="pb-2">Name</th>
             <th className="pb-2 text-right">Effort</th>
             <th className="pb-2 text-right">Hotness</th>
-            <th className="pb-2 text-right">Her reciprocity</th>
+            <th className="pb-2 text-right">Reciprocity</th>
             <th className="pb-2 text-right">Last heard</th>
+            <th className="pb-2 text-right">Action</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-gray-800">
-          {data.map((p: any) => (
+          {visible.map((p: any) => (
             <tr key={p.person_id}>
               <td className="py-2">
                 <Link
@@ -342,10 +361,24 @@ function CutListCard({ data }: { data: any[] | undefined }) {
               <td className="py-2 text-right">{p.hotness_rating ?? "—"}/10</td>
               <td className="py-2 text-right text-red-400">{Math.round(p.her_word_ratio * 100)}%</td>
               <td className="py-2 text-right text-gray-500">{daysAgo(p.last_inbound_at)}</td>
+              <td className="py-2 text-right">
+                <button
+                  onClick={() => handleArchive(p.person_id)}
+                  disabled={archiving[p.person_id]}
+                  className="text-xs px-2 py-1 rounded bg-red-900/40 text-red-300 border border-red-700/50 hover:bg-red-800/60 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  {archiving[p.person_id] ? "…" : "Archive"}
+                </button>
+              </td>
             </tr>
           ))}
         </tbody>
       </table>
+      {Object.keys(archived).length > 0 && (
+        <p className="text-xs text-gray-500 mt-3">
+          {Object.keys(archived).length} archived this session — check <Link href="/admin/clapcheeks-ops/network" className="text-blue-400 hover:underline">Network</Link> to review.
+        </p>
+      )}
     </CardShell>
   )
 }
@@ -528,10 +561,10 @@ export default function CoachPage() {
   const callStats = useQuery(api.calls.recentForCoach, { user_id: FLEET_USER_ID })
 
   return (
-    <div className="p-8 max-w-7xl">
+    <div className="p-4 sm:p-8 max-w-7xl">
       {/* Header */}
-      <div className="flex items-center justify-between mb-2">
-        <h1 className="text-3xl font-bold">Self-Coaching Dashboard</h1>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-2">
+        <h1 className="text-2xl sm:text-3xl font-bold">Self-Coaching Dashboard</h1>
         <Link
           href="/admin/clapcheeks-ops"
           className="text-sm text-gray-400 hover:text-gray-200"
@@ -539,15 +572,15 @@ export default function CoachPage() {
           ← Ops overview
         </Link>
       </div>
-      <p className="text-gray-400 mb-8">
+      <p className="text-gray-400 text-sm mb-6 sm:mb-8">
         Your patterns across all active threads — last 30 days. Each card has one thing to do.
       </p>
 
       {/* KPI Summary — includes calls (30d) stat */}
       <SummaryCard summary={summary} callStats={callStats} />
 
-      {/* 2-column grid for the cards */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      {/* Cards — 1 col on mobile, 2 col on lg+ */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
         <OverPursueCard data={overPursue} />
         <CutListCard data={cutList} />
         <StuckInStageCard data={stuckInStage} />

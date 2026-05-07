@@ -151,4 +151,25 @@ crons.interval(
   internal.enrichment.sweepDateAskGhostOuts,
 );
 
+// AI-9500 Wave 2 #E — Auto-archive 30d-silence threads daily at 4am Pacific
+// (12:00 UTC). Scans all people; anyone with both last_inbound AND last_outbound
+// older than 30 days (and not already archived/ghosted) gets archived with
+// reason="auto_30d_silence" and whitelist_for_autoreply flipped to false.
+crons.cron(
+  "auto-archive-ghosted-30d",
+  "0 12 * * *",
+  internal.people.autoArchiveGhosted30d,
+);
+
+// AI-9500 W2 #B — Soft-no recovery detector (every 6 hours).
+// Safety-net sweep: finds date_ask touches with ask_outcome=soft_no whose
+// recovery_scheduled_at is still unset (e.g. process restart during real-time
+// classification, or backfilled asks). Schedules a soft_no_recovery touch
+// +14d for each unprocessed row. Capped at 20 per sweep.
+crons.interval(
+  "soft-no-recovery-detector",
+  { hours: 6 },
+  internal.touches.softNoRecoveryDetectorCron,
+);
+
 export default crons;

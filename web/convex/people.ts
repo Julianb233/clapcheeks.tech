@@ -1,4 +1,4 @@
-import { mutation, query } from "./_generated/server";
+import { mutation, query, internalMutation } from "./_generated/server";
 import { v } from "convex/values";
 
 // AI-9449 — Unified person record across iMessage / dating apps / email / Telegram.
@@ -1167,5 +1167,113 @@ export const updateLiveState = mutation({
     if (args.next_followup_at !== undefined) patch.next_followup_at = args.next_followup_at;
     if (args.style_profile !== undefined) patch.style_profile = args.style_profile;
     await ctx.db.patch(args.person_id, patch);
+  },
+});
+
+// ----------------------------------------------------------------------------
+// AI-9500 Wave 2 #E — Cut workflow: archivePerson / unarchivePerson / listArchived
+// ----------------------------------------------------------------------------
+
+// archivePerson — operator-initiated archive. Flips whitelist_for_autoreply to
+// false so the daemon stops sending. reason is optional; defaults to "manual".
+export const archivePerson = mutation({
+  args: {
+    person_id: v.id("people"),
+    reason: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    const person = await ctx.db.get(args.person_id);
+    if (!person) return { ok: false, error: "not_found" };
+    if (person.archived_at) return { ok: false, error: "already_archived" };
+    await ctx.db.patch(args.person_id, {
+      archived_at: now,
+      archive_reason: args.reason ?? "manual",
+      whitelist_for_autoreply: false,
+      updated_at: now,
+    });
+    return { ok: true, person_id: args.person_id };
+  },
+});
+
+// unarchivePerson — operator restores an archived person. Clears archive_at /
+// archive_reason. Does NOT auto-re-whitelist (operator does that manually).
+export const unarchivePerson = mutation({
+  args: { person_id: v.id("people") },
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    const person = await ctx.db.get(args.person_id);
+    if (!person) return { ok: false, error: "not_found" };
+    if (!person.archived_at) return { ok: false, error: "not_archived" };
+    await ctx.db.patch(args.person_id, {
+      archived_at: undefined,
+      archive_reason: undefined,
+      updated_at: now,
+    });
+    return { ok: true, person_id: args.person_id };
+  },
+});
+
+// listArchived — dashboard reader. Returns all archived people for the user,
+// sorted by archived_at desc (most recently cut first).
+export const listArchived = query({
+  args: {
+    user_id: v.string(),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const limit = Math.min(args.limit ?? 200, 500);
+    const all = await ctx.db
+      .query("people")
+      .withIndex("by_user", (q) => q.eq("user_id", args.user_id))
+      .collect();
+    const archived = all
+      .filter((p) => p.archived_at !== undefined)
+      .sort((a, b) => (b.archived_at ?? 0) - (a.archived_at ?? 0));
+    return archived.slice(0, limit);
+  },
+});
+
+// autoArchiveGhosted30d — internal cron handler.
+// Finds people who have been silent (both inbound AND outbound) for 30+ days,
+// are not already archived, and whose status is not "ghosted" — then marks
+// them archived with reason="auto_30d_silence". Ghosted people are already
+// tracked; this catches threads that just quietly stopped without a status
+// update. Scoped to all users (sweeps the whole people table).
+export const autoArchiveGhosted30d = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const now = Date.now();
+    const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+    const cutoff = now - THIRTY_DAYS_MS;
+
+    // Collect ALL people (no per-user restriction — cron owns the sweep).
+    // At human scale this is fine; add pagination if the table ever exceeds 50k.
+    const all = await ctx.db.query("people").collect();
+
+    let archived = 0;
+    for (const person of all) {
+      // Already archived — skip.
+      if (person.archived_at !== undefined) continue;
+      // Explicitly ghosted — status already says so — skip.
+      if (person.status === "ghosted") continue;
+      // If no inbound/outbound timestamps at all — skip (never had a message).
+      if (!person.last_inbound_at && !person.last_outbound_at) continue;
+      // Check 30-day silence on both sides.
+      const lastInboundOld =
+        !person.last_inbound_at || person.last_inbound_at < cutoff;
+      const lastOutboundOld =
+        !person.last_outbound_at || person.last_outbound_at < cutoff;
+      if (!lastInboundOld || !lastOutboundOld) continue;
+
+      await ctx.db.patch(person._id, {
+        archived_at: now,
+        archive_reason: "auto_30d_silence",
+        whitelist_for_autoreply: false,
+        updated_at: now,
+      });
+      archived++;
+    }
+    return { archived, scanned: all.length };
   },
 });

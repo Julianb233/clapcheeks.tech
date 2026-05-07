@@ -6,6 +6,11 @@
  *
  * Wave 2.4 Task G — Compose panel ("Send a touch now"):
  *   pick template → click Preview → Mac Mini drafts → editable textarea → Send.
+ *
+ * AI-9500 W2 #D — Unified cross-platform thread (Timeline tab):
+ *   Interleaves iMessage + Hinge + IG + Telegram + email messages into one
+ *   chronological feed. Each message gets a platform pill. Toggle to single-
+ *   platform view. Powered by messages.unifiedThreadForPerson Convex query.
  */
 "use client"
 
@@ -59,7 +64,7 @@ export default function PersonDossierPage() {
   const { person, messages, conversations, scheduled_touches, media_uses, media_assets, pending_links } = dossier as any
 
   return (
-    <div className="p-8 max-w-7xl">
+    <div className="p-4 sm:p-8 max-w-7xl">
       <div className="mb-4">
         <Link href="/admin/clapcheeks-ops/network" className="text-xs text-gray-500 hover:text-gray-300">
           ← back to network
@@ -70,12 +75,13 @@ export default function PersonDossierPage() {
 
       <OperatorPanel person={person} />
 
-      <div className="mt-6 flex gap-1 border-b border-gray-800">
+      {/* Tabs — scrollable on mobile so all tabs remain accessible */}
+      <div className="mt-6 flex gap-1 border-b border-gray-800 overflow-x-auto scrollbar-hide">
         {TABS.map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
-            className={`px-4 py-2 text-sm rounded-t-md ${
+            className={`px-3 sm:px-4 py-2 text-xs sm:text-sm rounded-t-md whitespace-nowrap flex-shrink-0 ${
               tab === t
                 ? "bg-gray-900 text-white border border-gray-800 border-b-transparent"
                 : "text-gray-500 hover:text-gray-300"
@@ -86,8 +92,8 @@ export default function PersonDossierPage() {
         ))}
       </div>
 
-      <div className="bg-gray-900 border border-gray-800 border-t-0 rounded-b-md p-6 mb-8">
-        {tab === "Timeline" && <TimelineTab messages={messages} conversations={conversations} calls={calls ?? []} />}
+      <div className="bg-gray-900 border border-gray-800 border-t-0 rounded-b-md p-4 sm:p-6 mb-8">
+        {tab === "Timeline" && <TimelineTab messages={messages} conversations={conversations} personId={personId} calls={calls ?? []} />}
         {tab === "Memory" && <MemoryTab person={person} />}
         {tab === "Schedule" && <ScheduleTab person={person} touches={scheduled_touches} />}
         {tab === "Media" && <MediaTab uses={media_uses} assets={media_assets} />}
@@ -115,11 +121,11 @@ function HeaderCard({ person }: { person: any }) {
   const lastEmotion = (person.emotional_state_recent ?? []).slice(-1)[0]?.state ?? "—"
 
   return (
-    <div className="bg-gradient-to-br from-purple-900/20 to-gray-900 border border-purple-800/40 rounded-lg p-6">
-      <div className="flex items-start justify-between">
-        <div>
-          <div className="flex items-center gap-3">
-            <h1 className="text-3xl font-bold">{person.display_name}</h1>
+    <div className="bg-gradient-to-br from-purple-900/20 to-gray-900 border border-purple-800/40 rounded-lg p-4 sm:p-6">
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
+            <h1 className="text-2xl sm:text-3xl font-bold">{person.display_name}</h1>
             {person.age && <span className="text-gray-500">· {person.age}</span>}
             <span className={`text-xs px-2 py-0.5 rounded ${
               person.whitelist_for_autoreply
@@ -132,26 +138,26 @@ function HeaderCard({ person }: { person: any }) {
             {person.location_observed || person.company || "—"}
             {person.occupation_observed ? ` · ${person.occupation_observed}` : ""}
           </div>
-          <div className="flex gap-4 mt-3 text-xs text-gray-400">
+          <div className="flex flex-wrap gap-2 sm:gap-4 mt-2 sm:mt-3 text-xs text-gray-400">
             <span>stage: <b className="text-purple-300">{person.courtship_stage ?? "early_chat"}</b></span>
             <span>cadence: {person.cadence_profile}</span>
-            <span>vibe: {person.conversation_temperature ?? "—"}</span>
-            <span>last emotion: {lastEmotion}</span>
+            <span className="hidden sm:inline">vibe: {person.conversation_temperature ?? "—"}</span>
+            <span>emo: {lastEmotion}</span>
           </div>
-          <div className="flex gap-4 mt-2 text-xs text-gray-500">
-            <span>inbound {lastInbound}</span>
-            <span>outbound {lastOutbound}</span>
-            <span>trust {trust}</span>
-            <span>ask-readiness {tta}</span>
-            <span>messages 30d {person.total_messages_30d ?? 0}</span>
+          <div className="flex flex-wrap gap-2 sm:gap-4 mt-1 sm:mt-2 text-xs text-gray-500">
+            <span>in {lastInbound}</span>
+            <span>out {lastOutbound}</span>
+            <span className="hidden sm:inline">trust {trust}</span>
+            <span className="hidden sm:inline">ask {tta}</span>
+            <span className="hidden sm:inline">msgs {person.total_messages_30d ?? 0}</span>
           </div>
         </div>
-        <div className="text-right text-xs text-gray-500 max-w-sm">
+        <div className="text-xs text-gray-500 sm:text-right sm:max-w-sm">
           {person.next_best_move && (
             <div className="text-purple-300 italic">💡 {person.next_best_move}</div>
           )}
           {person.zodiac_sign && (
-            <div className="mt-2 capitalize">♈ {person.zodiac_sign} · {person.disc_inference || "DISC ?"}</div>
+            <div className="mt-1 sm:mt-2 capitalize">♈ {person.zodiac_sign} · {person.disc_inference || "DISC ?"}</div>
           )}
         </div>
       </div>
@@ -346,34 +352,48 @@ function Select({
 }
 
 // ---------------------------------------------------------------------------
-// Timeline tab — recent messages, ascending (oldest first within the slice)
+// Platform pill colors for the unified thread feed
+// ---------------------------------------------------------------------------
+const PLATFORM_STYLES: Record<string, string> = {
+  hinge:     "bg-rose-900/60 text-rose-300 border-rose-700/50",
+  tinder:    "bg-orange-900/60 text-orange-300 border-orange-700/50",
+  bumble:    "bg-yellow-900/60 text-yellow-300 border-yellow-700/50",
+  imessage:  "bg-blue-900/60 text-blue-300 border-blue-700/50",
+  instagram: "bg-fuchsia-900/60 text-fuchsia-300 border-fuchsia-700/50",
+  telegram:  "bg-sky-900/60 text-sky-300 border-sky-700/50",
+  email:     "bg-emerald-900/60 text-emerald-300 border-emerald-700/50",
+  other:     "bg-gray-800 text-gray-400 border-gray-700",
+}
+function platformStyle(p: string) {
+  return PLATFORM_STYLES[p] ?? PLATFORM_STYLES.other
+}
+
+// ---------------------------------------------------------------------------
+// Timeline tab — AI-9500 W2 #D unified cross-platform thread
+//
+// Unified mode (default): fetches unifiedThreadForPerson from Convex — merges
+// all platforms (iMessage, Hinge, IG, Telegram, email…) into one chronological
+// feed. Each message gets a platform pill.
+// Per-platform mode: shows only the dossier messages (existing behavior).
+// Toggle hidden when only one platform is present (_handles_summary.length < 2).
 // ---------------------------------------------------------------------------
 // ---------------------------------------------------------------------------
-// CallBubble — single call entry in the timeline
+// CallBubble — single call entry in the timeline (AI-9500 W2 E13)
 // ---------------------------------------------------------------------------
 function CallBubble({ call }: { call: any }) {
   const isMissed = call.direction === "missed"
   const isOut = call.direction === "outbound"
-
   const icon = isMissed ? "📵" : "📞"
-  const label = isMissed
-    ? "missed call"
-    : isOut
-    ? "outbound call"
-    : "inbound call"
+  const label = isMissed ? "missed call" : isOut ? "outbound call" : "inbound call"
 
   const durationLabel = (() => {
-    if (call.duration_seconds === undefined || call.duration_seconds === null) return ""
+    if (call.duration_seconds == null) return ""
     const m = Math.floor(call.duration_seconds / 60)
     const s = call.duration_seconds % 60
-    if (m === 0) return ` · ${s}s`
-    return ` · ${m}m${s > 0 ? `${s}s` : ""}`
+    return m === 0 ? ` · ${s}s` : ` · ${m}m${s > 0 ? `${s}s` : ""}`
   })()
 
-  const platformLabel = call.platform
-    ? ` · ${call.platform.replace("_", " ")}`
-    : ""
-
+  const platformLabel = call.platform ? ` · ${call.platform.replace("_", " ")}` : ""
   const ts = new Date(call.started_at_ms).toLocaleString()
 
   return (
@@ -388,74 +408,130 @@ function CallBubble({ call }: { call: any }) {
         <span className="mr-1">{icon}</span>
         <span className="font-medium">{label}</span>
         {durationLabel && <span className="text-xs opacity-70">{durationLabel}</span>}
-        {call.notes && (
-          <div className="text-xs opacity-60 mt-0.5 italic">{call.notes}</div>
-        )}
-        <div className="text-[10px] text-gray-500 mt-1">
-          {ts}{platformLabel}
-        </div>
+        {call.notes && <div className="text-xs opacity-60 mt-0.5 italic">{call.notes}</div>}
+        <div className="text-[10px] text-gray-500 mt-1">{ts}{platformLabel}</div>
       </div>
     </div>
   )
 }
 
 // ---------------------------------------------------------------------------
-// TimelineTab — messages + calls interleaved by timestamp
+// Timeline tab — AI-9500 W2 #D unified cross-platform thread
+//                + AI-9500 W2 E13 call interleaving
+//
+// Unified mode (default): fetches unifiedThreadForPerson from Convex — merges
+// all platforms (iMessage, Hinge, IG, Telegram, email…) into one chronological
+// feed. Call records are interleaved by timestamp.
+// Per-platform mode: shows only the dossier messages (existing behavior).
+// Toggle hidden when only one platform is present (_handles_summary.length < 2).
 // ---------------------------------------------------------------------------
-function TimelineTab({
-  messages,
-  conversations,
-  calls,
-}: {
-  messages: any[]
-  conversations: any[]
-  calls: any[]
+function TimelineTab({ messages: dossierMessages, conversations, personId, calls }: {
+  messages: any[];
+  conversations: any[];
+  personId: string;
+  calls: any[];
 }) {
-  // Build a unified event list sorted by timestamp (oldest at top, newest at bottom)
-  const unified = useMemo(() => {
-    const msgEvents = messages.map((m: any) => ({
-      kind: "message" as const,
-      ts: m.sent_at,
-      data: m,
-    }))
-    const callEvents = calls.map((c: any) => ({
-      kind: "call" as const,
-      ts: c.started_at_ms,
-      data: c,
-    }))
-    return [...msgEvents, ...callEvents].sort((a, b) => a.ts - b.ts)
-  }, [messages, calls])
+  const [mode, setMode] = useState<"unified" | "platform">("unified")
 
-  if (!unified.length) {
+  // Unified thread query (always subscribed so switching is instant)
+  const unified = useQuery(api.messages.unifiedThreadForPerson, {
+    person_id: personId as Id<"people">,
+    limit: 200,
+  })
+
+  const handlesSummary: string[] = unified?._handles_summary ?? []
+  const multiPlatform = handlesSummary.length > 1
+
+  // Active message list — unified is oldest-first from the query;
+  // dossier list is newest-first so we reverse it for chronological display.
+  const activeMessages: any[] = mode === "unified"
+    ? (unified?.messages ?? [])
+    : [...dossierMessages].reverse()
+
+  // Build unified event list: messages + calls sorted by timestamp
+  const allEvents = useMemo(() => {
+    const msgEvents = activeMessages.map((m: any) => ({ kind: "message" as const, ts: m.sent_at as number, data: m }))
+    const callEvents = calls.map((c: any) => ({ kind: "call" as const, ts: c.started_at_ms as number, data: c }))
+    return [...msgEvents, ...callEvents].sort((a, b) => a.ts - b.ts)
+  }, [activeMessages, calls])
+
+  const isLoading = mode === "unified" && unified === undefined
+
+  if (isLoading) {
+    return <div className="text-gray-500 text-sm">Loading unified thread…</div>
+  }
+  if (!allEvents.length) {
     return <div className="text-gray-500 text-sm">No messages or calls yet.</div>
   }
 
   const platforms = Array.from(new Set(conversations.map((c: any) => c.platform)))
-  const callCount = calls.length
 
   return (
     <div>
-      <div className="text-xs text-gray-500 mb-3">
-        {messages.length} messages across {conversations.length} conversation(s) ·{" "}
-        {callCount > 0 ? `${callCount} call(s) · ` : ""}
-        {platforms.join(", ")}
+      {/* Header bar */}
+      <div className="flex items-center justify-between mb-3">
+        <div className="text-xs text-gray-500">
+          {activeMessages.length} message{activeMessages.length !== 1 ? "s" : ""}
+          {calls.length > 0 ? ` · ${calls.length} call${calls.length !== 1 ? "s" : ""}` : ""}
+          {" · "}
+          {mode === "unified"
+            ? handlesSummary.join(", ") || platforms.join(", ")
+            : `${conversations.length} conversation(s) · ${platforms.join(", ")}`}
+        </div>
+
+        {/* Toggle — only shown when more than one platform exists */}
+        {multiPlatform && (
+          <div className="flex rounded border border-gray-700 overflow-hidden text-xs">
+            <button
+              onClick={() => setMode("unified")}
+              className={`px-3 py-1 transition-colors ${
+                mode === "unified"
+                  ? "bg-purple-700 text-white"
+                  : "bg-gray-900 text-gray-400 hover:text-gray-200"
+              }`}
+            >
+              unified
+            </button>
+            <button
+              onClick={() => setMode("platform")}
+              className={`px-3 py-1 transition-colors border-l border-gray-700 ${
+                mode === "platform"
+                  ? "bg-purple-700 text-white"
+                  : "bg-gray-900 text-gray-400 hover:text-gray-200"
+              }`}
+            >
+              this platform
+            </button>
+          </div>
+        )}
       </div>
+
+      {/* Message + call feed interleaved */}
       <div className="space-y-2 max-h-[60vh] overflow-y-auto pr-2">
-        {unified.map((event) => {
+        {allEvents.map((event, idx) => {
           if (event.kind === "call") {
-            return <CallBubble key={`call-${event.data._id}`} call={event.data} />
+            return <CallBubble key={`call-${event.data._id ?? idx}`} call={event.data} />
           }
           const m = event.data
           const isOut = m.direction === "outbound"
           const ts = new Date(m.sent_at).toLocaleString()
+          const platform: string = m._platform ?? "imessage"
           return (
-            <div key={m._id} className={`flex ${isOut ? "justify-end" : "justify-start"}`}>
+            <div key={m._id ?? idx} className={`flex ${isOut ? "justify-end" : "justify-start"}`}>
               <div className={`max-w-[75%] rounded-lg px-3 py-2 ${
                 isOut ? "bg-purple-700/40 border border-purple-700/60" : "bg-gray-800 border border-gray-700"
               }`}>
                 <div className="text-sm whitespace-pre-wrap">{m.body}</div>
-                <div className="text-[10px] text-gray-500 mt-1">
-                  {ts} · {m.transport ?? m.source ?? "—"}
+                <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                  <span className="text-[10px] text-gray-500">{ts}</span>
+                  {mode === "unified" && (
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded border font-medium ${platformStyle(platform)}`}>
+                      {platform}
+                    </span>
+                  )}
+                  {(m.transport || m.source) && (
+                    <span className="text-[10px] text-gray-600">{m.transport ?? m.source}</span>
+                  )}
                 </div>
               </div>
             </div>
