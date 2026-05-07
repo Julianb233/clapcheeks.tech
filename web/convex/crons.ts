@@ -37,4 +37,13 @@ crons.interval(
   internal.conversations.reconcile,
 );
 
+// AI-9449 Phase A — safety-net drain for scheduled_touches rows whose
+// runAt fired event was dropped (process crash, etc.). Every 5 minutes,
+// pick up any "scheduled" rows past their time and re-fire them.
+crons.interval(
+  "drain-due-scheduled-touches",
+  { minutes: 5 },
+  internal.touches.drainDue,
+);
+
 export default crons;

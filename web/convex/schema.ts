@@ -408,4 +408,99 @@ export default defineSchema({
   })
     .index("by_user_status", ["user_id", "status"])
     .index("by_conversation", ["conversation_id"]),
+
+  // -----------------------------------------------------------------------
+  // AI-9449 Phase A — scheduled_touches (replaces global polling crons).
+  //
+  // Per-row scheduling: each touch self-schedules via ctx.scheduler.runAt at
+  // exactly the right moment instead of a global cron scanning for due rows.
+  // Powers ask-for-the-date, logistics cascade, ghost-recovery, hot-fast-track,
+  // birthday/event-day, and the daily digest queue.
+  //
+  // AI-9500 Wave 2.4D — added fired_body_shape for anti-loop dedup.
+  // -----------------------------------------------------------------------
+  scheduled_touches: defineTable({
+    user_id: v.string(),
+    person_id: v.id("people"),
+    conversation_id: v.optional(v.id("conversations")),
+    type: v.union(
+      v.literal("reply"),                  // standard cadence reply
+      v.literal("nudge"),                  // soft re-engage
+      v.literal("callback_reference"),     // "did you end up doing X?"
+      v.literal("date_ask"),               // propose a date
+      v.literal("date_confirm_24h"),       // T-24h confirmation
+      v.literal("date_dayof"),             // T-3h / day-of
+      v.literal("date_postmortem"),        // next-morning followup
+      v.literal("reengage_low_temp"),      // pattern interrupt at 5+ days silent
+      v.literal("birthday_wish"),
+      v.literal("event_day_check"),        // her marathon / interview / etc.
+      v.literal("pattern_interrupt"),      // unique soft restart
+      v.literal("phone_swap_followup"),    // first-call invite 24-72h post-swap
+      v.literal("first_call_invite"),
+      v.literal("morning_text"),
+      v.literal("digest_inclusion"),       // include this person in tomorrow's digest
+    ),
+    scheduled_for: v.number(),             // unix ms — exact fire time
+    status: v.union(
+      v.literal("scheduled"),
+      v.literal("fired"),
+      v.literal("skipped"),                // active-hours / cool-down / boundary
+      v.literal("cancelled"),              // superseded by newer state
+      v.literal("error"),
+    ),
+    draft_body: v.optional(v.string()),    // pre-generated draft (or generate at fire time)
+    generate_at_fire_time: v.optional(v.boolean()),  // if true, defer body generation
+    media_asset_id: v.optional(v.id("media_assets")),
+    prompt_template: v.optional(v.string()),         // which template the AI used
+    urgency: v.optional(v.union(
+      v.literal("hot"), v.literal("warm"), v.literal("cool"),
+    )),
+    generated_by_run_id: v.optional(v.string()),    // trace id of the enrichment that generated this
+    skip_reason: v.optional(v.string()),
+    fired_at: v.optional(v.number()),
+    // AI-9500 Wave 2.4D — anti-loop fingerprint.
+    // sha1( type + ":" + draftBody[0..50] ) stored at fire time so fireOne
+    // can detect duplicate-body sends across all people in the last 7 days.
+    fired_body_shape: v.optional(v.string()),
+    created_at: v.number(),
+    updated_at: v.number(),
+  })
+    .index("by_user_status", ["user_id", "status"])
+    .index("by_person_status", ["person_id", "status"])
+    .index("by_due", ["status", "scheduled_for"])
+    .index("by_conversation", ["conversation_id"])
+    .index("by_user_fired_at", ["user_id", "fired_at"]),  // AI-9500D: recent-fired scan
+
+  // -----------------------------------------------------------------------
+  // AI-9449 — Media library. Photos / videos / voice memos / memes Julian
+  // has approved for AI to send in context. AI selects from this library
+  // based on conversation signals and a context-hook match.
+  // -----------------------------------------------------------------------
+  media_assets: defineTable({
+    user_id: v.string(),
+    asset_id: v.string(),                              // stable external id
+    kind: v.union(
+      v.literal("image"), v.literal("video"),
+      v.literal("voice_memo"), v.literal("meme"), v.literal("gif"),
+    ),
+    storage_url: v.string(),
+    thumbnail_url: v.optional(v.string()),
+    file_size_bytes: v.optional(v.number()),
+    mime_type: v.optional(v.string()),
+    caption: v.optional(v.string()),
+    tags: v.array(v.string()),
+    context_hooks: v.array(v.string()),
+    approval_status: v.union(
+      v.literal("pending"),
+      v.literal("approved"),
+      v.literal("deprecated"),
+    ),
+    used_count: v.optional(v.number()),
+    last_used_at_ms: v.optional(v.number()),
+    created_at: v.number(),
+    updated_at: v.number(),
+  })
+    .index("by_user", ["user_id"])
+    .index("by_user_status", ["user_id", "approval_status"])
+    .index("by_asset_id", ["asset_id"]),
 });
