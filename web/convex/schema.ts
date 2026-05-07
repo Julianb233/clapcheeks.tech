@@ -961,4 +961,71 @@ export default defineSchema({
   })
     .index("by_token", ["token"])
     .index("by_user", ["user_id"]),
+
+  // =====================================================================
+  // BEGIN AI-9526 (matches-on-convex) — owned by AI-9526-matches-on-convex
+  // Sibling agent (AI-9526-outbound-on-convex) owns clapcheeks_scheduled_messages
+  // / clapcheeks_followup_sequences / clapcheeks_queued_replies /
+  // clapcheeks_posting_queue / clapcheeks_approval_queue. Don't touch those.
+  // =====================================================================
+
+  // -----------------------------------------------------------------------
+  // AI-9526 — Match metadata + photos. Replaces Supabase clapcheeks_matches.
+  // Photo binaries move from Supabase Storage bucket `clapcheeks-match-photos`
+  // (or `match-photos`) into Convex File Storage. The URL field is preserved
+  // for backward-compat during the migration window (rollback insurance).
+  //
+  // Auth still lives on Supabase (supabase.auth.getUser); user_id is the
+  // Supabase auth uuid. Idempotent upsert key: (user_id, platform, external_match_id).
+  // -----------------------------------------------------------------------
+  matches: defineTable({
+    user_id: v.string(),                          // Supabase auth uuid
+    external_match_id: v.string(),                // platform's id (Tinder _id, Hinge id, etc.)
+    platform: v.union(
+      v.literal("hinge"),
+      v.literal("tinder"),
+      v.literal("bumble"),
+      v.literal("imessage"),
+      v.literal("offline"),                        // OfflineContactForm path
+    ),
+    person_id: v.optional(v.id("people")),        // unified-person link (AI-9449)
+    match_name: v.optional(v.string()),
+    name: v.optional(v.string()),
+    age: v.optional(v.number()),
+    bio: v.optional(v.string()),
+    status: v.optional(v.string()),               // 'new' | 'opened' | 'conversing' | 'stalled' | 'date_proposed' | 'date_booked' | 'dated' | 'ghosted'
+    photos: v.optional(v.array(v.object({         // photos_jsonb flattened to typed array
+      storage_id: v.optional(v.id("_storage")),   // Convex File Storage ID (preferred)
+      url: v.optional(v.string()),                 // direct URL when not in storage
+      supabase_path: v.optional(v.string()),       // legacy Supabase Storage path (rollback)
+      width: v.optional(v.number()),
+      height: v.optional(v.number()),
+      primary: v.optional(v.boolean()),
+      idx: v.optional(v.number()),
+    }))),
+    instagram_handle: v.optional(v.string()),
+    zodiac: v.optional(v.string()),
+    job: v.optional(v.string()),
+    school: v.optional(v.string()),
+    stage: v.optional(v.string()),                // RosterStage
+    health_score: v.optional(v.number()),
+    final_score: v.optional(v.number()),
+    julian_rank: v.optional(v.number()),
+    match_intel: v.optional(v.any()),             // jsonb blob
+    attributes: v.optional(v.any()),              // AI-8814 attribute tags blob
+    created_at: v.number(),
+    updated_at: v.number(),
+    last_activity_at: v.optional(v.number()),
+    // Optional: Supabase-source tracking so backfill is idempotent + auditable
+    supabase_match_id: v.optional(v.string()),    // original public.clapcheeks_matches.id
+  })
+    .index("by_user_platform_external", ["user_id", "platform", "external_match_id"])
+    .index("by_user_rank", ["user_id", "julian_rank"])
+    .index("by_user_last_activity", ["user_id", "last_activity_at"])
+    .index("by_user", ["user_id"])
+    .index("by_user_status", ["user_id", "status"])
+    .index("by_supabase_match_id", ["supabase_match_id"]),
+  // =====================================================================
+  // END AI-9526 (matches-on-convex)
+  // =====================================================================
 });

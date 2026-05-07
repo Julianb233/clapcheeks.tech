@@ -24,6 +24,7 @@ import type * as drip from "../drip.js";
 import type * as enrichment from "../enrichment.js";
 import type * as http from "../http.js";
 import type * as inbound from "../inbound.js";
+import type * as matches from "../matches.js";
 import type * as media from "../media.js";
 import type * as messages from "../messages.js";
 import type * as opener from "../opener.js";
@@ -56,6 +57,7 @@ declare const fullApi: ApiFromModules<{
   enrichment: typeof enrichment;
   http: typeof http;
   inbound: typeof inbound;
+  matches: typeof matches;
   media: typeof media;
   messages: typeof messages;
   opener: typeof opener;

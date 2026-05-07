@@ -1,0 +1,391 @@
+import { mutation, query, internalMutation } from "./_generated/server";
+import { v } from "convex/values";
+
+// AI-9526 — Match metadata + photos on Convex.
+//
+// Replaces Supabase `clapcheeks_matches` table + `clapcheeks-match-photos`
+// Storage bucket. Auth still lives on Supabase (supabase.auth.getUser); the
+// user_id field on every row is the Supabase auth uuid.
+//
+// Mac Mini match_sync.py: `convex.mutation('matches:upsertByExternal', ...)`
+// Web client: `useQuery(api.matches.listForUser, { user_id })`
+//
+// Idempotency: keyed by (user_id, platform, external_match_id).
+// Mirrors the conversations:listForUser cap fix from PR #130 (default 200,
+// max 2000) so dashboards never silently truncate.
+
+const PLATFORM = v.union(
+  v.literal("hinge"),
+  v.literal("tinder"),
+  v.literal("bumble"),
+  v.literal("imessage"),
+  v.literal("offline"),
+);
+
+const PHOTO = v.object({
+  storage_id: v.optional(v.id("_storage")),
+  url: v.optional(v.string()),
+  supabase_path: v.optional(v.string()),
+  width: v.optional(v.number()),
+  height: v.optional(v.number()),
+  primary: v.optional(v.boolean()),
+  idx: v.optional(v.number()),
+});
+
+const MAX_LIMIT = 2000;
+const DEFAULT_LIMIT = 200;
+
+// ----------------------------------------------------------------------------
+// upsertByExternal — write path used by Mac Mini match_sync.py.
+//
+// Idempotent: looks up by (user_id, platform, external_match_id). Inserts on
+// first sight, patches on subsequent runs. Numeric/string fields default to
+// undefined (not patched) when the caller omits them so we don't accidentally
+// blow away enrichment data set by the Vercel UI.
+// ----------------------------------------------------------------------------
+export const upsertByExternal = mutation({
+  args: {
+    user_id: v.string(),
+    platform: PLATFORM,
+    external_match_id: v.string(),
+    match_name: v.optional(v.string()),
+    name: v.optional(v.string()),
+    age: v.optional(v.number()),
+    bio: v.optional(v.string()),
+    status: v.optional(v.string()),
+    photos: v.optional(v.array(PHOTO)),
+    instagram_handle: v.optional(v.string()),
+    zodiac: v.optional(v.string()),
+    job: v.optional(v.string()),
+    school: v.optional(v.string()),
+    stage: v.optional(v.string()),
+    health_score: v.optional(v.number()),
+    final_score: v.optional(v.number()),
+    julian_rank: v.optional(v.number()),
+    match_intel: v.optional(v.any()),
+    attributes: v.optional(v.any()),
+    last_activity_at: v.optional(v.number()),
+    supabase_match_id: v.optional(v.string()),
+    person_id: v.optional(v.id("people")),
+  },
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    const existing = await ctx.db
+      .query("matches")
+      .withIndex("by_user_platform_external", (q) =>
+        q
+          .eq("user_id", args.user_id)
+          .eq("platform", args.platform)
+          .eq("external_match_id", args.external_match_id),
+      )
+      .first();
+
+    // Build a partial patch that only includes fields the caller actually set.
+    const patch: Record<string, unknown> = { updated_at: now };
+    const fields: Array<keyof typeof args> = [
+      "match_name", "name", "age", "bio", "status", "photos",
+      "instagram_handle", "zodiac", "job", "school", "stage",
+      "health_score", "final_score", "julian_rank", "match_intel",
+      "attributes", "last_activity_at", "supabase_match_id", "person_id",
+    ];
+    for (const f of fields) {
+      if (args[f] !== undefined) patch[f as string] = args[f];
+    }
+
+    if (existing) {
+      await ctx.db.patch(existing._id, patch);
+      return { action: "updated" as const, _id: existing._id };
+    }
+    const id = await ctx.db.insert("matches", {
+      user_id: args.user_id,
+      platform: args.platform,
+      external_match_id: args.external_match_id,
+      match_name: args.match_name,
+      name: args.name,
+      age: args.age,
+      bio: args.bio,
+      status: args.status,
+      photos: args.photos,
+      instagram_handle: args.instagram_handle,
+      zodiac: args.zodiac,
+      job: args.job,
+      school: args.school,
+      stage: args.stage,
+      health_score: args.health_score,
+      final_score: args.final_score,
+      julian_rank: args.julian_rank,
+      match_intel: args.match_intel,
+      attributes: args.attributes,
+      last_activity_at: args.last_activity_at,
+      supabase_match_id: args.supabase_match_id,
+      person_id: args.person_id,
+      created_at: now,
+      updated_at: now,
+    });
+    return { action: "inserted" as const, _id: id };
+  },
+});
+
+// ----------------------------------------------------------------------------
+// upsertFromBackfill — gated mutation used by the Supabase->Convex backfill
+// script. Same idempotent shape as upsertByExternal but accepts a created_at
+// override (preserve original Supabase timestamps) and is gated on the shared
+// secret so it can't be invoked from a browser session.
+// ----------------------------------------------------------------------------
+export const upsertFromBackfill = mutation({
+  args: {
+    deploy_key_check: v.string(),
+    user_id: v.string(),
+    platform: PLATFORM,
+    external_match_id: v.string(),
+    supabase_match_id: v.optional(v.string()),
+    match_name: v.optional(v.string()),
+    name: v.optional(v.string()),
+    age: v.optional(v.number()),
+    bio: v.optional(v.string()),
+    status: v.optional(v.string()),
+    photos: v.optional(v.array(PHOTO)),
+    instagram_handle: v.optional(v.string()),
+    zodiac: v.optional(v.string()),
+    job: v.optional(v.string()),
+    school: v.optional(v.string()),
+    stage: v.optional(v.string()),
+    health_score: v.optional(v.number()),
+    final_score: v.optional(v.number()),
+    julian_rank: v.optional(v.number()),
+    match_intel: v.optional(v.any()),
+    attributes: v.optional(v.any()),
+    last_activity_at: v.optional(v.number()),
+    created_at: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const expected = process.env.CONVEX_RUNNER_SHARED_SECRET;
+    if (!expected) {
+      throw new Error("server_unconfigured: CONVEX_RUNNER_SHARED_SECRET unset");
+    }
+    if (args.deploy_key_check !== expected) {
+      throw new Error("forbidden: bad deploy_key_check");
+    }
+    const now = Date.now();
+    const existing = await ctx.db
+      .query("matches")
+      .withIndex("by_user_platform_external", (q) =>
+        q
+          .eq("user_id", args.user_id)
+          .eq("platform", args.platform)
+          .eq("external_match_id", args.external_match_id),
+      )
+      .first();
+    const fields: Array<string> = [
+      "match_name", "name", "age", "bio", "status", "photos",
+      "instagram_handle", "zodiac", "job", "school", "stage",
+      "health_score", "final_score", "julian_rank", "match_intel",
+      "attributes", "last_activity_at", "supabase_match_id",
+    ];
+    const patch: Record<string, unknown> = { updated_at: now };
+    for (const f of fields) {
+      const val = (args as Record<string, unknown>)[f];
+      if (val !== undefined) patch[f] = val;
+    }
+    if (existing) {
+      await ctx.db.patch(existing._id, patch);
+      return { action: "updated" as const, _id: existing._id };
+    }
+    const id = await ctx.db.insert("matches", {
+      user_id: args.user_id,
+      platform: args.platform,
+      external_match_id: args.external_match_id,
+      match_name: args.match_name,
+      name: args.name,
+      age: args.age,
+      bio: args.bio,
+      status: args.status,
+      photos: args.photos,
+      instagram_handle: args.instagram_handle,
+      zodiac: args.zodiac,
+      job: args.job,
+      school: args.school,
+      stage: args.stage,
+      health_score: args.health_score,
+      final_score: args.final_score,
+      julian_rank: args.julian_rank,
+      match_intel: args.match_intel,
+      attributes: args.attributes,
+      last_activity_at: args.last_activity_at,
+      supabase_match_id: args.supabase_match_id,
+      created_at: args.created_at ?? now,
+      updated_at: now,
+    });
+    return { action: "inserted" as const, _id: id };
+  },
+});
+
+// ----------------------------------------------------------------------------
+// listForUser — primary read path for /matches page.
+//
+// Returns matches sorted by julian_rank DESC, then final_score DESC, then
+// created_at DESC. Convex indexes don't support multi-field DESC ordering, so
+// we fetch by_user_rank and stable-sort in JS — fine at human-scale (<10k
+// matches per user).
+//
+// Cap: default 200, max 2000 (mirrors conversations:listForUser PR #130 fix).
+// ----------------------------------------------------------------------------
+export const listForUser = query({
+  args: {
+    user_id: v.string(),
+    status: v.optional(v.string()),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const limit = Math.min(Math.max(args.limit ?? DEFAULT_LIMIT, 1), MAX_LIMIT);
+
+    let rows;
+    if (args.status) {
+      rows = await ctx.db
+        .query("matches")
+        .withIndex("by_user_status", (q) =>
+          q.eq("user_id", args.user_id).eq("status", args.status!),
+        )
+        .collect();
+    } else {
+      rows = await ctx.db
+        .query("matches")
+        .withIndex("by_user", (q) => q.eq("user_id", args.user_id))
+        .collect();
+    }
+
+    rows.sort((a, b) => {
+      const ar = typeof a.julian_rank === "number" ? a.julian_rank : -Infinity;
+      const br = typeof b.julian_rank === "number" ? b.julian_rank : -Infinity;
+      if (br !== ar) return br - ar;
+      const af = typeof a.final_score === "number" ? a.final_score : -Infinity;
+      const bf = typeof b.final_score === "number" ? b.final_score : -Infinity;
+      if (bf !== af) return bf - af;
+      return (b.created_at ?? 0) - (a.created_at ?? 0);
+    });
+    return rows.slice(0, limit);
+  },
+});
+
+// ----------------------------------------------------------------------------
+// listForUserByPlatform — platform-filtered variant for any platform-specific
+// dashboard (e.g. Tinder-only roster view).
+// ----------------------------------------------------------------------------
+export const listForUserByPlatform = query({
+  args: {
+    user_id: v.string(),
+    platform: PLATFORM,
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const limit = Math.min(Math.max(args.limit ?? DEFAULT_LIMIT, 1), MAX_LIMIT);
+    const all = await ctx.db
+      .query("matches")
+      .withIndex("by_user", (q) => q.eq("user_id", args.user_id))
+      .collect();
+    const filtered = all.filter((r) => r.platform === args.platform);
+    filtered.sort((a, b) => {
+      const ar = typeof a.julian_rank === "number" ? a.julian_rank : -Infinity;
+      const br = typeof b.julian_rank === "number" ? b.julian_rank : -Infinity;
+      if (br !== ar) return br - ar;
+      const af = typeof a.final_score === "number" ? a.final_score : -Infinity;
+      const bf = typeof b.final_score === "number" ? b.final_score : -Infinity;
+      if (bf !== af) return bf - af;
+      return (b.created_at ?? 0) - (a.created_at ?? 0);
+    });
+    return filtered.slice(0, limit);
+  },
+});
+
+// ----------------------------------------------------------------------------
+// getById — single match by Convex doc id.
+// ----------------------------------------------------------------------------
+export const getById = query({
+  args: { id: v.id("matches") },
+  handler: async (ctx, args) => {
+    return await ctx.db.get(args.id);
+  },
+});
+
+// ----------------------------------------------------------------------------
+// getBySupabaseId — single match looked up by original Supabase id (for the
+// detail page during the dual-read transition window).
+// ----------------------------------------------------------------------------
+export const getBySupabaseId = query({
+  args: { supabase_match_id: v.string() },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("matches")
+      .withIndex("by_supabase_match_id", (q) =>
+        q.eq("supabase_match_id", args.supabase_match_id),
+      )
+      .first();
+  },
+});
+
+// ----------------------------------------------------------------------------
+// patch — partial update (status, julian_rank, attributes, etc.).
+// ----------------------------------------------------------------------------
+export const patch = mutation({
+  args: {
+    id: v.id("matches"),
+    status: v.optional(v.string()),
+    stage: v.optional(v.string()),
+    julian_rank: v.optional(v.number()),
+    health_score: v.optional(v.number()),
+    final_score: v.optional(v.number()),
+    attributes: v.optional(v.any()),
+    match_intel: v.optional(v.any()),
+    last_activity_at: v.optional(v.number()),
+    instagram_handle: v.optional(v.string()),
+    photos: v.optional(v.array(PHOTO)),
+  },
+  handler: async (ctx, args) => {
+    const { id, ...rest } = args;
+    const patch: Record<string, unknown> = { updated_at: Date.now() };
+    for (const [k, v2] of Object.entries(rest)) {
+      if (v2 !== undefined) patch[k] = v2;
+    }
+    await ctx.db.patch(id, patch);
+    return { ok: true as const };
+  },
+});
+
+// ----------------------------------------------------------------------------
+// archive — soft-archive (sets status='archived'). Caller can use patch too;
+// this is a convenience wrapper.
+// ----------------------------------------------------------------------------
+export const archive = mutation({
+  args: { id: v.id("matches") },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.id, {
+      status: "archived",
+      updated_at: Date.now(),
+    });
+    return { ok: true as const };
+  },
+});
+
+// ----------------------------------------------------------------------------
+// getPhotoUrl — resolve a Convex File Storage id to a URL the browser can hit.
+// Used by the matches grid + detail components when a photo's storage_id is
+// set (and url is not).
+// ----------------------------------------------------------------------------
+export const getPhotoUrl = query({
+  args: { storage_id: v.id("_storage") },
+  handler: async (ctx, args) => {
+    return await ctx.storage.getUrl(args.storage_id);
+  },
+});
+
+// ----------------------------------------------------------------------------
+// generateUploadUrl — short-lived URL for uploading a photo blob into Convex
+// File Storage. The Mac Mini match_sync.py uses this to push a downloaded
+// match photo into Convex without an admin auth round-trip.
+// ----------------------------------------------------------------------------
+export const generateUploadUrl = mutation({
+  args: {},
+  handler: async (ctx) => {
+    return await ctx.storage.generateUploadUrl();
+  },
+});
