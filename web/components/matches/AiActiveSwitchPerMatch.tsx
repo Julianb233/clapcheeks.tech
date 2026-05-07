@@ -3,12 +3,14 @@
  * AI-8809 — Per-match AI toggle.
  *
  * Smaller switch for the /matches/[id] page header.
- * Toggles clapcheeks_matches.ai_active for a single match.
+ * Toggles matches.ai_active for a single match (AI-9534: now on Convex).
  * Does NOT affect the user-level setting.
  */
 
 import { useState, useEffect } from 'react'
-import { createClient } from '@/lib/supabase/client'
+import { useQuery, useMutation } from 'convex/react'
+import { api } from '@/convex/_generated/api'
+import type { Id } from '@/convex/_generated/dataModel'
 
 type Props = {
   matchId: string
@@ -19,33 +21,34 @@ export default function AiActiveSwitchPerMatch({ matchId }: Props) {
   const [saving, setSaving] = useState(false)
   const [loaded, setLoaded] = useState(false)
 
+  // matchId can be either a Convex `_id` or a legacy Supabase UUID; resolve
+  // through resolveByAnyId so both work.
+  const row = useQuery(
+    api.matches.resolveByAnyId,
+    matchId ? { id: matchId } : 'skip',
+  ) as (Record<string, unknown> & { _id?: Id<'matches'>; ai_active?: boolean }) | null | undefined
+
+  const patch = useMutation(api.matches.patch)
+
   useEffect(() => {
-    if (!matchId) return
-    const supabase = createClient()
-    ;(async () => {
-      const { data } = await supabase
-        .from('clapcheeks_matches')
-        .select('ai_active')
-        .eq('id', matchId)
-        .single()
-      if (data) setActive(data.ai_active ?? true)
-      setLoaded(true)
-    })()
-  }, [matchId])
+    if (row === undefined) return
+    if (row && typeof row.ai_active === 'boolean') setActive(row.ai_active)
+    else if (row) setActive(true)
+    setLoaded(true)
+  }, [row])
 
   async function toggle() {
-    if (!loaded || saving) return
+    if (!loaded || saving || !row?._id) return
     const next = !active
     setSaving(true)
-    const supabase = createClient()
-    const { data } = await supabase
-      .from('clapcheeks_matches')
-      .update({ ai_active: next })
-      .eq('id', matchId)
-      .select('ai_active')
-      .single()
-    if (data) setActive(data.ai_active ?? next)
-    setSaving(false)
+    setActive(next) // optimistic
+    try {
+      await patch({ id: row._id, ai_active: next })
+    } catch {
+      setActive(!next) // rollback
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (

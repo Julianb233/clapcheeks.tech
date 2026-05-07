@@ -1,7 +1,9 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { createClient } from '@/lib/supabase/client'
+import { useConvex } from 'convex/react'
+import { api } from '@/convex/_generated/api'
+import type { Id } from '@/convex/_generated/dataModel'
 import {
   ClapcheeksMatchRow,
   ROSTER_STAGES,
@@ -39,6 +41,7 @@ export default function RosterKanban({ initialMatches, lastMessages }: Props) {
   const [matches, setMatches] = useState<ClapcheeksMatchRow[]>(initialMatches)
   const [dragTarget, setDragTarget] = useState<RosterStage | null>(null)
   const [persistError, setPersistError] = useState<string | null>(null)
+  const convex = useConvex()
 
   const grouped = useMemo(() => {
     const by: Record<RosterStage, ClapcheeksMatchRow[]> = {} as never
@@ -68,16 +71,19 @@ export default function RosterKanban({ initialMatches, lastMessages }: Props) {
       prev.map((m) => (m.id === matchId ? { ...m, stage: nextStage } : m)),
     )
     try {
-      const supabase = createClient()
-      // stage column may not exist if migration hasn't shipped — catch and
-      // revert in that case.
-      const { error } = await (supabase as any)
-        .from('clapcheeks_matches')
-        .update({ stage: nextStage, updated_at: new Date().toISOString() })
-        .eq('id', matchId)
-      if (error) {
-        setPersistError(`Stage save failed: ${error.message}`)
+      // AI-9534 — matchId may be a Convex _id or a legacy Supabase UUID.
+      // resolveByAnyId returns the doc; we then patch by the Convex _id.
+      const resolved = (await convex.query(api.matches.resolveByAnyId, {
+        id: matchId,
+      })) as (Record<string, unknown> & { _id?: Id<'matches'> }) | null
+      if (!resolved?._id) {
+        setPersistError('Stage save failed: match not found.')
+        return
       }
+      await convex.mutation(api.matches.patch, {
+        id: resolved._id,
+        stage: nextStage,
+      })
     } catch (e) {
       setPersistError((e as Error).message)
     }

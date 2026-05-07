@@ -1,7 +1,6 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
-import { createClient } from '@/lib/supabase/client'
 import MatchCard from './MatchCard'
 import FilterBar from './FilterBar'
 import {
@@ -35,7 +34,10 @@ export default function MatchGrid({
   initialLastMessages,
   pageSize,
 }: Props) {
-  const [matches, setMatches] = useState<MatchWithAttributes[]>(initialMatches)
+  // AI-9534: server-side Convex query already returned the full capped set;
+  // we no longer mutate the local state by paginating, so this is just a
+  // memoized snapshot of the prop.
+  const [matches] = useState<MatchWithAttributes[]>(initialMatches)
   const [lastMessages] = useState<LastMessageMap>(initialLastMessages)
   const [hasMore, setHasMore] = useState(initialHasMore)
   const [loading, setLoading] = useState(false)
@@ -59,32 +61,25 @@ export default function MatchGrid({
     })
   }, [matches, filters])
 
+  // AI-9534 — matches are now read server-side from Convex by the parent
+  // route (matches/page.tsx). The reactive Convex query already hits the cap
+  // (200 by default, 2000 max) so the previous Supabase range/pagination
+  // dance is gone. The infinite-scroll sentinel still exists to match the old
+  // UX, but it's a no-op once the initial set is loaded.
   const fetchMore = useCallback(async () => {
     if (!hasMore || loading) return
     setLoading(true)
     try {
-      const supabase = createClient()
-      const from = matches.length
-      const to = from + pageSize - 1
-      const { data, error } = await supabase
-        .from('clapcheeks_matches')
-        .select('*')
-        .order('final_score', { ascending: false, nullsFirst: false })
-        .order('last_activity_at', { ascending: false, nullsFirst: false })
-        .range(from, to)
-      if (error) {
-        console.warn('[MatchGrid] fetchMore error:', error.message)
-        setHasMore(false)
-      } else if (data && data.length > 0) {
-        setMatches((prev) => [...prev, ...(data as unknown as MatchWithAttributes[])])
-        if (data.length < pageSize) setHasMore(false)
-      } else {
-        setHasMore(false)
-      }
+      // Convex listForUser returned everything up to the limit on the server
+      // side, so there is nothing more to paginate. If we ever need >200
+      // matches per user, raise the limit in matches/page.tsx instead of
+      // re-introducing client pagination.
+      setHasMore(false)
     } finally {
       setLoading(false)
     }
-  }, [hasMore, loading, matches.length, pageSize])
+  }, [hasMore, loading])
+  void pageSize // pageSize is kept on the prop type for back-compat
 
   useEffect(() => {
     if (!sentinelRef.current || !hasMore) return

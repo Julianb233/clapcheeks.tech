@@ -1,10 +1,13 @@
 import type { Metadata } from 'next'
+import { api } from '@/convex/_generated/api'
+import { getConvexServerClient } from '@/lib/convex/server'
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import LeadsBoard, { type Lead } from './leads-board'
 import RosterStatsBar from '@/components/roster/RosterStatsBar'
 import DailyTopThree from '@/components/roster/DailyTopThree'
 import { ClapcheeksMatchRow } from '@/lib/matches/types'
+import { mapConvexMatchRowsToLegacy } from '@/lib/matches/convex-mapper'
 
 export const metadata: Metadata = {
   title: 'Pipeline — Clapcheeks',
@@ -65,22 +68,19 @@ export default async function PipelinePage() {
     dripFired: (row.drip_fired as Record<string, number> | null) ?? {},
   }))
 
-  // Fetch matches for the Roster intelligence header strip (stats bar + daily top 3).
-  // Defensive try/catch — if `clapcheeks_matches` is unreachable for any
-  // reason (RLS, schema cache, etc.) we still want the kanban to render.
+  // Fetch matches for the Roster intelligence header strip (stats bar + daily
+  // top 3). AI-9534: Convex now owns the matches table; we read the same
+  // close_probability / final_score / last_activity_at ordering server-side
+  // via listForUserOrdered. Defensive try/catch — if Convex is unreachable we
+  // still want the kanban to render.
   let matches: ClapcheeksMatchRow[] = []
   try {
-    const { data, error } = await (supabase as any)
-      .from('clapcheeks_matches')
-      .select('*')
-      .eq('user_id', user.id)
-      .order('close_probability', { ascending: false, nullsFirst: false })
-      .order('final_score', { ascending: false, nullsFirst: false })
-      .order('last_activity_at', { ascending: false, nullsFirst: false })
-      .range(0, 199)
-    if (!error && data) {
-      matches = data as ClapcheeksMatchRow[]
-    }
+    const convex = getConvexServerClient()
+    const rows = await convex.query(api.matches.listForUserOrdered, {
+      user_id: user.id,
+      limit: 200,
+    })
+    matches = mapConvexMatchRowsToLegacy(rows)
   } catch {
     // Non-fatal — header strip just renders empty / hidden states.
   }

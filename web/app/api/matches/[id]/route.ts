@@ -1,4 +1,7 @@
 import { NextResponse } from 'next/server'
+import { api } from '@/convex/_generated/api'
+import type { Id } from '@/convex/_generated/dataModel'
+import { getConvexServerClient } from '@/lib/convex/server'
 import { createClient } from '@/lib/supabase/server'
 
 /**
@@ -6,8 +9,8 @@ import { createClient } from '@/lib/supabase/server'
  *                          match_intel JSONB.
  * DELETE /api/matches/[id] — soft-archive (sets status = 'archived').
  *
- * Both require an authenticated Supabase session and enforce ownership
- * via the `user_id` column on clapcheeks_matches.
+ * AI-9534 — match data on Convex; auth still on Supabase. Ownership is
+ * enforced inside api.matches.patchByUser.
  */
 
 type PatchBody = {
@@ -55,21 +58,20 @@ export async function PATCH(
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
   }
 
-  // Load the row first so we can verify ownership and read-modify-write the
-  // match_intel JSONB.
-  const { data: existing, error: fetchErr } = await (supabase as any)
-    .from('clapcheeks_matches')
-    .select('id, user_id, match_intel')
-    .eq('id', id)
-    .maybeSingle()
+  // AI-9534 — load from Convex. The route id may be a Convex doc id or the
+  // legacy Supabase UUID; resolveByAnyId handles both.
+  const convex = getConvexServerClient()
+  const existing = (await convex.query(api.matches.resolveByAnyId, {
+    id,
+  })) as
+    | (Record<string, unknown> & {
+        _id?: Id<'matches'>
+        user_id?: string
+        match_intel?: unknown
+      })
+    | null
 
-  if (fetchErr) {
-    return NextResponse.json(
-      { error: fetchErr.message ?? 'fetch failed' },
-      { status: 500 },
-    )
-  }
-  if (!existing) {
+  if (!existing || !existing._id) {
     return NextResponse.json({ error: 'match not found' }, { status: 404 })
   }
   if (existing.user_id !== user.id) {
@@ -143,22 +145,18 @@ export async function PATCH(
     )
   }
 
-  const { data: updated, error: updateErr } = await (supabase as any)
-    .from('clapcheeks_matches')
-    .update(update)
-    .eq('id', id)
-    .eq('user_id', user.id)
-    .select('*')
-    .single()
-
-  if (updateErr) {
-    return NextResponse.json(
-      { error: updateErr.message ?? 'update failed' },
-      { status: 500 },
-    )
+  try {
+    const result = await convex.mutation(api.matches.patchByUser, {
+      id: existing._id,
+      user_id: user.id,
+      ...update,
+    })
+    return NextResponse.json({ ok: true, match: result.row })
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : 'update failed'
+    const status = msg === 'forbidden' ? 403 : msg === 'not_found' ? 404 : 500
+    return NextResponse.json({ error: msg }, { status })
   }
-
-  return NextResponse.json({ ok: true, match: updated })
 }
 
 export async function DELETE(
@@ -178,40 +176,30 @@ export async function DELETE(
     return NextResponse.json({ error: 'match id required' }, { status: 400 })
   }
 
-  // Ownership check.
-  const { data: existing, error: fetchErr } = await (supabase as any)
-    .from('clapcheeks_matches')
-    .select('id, user_id')
-    .eq('id', id)
-    .maybeSingle()
-
-  if (fetchErr) {
-    return NextResponse.json(
-      { error: fetchErr.message ?? 'fetch failed' },
-      { status: 500 },
-    )
-  }
-  if (!existing) {
+  // Ownership check via Convex.
+  const convex = getConvexServerClient()
+  const existing = (await convex.query(api.matches.resolveByAnyId, {
+    id,
+  })) as
+    | (Record<string, unknown> & { _id?: Id<'matches'>; user_id?: string })
+    | null
+  if (!existing || !existing._id) {
     return NextResponse.json({ error: 'match not found' }, { status: 404 })
   }
   if (existing.user_id !== user.id) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
-  const { data: updated, error: updateErr } = await (supabase as any)
-    .from('clapcheeks_matches')
-    .update({ status: 'archived' })
-    .eq('id', id)
-    .eq('user_id', user.id)
-    .select('*')
-    .single()
-
-  if (updateErr) {
-    return NextResponse.json(
-      { error: updateErr.message ?? 'archive failed' },
-      { status: 500 },
-    )
+  try {
+    const result = await convex.mutation(api.matches.patchByUser, {
+      id: existing._id,
+      user_id: user.id,
+      status: 'archived',
+    })
+    return NextResponse.json({ ok: true, match: result.row })
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : 'archive failed'
+    const status = msg === 'forbidden' ? 403 : msg === 'not_found' ? 404 : 500
+    return NextResponse.json({ error: msg }, { status })
   }
-
-  return NextResponse.json({ ok: true, match: updated })
 }

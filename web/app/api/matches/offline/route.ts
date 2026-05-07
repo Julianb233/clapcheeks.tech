@@ -1,17 +1,15 @@
 import { NextResponse } from 'next/server'
+import { api } from '@/convex/_generated/api'
+import { getConvexServerClient } from '@/lib/convex/server'
 import { createClient } from '@/lib/supabase/server'
 
 /**
  * Phase F (AI-8320): Offline contact ingestion.
  *
- * Creates a `clapcheeks_matches` row with platform='offline', source='imessage'.
- * The Phase F daemon then pulls iMessage history for the phone and (if an IG
- * handle was given) enqueues a Phase C enrichment job onto
- * clapcheeks_agent_jobs.
- *
- * This route is intentionally lightweight — it does the DB write + job-enqueue
- * synchronously; the heavy iMessage history read happens in the daemon
- * because only the Mac Mini has Full Disk Access.
+ * AI-9534 — writes the match to Convex via api.matches.upsertOffline. The
+ * Phase F daemon (Mac Mini) still queues iMessage history pulls + IG
+ * enrichment via clapcheeks_agent_jobs on Supabase — that table is out of
+ * scope for this migration.
  */
 
 type OfflinePayload = {
@@ -66,39 +64,42 @@ export async function POST(req: Request) {
 
   const digits = phoneE164.replace(/\D+/g, '')
   const externalId = `offline:${digits}`
-  const nowIso = new Date().toISOString()
+  const nowIso = new Date().toISOString() // still used by the agent_jobs insert below
+  const nowMs = Date.now()
 
-  const row = {
-    user_id: user.id,
-    platform: 'offline' as const,
-    external_id: externalId,
-    match_id: externalId,
-    match_name: name,
-    name,
-    her_phone: phoneE164,
-    source: 'imessage',
-    primary_channel: 'imessage',
-    handoff_complete: true,
-    julian_shared_phone: true,
-    handoff_detected_at: nowIso,
-    instagram_handle: instagramHandle,
-    met_at: metAt,
-    first_impression: firstImpression,
-    status: 'conversing',
-    created_at: nowIso,
-    updated_at: nowIso,
-    last_activity_at: nowIso,
-  }
-
-  const { data: upserted, error: upsertError } = await (supabase as any)
-    .from('clapcheeks_matches')
-    .upsert(row, { onConflict: 'user_id,platform,external_id' })
-    .select('id, external_id')
-    .single()
-
-  if (upsertError) {
+  // AI-9534 — write the match to Convex (idempotent on
+  // (user_id, platform=offline, external_match_id)).
+  const convex = getConvexServerClient()
+  let upserted: { _id: string; external_id?: string } | null = null
+  try {
+    const result = await convex.mutation(api.matches.upsertOffline, {
+      user_id: user.id,
+      external_match_id: externalId,
+      match_id: externalId,
+      external_id: externalId,
+      match_name: name,
+      name,
+      her_phone: phoneE164,
+      source: 'imessage',
+      primary_channel: 'imessage',
+      handoff_complete: true,
+      julian_shared_phone: true,
+      handoff_detected_at: nowMs,
+      instagram_handle: instagramHandle ?? undefined,
+      met_at: metAt ?? undefined,
+      first_impression: firstImpression ?? undefined,
+      status: 'conversing',
+    })
+    upserted = {
+      _id: result._id as unknown as string,
+      external_id: result.external_id,
+    }
+  } catch (err) {
     return NextResponse.json(
-      { error: 'Failed to create offline match', detail: upsertError.message },
+      {
+        error: 'Failed to create offline match',
+        detail: err instanceof Error ? err.message : String(err),
+      },
       { status: 500 },
     )
   }
@@ -142,7 +143,7 @@ export async function POST(req: Request) {
     {
       ok: true,
       match: {
-        id: upserted?.id,
+        id: upserted?._id,
         external_id: externalId,
         name,
         phone_e164: phoneE164,
