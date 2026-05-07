@@ -35,6 +35,20 @@ export const listForUser = query({
   },
 });
 
+// AI-9545 — list a person's conversations across all platforms.
+// Used by clapcheeks-local cadence_runner.py to evaluate cadence per
+// person regardless of which channel the thread is on.
+export const listForPerson = query({
+  args: { person_id: v.id("people") },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("conversations")
+      .withIndex("by_person", (q) => q.eq("person_id", args.person_id))
+      .order("desc")
+      .take(50);
+  },
+});
+
 // Single conversation with most recent N messages.
 export const getWithMessages = query({
   args: {
