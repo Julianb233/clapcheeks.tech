@@ -2,7 +2,9 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
-import { createClient } from '@/lib/supabase/client'
+import { useMutation, useQuery } from 'convex/react'
+import { api } from '@/convex/_generated/api'
+import type { Id } from '@/convex/_generated/dataModel'
 import {
   ClapcheeksMatchRow,
   ConversationMessage,
@@ -40,18 +42,26 @@ export default function MatchDetail({ match, messages, clusterRisk }: Props) {
   const visionSummary = match.vision_summary ?? null
   const instagramSummary = match.instagram_intel?.summary ?? null
 
+  // AI-9534 — Convex-backed reads/writes. The `match.id` is either a Convex
+  // doc id or the legacy Supabase UUID; resolveByAnyId handles both.
+  const row = useQuery(
+    api.matches.resolveByAnyId,
+    current.id ? { id: current.id } : 'skip',
+  ) as (Record<string, unknown> & { _id?: Id<'matches'> }) | null | undefined
+  const patch = useMutation(api.matches.patch)
+
   async function updateStatus(next: MatchStatus) {
     setStatusBusy(next)
     try {
-      const supabase = createClient()
-      const { error } = await supabase
-        .from('clapcheeks_matches')
-        .update({ status: next, updated_at: new Date().toISOString() })
-        .eq('id', current.id)
-      if (!error) {
+      if (!row?._id) {
+        console.warn('[MatchDetail] status update: row not loaded yet')
+        return
+      }
+      try {
+        await patch({ id: row._id, status: next })
         setCurrent((prev) => ({ ...prev, status: next }))
-      } else {
-        console.warn('[MatchDetail] status update failed:', error.message)
+      } catch (err) {
+        console.warn('[MatchDetail] status update failed:', err)
       }
     } finally {
       setStatusBusy(null)
@@ -62,17 +72,17 @@ export default function MatchDetail({ match, messages, clusterRisk }: Props) {
     setRankSaving(true)
     setRankError(null)
     try {
-      const supabase = createClient()
-      // julian_rank column may not exist yet — handle gracefully.
-      const { error } = await supabase
-        .from('clapcheeks_matches')
-        .update({ julian_rank: newRank })
-        .eq('id', current.id)
-      if (error) {
-        setRankError('julian_rank column not yet deployed — Phase A will add it.')
+      if (!row?._id) {
+        setRankError('Match not loaded yet — try again.')
+        return
       }
-    } catch (e) {
-      setRankError('Network error saving rank.')
+      try {
+        await patch({ id: row._id, julian_rank: newRank })
+      } catch (e) {
+        setRankError(
+          e instanceof Error ? e.message : 'Network error saving rank.',
+        )
+      }
     } finally {
       setRankSaving(false)
     }

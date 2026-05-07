@@ -1,7 +1,9 @@
 'use client'
 
 import { useState } from 'react'
-import { createClient } from '@/lib/supabase/client'
+import { useMutation, useQuery } from 'convex/react'
+import { api } from '@/convex/_generated/api'
+import type { Id } from '@/convex/_generated/dataModel'
 
 type MutualFriend = {
   name?: string
@@ -64,22 +66,30 @@ export default function SocialGraphPanel({
   const isSuppressed = (clusterRank ?? 1) > 1
   const isLocked = clusterRank === 99
 
+  // AI-9534 — read the row from Convex (resolveByAnyId handles both Convex
+  // _id and legacy Supabase UUIDs in the URL) and patch via Convex too.
+  const row = useQuery(
+    api.matches.resolveByAnyId,
+    matchId ? { id: matchId } : 'skip',
+  ) as (Record<string, unknown> & { _id?: Id<'matches'>; match_intel?: Record<string, unknown> | null }) | null | undefined
+  const patch = useMutation(api.matches.patch)
+
   async function toggleProceed(next: boolean) {
     setProceed(next)
     setSaving(true)
     setSaveError(null)
     try {
-      const supabase = createClient()
-      const { error } = await supabase
-        .from('clapcheeks_matches')
-        .update({
-          match_intel: {
-            proceed_despite_cluster_risk: next,
-            override_logged_at: new Date().toISOString(),
-          },
-        })
-        .eq('id', matchId)
-      if (error) setSaveError(error.message)
+      if (!row?._id) {
+        setSaveError('match not loaded')
+        return
+      }
+      const current: Record<string, unknown> =
+        row.match_intel && typeof row.match_intel === 'object'
+          ? { ...(row.match_intel as Record<string, unknown>) }
+          : {}
+      current.proceed_despite_cluster_risk = next
+      current.override_logged_at = new Date().toISOString()
+      await patch({ id: row._id, match_intel: current })
     } catch (e) {
       setSaveError((e as Error).message)
     } finally {
