@@ -25,22 +25,6 @@
  *              which runs BEFORE drafting and AFTER draft generation. The fireOne
  *              function delegates to the agent_jobs send_imessage job, which calls
  *              _draft_with_template — boundary checks happen there.
- *
- * AI-9500 #5 Anti-flake kit:
- *   When date_confirm_24h fires successfully, two follow-up touches are
- *   automatically scheduled:
- *   - date_dayof_transit  : (date_time - 90min) — "heading to <venue>, text
- *                           me when you're 5 out". Commitment device disguised
- *                           as logistics. Pre-commitment language drops flake
- *                           rate ~20% per randomized studies.
- *   - date_check_in       : (date_time - 30min) — low-pressure "you good?".
- *                           ONLY fires if last_inbound_at < (now - 60min).
- *                           If she's been actively chatting, skip with
- *                           skip_reason "she_is_active".
- *
- *   date metadata (venue + date_time_ms) is read from the touch's
- *   prompt_template field, stored as JSON: {"venue":"X","date_time_ms":N}.
- *   _extractDateMetaFromTouch() parses this safely with fallbacks.
  */
 
 import { mutation, internalAction, internalMutation, query } from "./_generated/server";
@@ -55,11 +39,7 @@ const TOUCH_TYPE = v.union(
   v.literal("date_ask"),
   v.literal("date_confirm_24h"),
   v.literal("date_dayof"),
-  v.literal("date_dayof_transit"),     // AI-9500 #5 — 90min-before transit ping
-  v.literal("date_check_in"),          // AI-9500 #5 — 30min-before silence check
   v.literal("date_postmortem"),
-  v.literal("post_date_calibration"),  // AI-9500 #6
-  v.literal("easy_question_revival"),  // AI-9500 #1
   v.literal("reengage_low_temp"),
   v.literal("birthday_wish"),
   v.literal("event_day_check"),
@@ -261,138 +241,6 @@ export const cancelForPerson = mutation({
 });
 
 // ---------------------------------------------------------------------------
-// AI-9500 #5 — _extractDateMetaFromTouch
-//
-// Reads venue + date_time_ms from a touch row's prompt_template field.
-// Metadata encoding: prompt_template carries JSON like
-//   {"venue":"Bottega Louie","date_time_ms":1746000000000}
-// when the touch was created via the date-ask flow.
-//
-// Falls back to safe defaults if the field is absent or non-JSON.
-// ---------------------------------------------------------------------------
-type DateMeta = { venue: string; date_time_ms: number };
-
-function _extractDateMetaFromTouch(touch: {
-  prompt_template?: string;
-  scheduled_for: number;
-}): DateMeta {
-  let venue = "the spot";      // safe fallback
-  let date_time_ms = touch.scheduled_for; // fallback: the touch's own fire time
-
-  if (touch.prompt_template) {
-    try {
-      const parsed = JSON.parse(touch.prompt_template);
-      if (parsed && typeof parsed === "object") {
-        if (typeof parsed.venue === "string" && parsed.venue.trim()) {
-          venue = parsed.venue.trim();
-        }
-        if (typeof parsed.date_time_ms === "number" && parsed.date_time_ms > 0) {
-          date_time_ms = parsed.date_time_ms;
-        }
-      }
-    } catch {
-      // Non-JSON prompt_template (plain template name). Keep defaults.
-    }
-  }
-  return { venue, date_time_ms };
-}
-
-// ---------------------------------------------------------------------------
-// AI-9500 #5 — _scheduleAntiFlakeTouches (internalMutation)
-//
-// Called by fireOne immediately after a date_confirm_24h touch fires.
-// Schedules:
-//   1. date_dayof_transit at (date_time_ms - 90min)
-//      Draft: "heading to <venue> — text me when you're 5 min out"
-//      (commitment device disguised as logistics)
-//   2. date_check_in     at (date_time_ms - 30min)
-//      Draft: "you good?" — silence-conditional at fire time
-//      (fireOne enforces: skips if last_inbound_at >= now - 60min)
-//
-// Idempotent: if a scheduled touch of the same type already exists for this
-// person, does not schedule another.
-// ---------------------------------------------------------------------------
-export const _scheduleAntiFlakeTouches = internalMutation({
-  args: {
-    user_id: v.string(),
-    person_id: v.id("people"),
-    conversation_id: v.optional(v.id("conversations")),
-    venue: v.string(),
-    date_time_ms: v.number(),
-  },
-  handler: async (ctx, args) => {
-    const now = Date.now();
-    const NINETY_MIN = 90 * 60 * 1000;
-    const THIRTY_MIN = 30 * 60 * 1000;
-
-    const transitAt = args.date_time_ms - NINETY_MIN;
-    const checkInAt = args.date_time_ms - THIRTY_MIN;
-
-    // Load pending touches to de-duplicate.
-    const existingPending = await ctx.db
-      .query("scheduled_touches")
-      .withIndex("by_person_status", (q) =>
-        q.eq("person_id", args.person_id).eq("status", "scheduled"),
-      )
-      .collect();
-
-    const hasTransit = existingPending.some((t) => t.type === "date_dayof_transit");
-    const hasCheckIn = existingPending.some((t) => t.type === "date_check_in");
-
-    const scheduled: Array<{ type: string; at: number }> = [];
-    const metaJson = JSON.stringify({ venue: args.venue, date_time_ms: args.date_time_ms });
-
-    // 1. date_dayof_transit — 90 min before
-    if (!hasTransit && transitAt > now) {
-      const venuePart = args.venue !== "the spot" ? ` to ${args.venue}` : "";
-      const transitDraft = `heading${venuePart} - text me when you're 5 min out`;
-      const transitId = await ctx.db.insert("scheduled_touches", {
-        user_id: args.user_id,
-        person_id: args.person_id,
-        conversation_id: args.conversation_id,
-        type: "date_dayof_transit",
-        scheduled_for: transitAt,
-        status: "scheduled",
-        draft_body: transitDraft,
-        generate_at_fire_time: false,
-        urgency: "hot",
-        prompt_template: metaJson,
-        created_at: now,
-        updated_at: now,
-      });
-      await ctx.scheduler.runAt(transitAt, internal.touches.fireOne, { touch_id: transitId });
-      scheduled.push({ type: "date_dayof_transit", at: transitAt });
-    }
-
-    // 2. date_check_in — 30 min before, silence-conditional at fire time
-    if (!hasCheckIn && checkInAt > now) {
-      const checkInId = await ctx.db.insert("scheduled_touches", {
-        user_id: args.user_id,
-        person_id: args.person_id,
-        conversation_id: args.conversation_id,
-        type: "date_check_in",
-        scheduled_for: checkInAt,
-        status: "scheduled",
-        draft_body: "you good?",
-        generate_at_fire_time: false,
-        urgency: "hot",
-        prompt_template: metaJson,
-        created_at: now,
-        updated_at: now,
-      });
-      await ctx.scheduler.runAt(checkInAt, internal.touches.fireOne, { touch_id: checkInId });
-      scheduled.push({ type: "date_check_in", at: checkInAt });
-    }
-
-    return {
-      scheduled,
-      skipped_transit: hasTransit,
-      skipped_check_in: hasCheckIn,
-    };
-  },
-});
-
-// ---------------------------------------------------------------------------
 // _computeBodyShape — deterministic fingerprint for anti-loop detection.
 //
 // Convex Actions can use the Web Crypto API (globalThis.crypto). We compute
@@ -533,29 +381,6 @@ export const fireOne = internalAction({
       });
     }
 
-    // -----------------------------------------------------------------------
-    // AI-9500 #5 — Silence check for date_check_in.
-    //
-    // date_check_in is conditional: only fire if she has been silent for
-    // >= 60 min before this touch fires. If she's been actively texting,
-    // skip — she's engaged and a check-in would be needy.
-    //
-    // Threshold: last_inbound_at < (now - 60min).
-    // If last_inbound_at is unset, treat as silent (conservative: fire).
-    // -----------------------------------------------------------------------
-    if (touch.type === "date_check_in") {
-      const SIXTY_MIN = 60 * 60 * 1000;
-      const lastInbound = (person as any).last_inbound_at as number | undefined;
-      if (lastInbound !== undefined && lastInbound >= Date.now() - SIXTY_MIN) {
-        await ctx.runMutation(internal.touches._markFired, {
-          touch_id: args.touch_id,
-          status: "skipped",
-          skip_reason: "she_is_active",
-        });
-        return { skipped: true, reason: "she_is_active", last_inbound_at: lastInbound };
-      }
-    }
-
     // Enqueue an agent_jobs row for the Mac Mini daemon to actually send.
     // (Actual send happens daemon-side because BlueBubbles HTTP is on Mac.)
     // Boundary-checking (Layer 2) runs inside convex_runner._draft_with_template.
@@ -572,29 +397,6 @@ export const fireOne = internalAction({
     await ctx.runMutation(internal.touches._markFired, {
       touch_id: args.touch_id, status: "fired",
     });
-
-    // -----------------------------------------------------------------------
-    // AI-9500 #5 — Auto-schedule anti-flake touches after date_confirm_24h.
-    //
-    // When a date_confirm_24h fires successfully, schedule:
-    //   - date_dayof_transit at (date_time - 90min)
-    //   - date_check_in      at (date_time - 30min, silence-conditional)
-    //
-    // date_time is extracted from touch.prompt_template (JSON string).
-    // Falls back to touch.scheduled_for as a best-effort proxy.
-    // Non-fatal if scheduling fails — the confirm already went out.
-    // -----------------------------------------------------------------------
-    if (touch.type === "date_confirm_24h") {
-      const dateMeta = _extractDateMetaFromTouch(touch as any);
-      await ctx.runMutation(internal.touches._scheduleAntiFlakeTouches, {
-        user_id: touch.user_id,
-        person_id: touch.person_id,
-        conversation_id: touch.conversation_id,
-        venue: dateMeta.venue,
-        date_time_ms: dateMeta.date_time_ms,
-      });
-    }
-
     return { fired: true, type: touch.type };
   },
 });
