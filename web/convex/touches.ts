@@ -52,6 +52,15 @@ const TOUCH_TYPE = v.union(
 
 // ---------------------------------------------------------------------------
 // scheduleOne — insert + runAt. Returns touch_id.
+//
+// Wave 2.4 Task G — when preview_only=true:
+//   - touch is parked 1 year out so fireOne never auto-fires
+//   - is_preview=true is written
+//   - a draft_preview agent_job is enqueued for the Mac Mini convex_runner,
+//     which calls _draft_with_template (boundaries-as-hard-rule + post-draft
+//     validation regen pass) and writes the body back via touches:setPreviewDraft
+//   - dashboard's reactive subscription renders the draft, operator edits +
+//     calls touches:commitPreview to fire the standard send pipeline
 // ---------------------------------------------------------------------------
 export const scheduleOne = mutation({
   args: {
@@ -66,15 +75,21 @@ export const scheduleOne = mutation({
     prompt_template: v.optional(v.string()),
     urgency: v.optional(v.union(v.literal("hot"), v.literal("warm"), v.literal("cool"))),
     generated_by_run_id: v.optional(v.string()),
+    // Wave 2.4 Task G — operator-driven preview/compose flow.
+    preview_only: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     const now = Date.now();
+    const isPreview = args.preview_only === true;
+    const ONE_YEAR_MS = 365 * 24 * 60 * 60 * 1000;
+    const scheduledFor = isPreview ? now + ONE_YEAR_MS : args.scheduled_for;
+
     const touchId = await ctx.db.insert("scheduled_touches", {
       user_id: args.user_id,
       person_id: args.person_id,
       conversation_id: args.conversation_id,
       type: args.type,
-      scheduled_for: args.scheduled_for,
+      scheduled_for: scheduledFor,
       status: "scheduled",
       draft_body: args.draft_body,
       generate_at_fire_time: args.generate_at_fire_time,
@@ -82,13 +97,112 @@ export const scheduleOne = mutation({
       prompt_template: args.prompt_template,
       urgency: args.urgency,
       generated_by_run_id: args.generated_by_run_id,
+      is_preview: isPreview ? true : undefined,
       created_at: now,
       updated_at: now,
     });
-    // Self-schedule: Convex fires at scheduled_for ± ~50ms (or immediately if past).
-    const delayMs = Math.max(0, args.scheduled_for - now);
-    await ctx.scheduler.runAfter(delayMs, internal.touches.fireOne, { touch_id: touchId });
-    return { touch_id: touchId };
+
+    if (isPreview) {
+      // Mac Mini draft_preview job_handler picks this up via the agent_jobs queue.
+      await ctx.db.insert("agent_jobs", {
+        user_id: args.user_id,
+        job_type: "draft_preview",
+        payload: {
+          touch_id: touchId,
+          person_id: args.person_id,
+          conversation_id: args.conversation_id,
+          touch_type: args.type,
+          prompt_template: args.prompt_template,
+          media_asset_id: args.media_asset_id,
+        },
+        status: "queued",
+        priority: 2,
+        attempts: 0,
+        max_attempts: 3,
+        created_at: now,
+        updated_at: now,
+      } as any);
+    } else {
+      // Self-schedule: Convex fires at scheduled_for ± ~50ms (or immediately if past).
+      const delayMs = Math.max(0, scheduledFor - now);
+      await ctx.scheduler.runAfter(delayMs, internal.touches.fireOne, { touch_id: touchId });
+    }
+    return { touch_id: touchId, is_preview: isPreview };
+  },
+});
+
+// ---------------------------------------------------------------------------
+// Wave 2.4 Task G — commitPreview
+// Operator clicked "Send" on the dossier compose panel. Patches the touch
+// with edited_body, clears is_preview, sets scheduled_for, triggers fireOne
+// so the standard send pipeline runs (whitelist / active-hours / anti-loop
+// / cadence-mirror / boundary-respect all still apply).
+// ---------------------------------------------------------------------------
+export const commitPreview = mutation({
+  args: {
+    touch_id: v.id("scheduled_touches"),
+    edited_body: v.string(),
+    scheduled_for_ms: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const touch = await ctx.db.get(args.touch_id);
+    if (!touch) return { not_found: true };
+    if (touch.status !== "scheduled") return { wrong_status: touch.status };
+    if (!touch.is_preview) return { not_a_preview: true };
+
+    const fireAt = args.scheduled_for_ms ?? Date.now() + 5 * 60 * 1000;
+    await ctx.db.patch(args.touch_id, {
+      draft_body: args.edited_body,
+      scheduled_for: fireAt,
+      is_preview: false,
+      generate_at_fire_time: false,
+      updated_at: Date.now(),
+    });
+    const delayMs = Math.max(0, fireAt - Date.now());
+    await ctx.scheduler.runAfter(delayMs, internal.touches.fireOne, {
+      touch_id: args.touch_id,
+    });
+    return { committed: true, scheduled_for: fireAt };
+  },
+});
+
+// ---------------------------------------------------------------------------
+// Wave 2.4 Task G — setPreviewDraft (Mac Mini calls this after drafting)
+// ---------------------------------------------------------------------------
+export const setPreviewDraft = mutation({
+  args: {
+    touch_id: v.id("scheduled_touches"),
+    draft_body: v.string(),
+    template_used: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const touch = await ctx.db.get(args.touch_id);
+    if (!touch) return { not_found: true };
+    if (!touch.is_preview) return { not_a_preview: true };
+    await ctx.db.patch(args.touch_id, {
+      draft_body: args.draft_body,
+      ...(args.template_used !== undefined ? { prompt_template: args.template_used } : {}),
+      updated_at: Date.now(),
+    });
+    return { ok: true };
+  },
+});
+
+// ---------------------------------------------------------------------------
+// Wave 2.4 Task G — listPreviewsForPerson
+// Reactive read for ComposePanel to surface drafting/ready state.
+// ---------------------------------------------------------------------------
+export const listPreviewsForPerson = query({
+  args: { person_id: v.id("people"), limit: v.optional(v.number()) },
+  handler: async (ctx, args) => {
+    const rows = await ctx.db
+      .query("scheduled_touches")
+      .withIndex("by_person_status", (q) =>
+        q.eq("person_id", args.person_id).eq("status", "scheduled"),
+      )
+      .order("desc")
+      .take(Math.min(args.limit ?? 20, 50));
+    return rows.filter((r) => r.is_preview === true);
   },
 });
 
