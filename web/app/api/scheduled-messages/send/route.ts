@@ -6,6 +6,7 @@ import { promisify } from 'util'
 import { getConvexServerClient } from '@/lib/convex/server'
 import { api } from '@/convex/_generated/api'
 import type { Id } from '@/convex/_generated/dataModel'
+import { getFleetUserId } from '@/lib/fleet-user'
 
 const execFileAsync = promisify(execFile)
 
@@ -24,7 +25,7 @@ export async function POST(request: NextRequest) {
   const convex = getConvexServerClient()
   const msg = await convex.query(api.outbound.getById, {
     id: id as Id<'outbound_scheduled_messages'>,
-    user_id: user.id,
+    user_id: getFleetUserId(),
   })
 
   if (!msg) return NextResponse.json({ error: 'Not found' }, { status: 404 })
@@ -70,7 +71,7 @@ export async function POST(request: NextRequest) {
   if (godError && !godDraftId) {
     await convex.mutation(api.outbound.markFailed, {
       id: id as Id<'outbound_scheduled_messages'>,
-      user_id: user.id,
+      user_id: getFleetUserId(),
       rejection_reason: godError,
     })
     return NextResponse.json({ error: godError }, { status: 500 })
@@ -78,7 +79,7 @@ export async function POST(request: NextRequest) {
 
   const updated = await convex.mutation(api.outbound.markSent, {
     id: id as Id<'outbound_scheduled_messages'>,
-    user_id: user.id,
+    user_id: getFleetUserId(),
     god_draft_id: godDraftId ?? undefined,
     sent_at: delayMinutes === 0 ? Date.now() : undefined,
   })

@@ -3,6 +3,7 @@ import { api } from '@/convex/_generated/api'
 import type { Id } from '@/convex/_generated/dataModel'
 import { getConvexServerClient } from '@/lib/convex/server'
 import { createClient } from '@/lib/supabase/server'
+import { getFleetUserId } from '@/lib/fleet-user'
 
 /**
  * PATCH /api/matches/[id] — update stage/status/rank and/or merge into
@@ -74,7 +75,7 @@ export async function PATCH(
   if (!existing || !existing._id) {
     return NextResponse.json({ error: 'match not found' }, { status: 404 })
   }
-  if (existing.user_id !== user.id) {
+  if (existing.user_id !== getFleetUserId()) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
@@ -148,7 +149,7 @@ export async function PATCH(
   try {
     const result = await convex.mutation(api.matches.patchByUser, {
       id: existing._id,
-      user_id: user.id,
+      user_id: getFleetUserId(),
       ...update,
     })
     return NextResponse.json({ ok: true, match: result.row })
@@ -186,14 +187,14 @@ export async function DELETE(
   if (!existing || !existing._id) {
     return NextResponse.json({ error: 'match not found' }, { status: 404 })
   }
-  if (existing.user_id !== user.id) {
+  if (existing.user_id !== getFleetUserId()) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
   try {
     const result = await convex.mutation(api.matches.patchByUser, {
       id: existing._id,
-      user_id: user.id,
+      user_id: getFleetUserId(),
       status: 'archived',
     })
     return NextResponse.json({ ok: true, match: result.row })

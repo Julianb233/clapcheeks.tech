@@ -5,6 +5,7 @@ import { redirect } from 'next/navigation'
 import MatchesPageClient from '@/components/matches/MatchesPageClient'
 import { api } from '@/convex/_generated/api'
 import type { MatchWithAttributes } from '@/lib/matches/attribute-filter'
+import { getFleetUserId } from '@/lib/fleet-user'
 
 export const metadata: Metadata = {
   title: 'Matches - Clapcheeks',
@@ -41,7 +42,7 @@ export default async function MatchesPage() {
   try {
     const convex = new ConvexHttpClient(convexUrl)
     const rows = await convex.query(api.matches.listForUser, {
-      user_id: user.id,
+      user_id: getFleetUserId(),
       limit: 200,
     })
     matches = mapConvexRowsToMatchWithAttributes(rows)
