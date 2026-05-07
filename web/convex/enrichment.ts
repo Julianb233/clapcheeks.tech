@@ -446,16 +446,97 @@ export const sweepCourtshipCandidates = internalMutation({
 });
 
 // -------------------------------------------------------------------------
-// sweepAskCandidates — fires people whose time_to_ask_score crossed
-// threshold AND haven't been asked in the last 14d. Schedules a date_ask
-// touch to fire 30-90 minutes from now (warm-up window so it doesn't fire
-// in the middle of an active reply burst).
+// sweepAskCandidates — AI-9500 #2 Ask-Window Optimizer
+//
+// Two-tier scheduling strategy:
+//
+//   TIER A — Active-typing window (2x conversion lift)
+//   For candidates whose last_inbound_at is within 10 minutes AND whose
+//   most-recent emotional state is positive (happy/playful/flirty/curious/warm)
+//   AND who have no boundary mention in their last 5 messages:
+//     → Schedule the date_ask to fire in 60 seconds — lands while she's still
+//       scrolling and receptive.
+//
+//   TIER B — Static stagger (legacy fallback)
+//   All other candidates get the existing 30-90 min stagger so the ask
+//   lands in a warm-but-not-cold window without stomping on an active burst.
 // -------------------------------------------------------------------------
 const ASK_THRESHOLD = 0.7;
 const ASK_COOLDOWN_DAYS = 14;
 const MAX_ASKS_PER_SWEEP = 5;
 
+/** Positive emotional states where asking mid-flow converts ~2x. */
+const ACTIVE_TYPING_POSITIVE_STATES = new Set([
+  "happy", "playful", "flirty", "curious", "warm", "excited",
+]);
+
+/** Boundary-mention regex — same patterns used by the inbound interpreter. */
+const BOUNDARY_REGEX = /\b(not\s+ready|not\s+interested|seeing\s+someone|in\s+a\s+relationship|boyfriend|girlfriend|partner|just\s+friends|don'?t\s+like|stop|no\s+thanks|leave\s+me|block)\b/i;
+
+/**
+ * Returns true when the candidate is in an active-typing window:
+ *   1. Last inbound within 10 minutes.
+ *   2. Most-recent emotional_state_recent entry is a positive state.
+ *   3. None of the last 5 messages (passed in) contain a boundary mention.
+ */
+function _isActivelyTyping(
+  person: any,
+  now: number,
+  last5Bodies: string[],
+): boolean {
+  // Gate 1: she replied within the last 10 minutes.
+  const tenMinMs = 10 * 60 * 1000;
+  if (!person.last_inbound_at || now - person.last_inbound_at > tenMinMs) return false;
+
+  // Gate 2: most-recent emotional state is positive.
+  const stateLog: any[] = person.emotional_state_recent ?? [];
+  const latestState = stateLog[stateLog.length - 1]?.state as string | undefined;
+  if (!latestState || !ACTIVE_TYPING_POSITIVE_STATES.has(latestState)) return false;
+
+  // Gate 3: no boundary mention in last 5 messages.
+  for (const body of last5Bodies) {
+    if (BOUNDARY_REGEX.test(body)) return false;
+  }
+  return true;
+}
+
 import { api } from "./_generated/api";
+
+// Internal query to fetch last N message bodies for boundary-check.
+export const _lastNBodiesForPerson = internalQuery({
+  args: {
+    person_id: v.id("people"),
+    n: v.number(),
+  },
+  handler: async (ctx, args) => {
+    // Primary: messages table by person_id.
+    let rows = await ctx.db
+      .query("messages")
+      .withIndex("by_person_recent", (q) => q.eq("person_id", args.person_id))
+      .order("desc")
+      .take(args.n);
+    // Fallback: walk conversations.
+    if (rows.length === 0) {
+      const convs = await ctx.db
+        .query("conversations")
+        .withIndex("by_person", (q) => q.eq("person_id", args.person_id))
+        .collect();
+      const collected: typeof rows = [];
+      for (const c of convs) {
+        const msgs = await ctx.db
+          .query("messages")
+          .withIndex("by_conversation", (q) => q.eq("conversation_id", c._id))
+          .order("desc")
+          .take(args.n);
+        collected.push(...msgs);
+      }
+      collected.sort((a, b) => (b.sent_at || 0) - (a.sent_at || 0));
+      rows = collected.slice(0, args.n);
+    }
+    return rows.map((m) => (m.body || "").slice(0, 300));
+  },
+});
+
 export const sweepAskCandidates = internalMutation({
   args: {},
   handler: async (ctx) => {
@@ -477,15 +558,36 @@ export const sweepAskCandidates = internalMutation({
       .slice(0, MAX_ASKS_PER_SWEEP);
 
     let scheduled = 0;
+    let activeTypingCount = 0;
     for (let i = 0; i < candidates.length; i++) {
       const p = candidates[i];
-      // Stagger 30-90 min from now to avoid stacking.
-      const offsetMs = (30 + i * 12) * 60 * 1000;
-      // Fire scheduleOne via runAfter to chain into touches engine.
+
+      // AI-9500 #2: Detect active-typing window.
+      // Fetch last 5 message bodies (inbound + outbound) to check for boundaries.
+      const last5Bodies: string[] = await ctx.db
+        .query("messages")
+        .withIndex("by_person_recent", (q) => q.eq("person_id", p._id))
+        .order("desc")
+        .take(5)
+        .then((rows) => rows.map((m: any) => (m.body || "").slice(0, 300)));
+
+      const isActiveWindow = _isActivelyTyping(p, now, last5Bodies);
+
+      let scheduledFor: number;
+      if (isActiveWindow) {
+        // TIER A: fire in 60 seconds — she's actively typing, max receptivity.
+        scheduledFor = now + 60_000;
+        activeTypingCount++;
+      } else {
+        // TIER B: legacy 30-90 min stagger.
+        scheduledFor = now + (30 + i * 12) * 60 * 1000;
+      }
+
       await ctx.scheduler.runAfter(0, internal.enrichment._scheduleAskFor, {
         person_id: p._id,
         user_id: p.user_id,
-        scheduled_for: now + offsetMs,
+        scheduled_for: scheduledFor,
+        active_typing_window: isActiveWindow,
       });
       // Throttle marker so re-sweeps don't double-schedule.
       await ctx.db.patch(p._id, {
@@ -493,7 +595,7 @@ export const sweepAskCandidates = internalMutation({
       });
       scheduled++;
     }
-    return { scheduled, eligible: candidates.length };
+    return { scheduled, eligible: candidates.length, active_typing_path: activeTypingCount };
   },
 });
 
@@ -505,6 +607,9 @@ export const _scheduleAskFor = ia2({
     person_id: v.id("people"),
     user_id: v.string(),
     scheduled_for: v.number(),
+    // AI-9500 #2: tracks whether this was scheduled in the active-typing window
+    // so downstream analytics can distinguish Tier A vs Tier B outcomes.
+    active_typing_window: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     await ctx.runMutation(api.touches.scheduleOne, {
@@ -513,9 +618,9 @@ export const _scheduleAskFor = ia2({
       type: "date_ask",
       scheduled_for: args.scheduled_for,
       generate_at_fire_time: true,
-      urgency: "warm",
+      urgency: args.active_typing_window ? "hot" : "warm",
       prompt_template: "date_ask_three_options",
-      generated_by_run_id: `ask-sweep-${Date.now()}`,
+      generated_by_run_id: `ask-sweep-${args.active_typing_window ? "active" : "static"}-${Date.now()}`,
     } as any);
   },
 });
@@ -1077,3 +1182,48 @@ export function pickPatternInterruptSubStyle(
     courtship_stage: courtshipStage,
   });
 }
+
+// -------------------------------------------------------------------------
+// AI-9500 #2 — 7-day ghost-out sweep for date_ask touches.
+//
+// Any scheduled_touches row of type "date_ask" that:
+//   - fired more than 7 days ago (fired_at < now - 7d)
+//   - has ask_outcome === undefined (no reply was classified)
+// gets patched with ask_outcome = "no_reply" so the A/B analytics don't
+// count it as "pending" indefinitely.
+//
+// Run every 6 hours via crons.ts. Processes at most 200 rows per run to
+// bound the mutation duration.
+// -------------------------------------------------------------------------
+const GHOST_OUT_DAYS = 7;
+const GHOST_OUT_BATCH = 200;
+
+export const sweepDateAskGhostOuts = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const now = Date.now();
+    const cutoff = now - GHOST_OUT_DAYS * 24 * 60 * 60 * 1000;
+
+    // Scan the by_user_fired index for recently fired touches.
+    // We don't have a direct "fired date_ask without outcome" index,
+    // so we use the status=fired path and filter client-side.
+    // The batch cap (200) keeps this well within Convex mutation limits.
+    const firedRows = await ctx.db
+      .query("scheduled_touches")
+      .withIndex("by_due", (q) => q.eq("status", "fired").lte("scheduled_for", cutoff))
+      .take(GHOST_OUT_BATCH);
+
+    let patched = 0;
+    for (const row of firedRows) {
+      if (row.type !== "date_ask") continue;
+      // Only ghost-out rows where ask_outcome is not yet set.
+      if ((row as any).ask_outcome !== undefined) continue;
+      await ctx.db.patch(row._id, {
+        ask_outcome: "no_reply" as const,
+        updated_at: now,
+      } as any);
+      patched++;
+    }
+    return { patched, scanned: firedRows.length };
+  },
+});
