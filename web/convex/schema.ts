@@ -1028,4 +1028,150 @@ export default defineSchema({
   // =====================================================================
   // END AI-9526 (matches-on-convex)
   // =====================================================================
+
+  // AI-9536 telemetry migration -----------------------------------------
+  //
+  // Replaces 6 Supabase telemetry / report tables. Each table here is
+  // index-tuned for the high-write paths the Mac Mini agent and the web
+  // dashboard hit constantly. day_iso is "YYYY-MM-DD" so range queries
+  // stay lexicographic; ts is unix ms (float64) for sub-day granularity.
+  //
+  // Source migrations:
+  //   analytics_daily   ← clapcheeks_analytics_daily (rename of analytics_daily, mig 9 + 30002)
+  //   weekly_reports    ← clapcheeks_weekly_reports  (mig 12 / archived 009_reports)
+  //   agent_events      ← clapcheeks_agent_events    (mig 8)
+  //   usage_daily       ← clapcheeks_usage_daily     (mig 12 / archived 008_usage_limits)
+  //   friction_points   ← clapcheeks_friction_points (mig 20260420600000)
+  //   device_heartbeats ← clapcheeks_device_heartbeats (mig 20260428080000)
+  // ---------------------------------------------------------------------
+
+  // AI-9536 telemetry migration — clapcheeks_analytics_daily
+  // Per-(user, app, day) rollup of swipes/matches/messages/dates/spend.
+  // Upserted by Mac Mini match_sync.py + dashboard read paths.
+  analytics_daily: defineTable({
+    user_id: v.string(),                   // Supabase auth uuid string
+    day_iso: v.string(),                   // "YYYY-MM-DD" (Pacific local convention)
+    app: v.union(
+      v.literal("tinder"),
+      v.literal("bumble"),
+      v.literal("hinge"),
+    ),
+    swipes_right: v.number(),
+    swipes_left: v.number(),
+    matches: v.number(),
+    conversations_started: v.number(),
+    dates_booked: v.number(),
+    money_spent: v.number(),               // USD numeric
+    created_at: v.number(),                // unix ms
+    updated_at: v.number(),                // unix ms
+  })
+    // by_user_day: dashboard reads "last 30 days for user X"
+    .index("by_user_day", ["user_id", "day_iso"])
+    // by_user_app_day: idempotent upsert key
+    .index("by_user_app_day", ["user_id", "app", "day_iso"]),
+
+  // AI-9536 telemetry migration — clapcheeks_weekly_reports
+  // One row per (user, week_start). Stores generated digest snapshot + PDF.
+  weekly_reports: defineTable({
+    user_id: v.string(),
+    week_start_ms: v.number(),             // unix ms — Monday 00:00 local
+    week_end_ms: v.number(),               // unix ms — Sunday 23:59 local
+    week_start_iso: v.string(),            // "YYYY-MM-DD" for human queries
+    metrics_snapshot: v.any(),             // JSONB blob — flexible schema
+    pdf_url: v.optional(v.string()),
+    sent_at: v.optional(v.number()),       // unix ms when delivered
+    report_type: v.optional(v.string()),   // "standard" | "dogfood" | "weekly"
+    created_at: v.number(),
+  })
+    // by_user_week: idempotent upsert + most-recent-report query
+    .index("by_user_week", ["user_id", "week_start_ms"])
+    // by_user_week_iso: legacy date-string lookup path
+    .index("by_user_week_iso", ["user_id", "week_start_iso"]),
+
+  // AI-9536 telemetry migration — clapcheeks_agent_events
+  // Granular event log. HIGH WRITE VOLUME — Mac agent emits on every
+  // swipe/match/error/session event. Index for write throughput first.
+  agent_events: defineTable({
+    user_id: v.string(),
+    event_type: v.string(),                // "match_received", "swipe_left", "ban_detected", ...
+    platform: v.optional(v.string()),      // "tinder" | "bumble" | "hinge" | null
+    data: v.optional(v.any()),             // JSONB payload — schema-free
+    occurred_at: v.optional(v.number()),   // unix ms — when it happened on the daemon
+    ts: v.number(),                        // unix ms — server-assigned, used for ordering
+  })
+    // by_user_ts: feed query "events for user X newest-first"
+    .index("by_user_ts", ["user_id", "ts"])
+    // by_user_type_ts: filtered feed (admin events page)
+    .index("by_user_type_ts", ["user_id", "event_type", "ts"])
+    // by_type_ts: cross-user admin feed
+    .index("by_type_ts", ["event_type", "ts"]),
+
+  // AI-9536 telemetry migration — clapcheeks_usage_daily
+  // Per-(user, day) billing-adjacent counters. Bumped by lib/usage.ts.
+  // Increments come from web requests so write rate ≈ user actions / day.
+  usage_daily: defineTable({
+    user_id: v.string(),
+    day_iso: v.string(),                   // "YYYY-MM-DD"
+    swipes_used: v.number(),
+    coaching_calls_used: v.number(),
+    ai_replies_used: v.number(),
+    created_at: v.number(),
+    updated_at: v.number(),
+  })
+    // by_user_day: idempotent upsert + lookup path for checkLimit/getUsageSummary
+    .index("by_user_day", ["user_id", "day_iso"]),
+
+  // AI-9536 telemetry migration — clapcheeks_friction_points
+  // UX-friction event log from the dogfood instrumentation.
+  friction_points: defineTable({
+    user_id: v.string(),
+    title: v.string(),
+    description: v.optional(v.string()),
+    severity: v.union(
+      v.literal("blocker"),
+      v.literal("major"),
+      v.literal("minor"),
+      v.literal("cosmetic"),
+    ),
+    category: v.union(
+      v.literal("swiping"),
+      v.literal("conversation"),
+      v.literal("agent_setup"),
+      v.literal("auth"),
+      v.literal("stripe"),
+      v.literal("dashboard"),
+      v.literal("reports"),
+      v.literal("performance"),
+      v.literal("crash"),
+      v.literal("ux"),
+      v.literal("other"),
+    ),
+    platform: v.optional(v.string()),
+    auto_detected: v.boolean(),
+    context: v.optional(v.any()),          // free-form JSONB
+    resolved: v.boolean(),
+    resolution: v.optional(v.string()),
+    resolved_at: v.optional(v.number()),
+    created_at: v.number(),
+  })
+    .index("by_user_created", ["user_id", "created_at"])
+    .index("by_user_resolved", ["user_id", "resolved"])
+    .index("by_user_severity", ["user_id", "severity"]),
+
+  // AI-9536 telemetry migration — clapcheeks_device_heartbeats
+  // One row per agent_device_token; upserted on every heartbeat.
+  device_heartbeats: defineTable({
+    device_token_id: v.id("agent_device_tokens"),  // FK into agent_device_tokens
+    user_id: v.string(),
+    device_id: v.optional(v.string()),     // friendly device label, echoed from POST body
+    daemon_version: v.optional(v.string()),
+    last_sync_at: v.optional(v.number()),  // unix ms
+    errors_jsonb: v.optional(v.any()),
+    last_heartbeat_at: v.number(),         // unix ms — fast staleness query
+    created_at: v.number(),
+  })
+    // by_device: upsert key — one row per token
+    .index("by_device", ["device_token_id"])
+    // by_user_heartbeat: dashboard "most recent heartbeat for user X"
+    .index("by_user_heartbeat", ["user_id", "last_heartbeat_at"]),
 });
