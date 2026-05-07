@@ -962,12 +962,12 @@ export default defineSchema({
     .index("by_token", ["token"])
     .index("by_user", ["user_id"]),
 
-  // --------------------------------------------------------------------------
+  // ==========================================================================
   // AI-9535 outbound migration — tables migrated from Supabase off the legacy
   // clapcheeks_* schemas. These mirror the public.clapcheeks_* shapes 1:1 so
   // the existing Next.js routes + Mac Mini Python pollers can swap call sites
   // with minimal logic changes. Auth still resolves user_id via Supabase.
-  // --------------------------------------------------------------------------
+  // ==========================================================================
 
   // AI-9535 outbound migration — replaces public.clapcheeks_scheduled_messages
   // (legacy match-name-keyed scheduled outbound messages — separate from the
@@ -1106,7 +1106,7 @@ export default defineSchema({
     .index("by_status_expires", ["status", "expires_at"])
     .index("by_legacy_id", ["legacy_id"]),
 
-  // --------------------------------------------------------------------------
+  // ==========================================================================
   // AI-9537 billing+misc migration
   // Replaces Supabase tables: clapcheeks_subscriptions, dunning_events,
   // clapcheeks_voice_profiles, user_voice_context, clapcheeks_notification_prefs,
@@ -1118,7 +1118,7 @@ export default defineSchema({
   // Stripe webhook reliability: subscriptions + dunning_events run in
   // parallel-write mode (Supabase + Convex) on first deploy cycle, reads
   // can flip to Convex once parity is confirmed.
-  // --------------------------------------------------------------------------
+  // ==========================================================================
 
   // AI-9537 — Stripe subscription state per user. Mirror of Supabase
   // clapcheeks_subscriptions. Money-flow: read by dashboard / weekly reports
@@ -1347,9 +1347,9 @@ export default defineSchema({
 
   // =====================================================================
   // BEGIN AI-9526 (matches-on-convex) — owned by AI-9526-matches-on-convex
-  // Sibling agent (AI-9526-outbound-on-convex) owns clapcheeks_scheduled_messages
-  // / clapcheeks_followup_sequences / clapcheeks_queued_replies /
-  // clapcheeks_posting_queue / clapcheeks_approval_queue. Don't touch those.
+  // Sibling agent (AI-9535) owns clapcheeks_scheduled_messages /
+  // clapcheeks_followup_sequences / clapcheeks_queued_replies /
+  // clapcheeks_posting_queue / clapcheeks_approval_queue.
   // =====================================================================
 
   // -----------------------------------------------------------------------
@@ -1408,9 +1408,153 @@ export default defineSchema({
     .index("by_user", ["user_id"])
     .index("by_user_status", ["user_id", "status"])
     .index("by_supabase_match_id", ["supabase_match_id"]),
-  // ---------------------------------------------------------------------
+  // =====================================================================
   // END AI-9526 (matches-on-convex)
-  // ---------------------------------------------------------------------
+  // =====================================================================
+
+  // ==========================================================================
+  // AI-9535 outbound migration — tables migrated from Supabase off the legacy
+  // clapcheeks_* schemas. These mirror the public.clapcheeks_* shapes 1:1 so
+  // the existing Next.js routes + Mac Mini Python pollers can swap call sites
+  // with minimal logic changes. Auth still resolves user_id via Supabase.
+  // ==========================================================================
+
+  // AI-9535 outbound migration — replaces public.clapcheeks_scheduled_messages
+  // (legacy match-name-keyed scheduled outbound messages — separate from the
+  // AI-9196 conversation-keyed `scheduled_messages` table above).
+  outbound_scheduled_messages: defineTable({
+    user_id: v.string(),                  // Supabase auth uuid
+    match_id: v.optional(v.string()),     // platform-specific match id (text)
+    match_name: v.string(),
+    platform: v.string(),                 // "iMessage", "tinder", "hinge", etc.
+    phone: v.optional(v.string()),
+    message_text: v.string(),
+    scheduled_at: v.number(),             // unix ms (was timestamptz on Postgres)
+    status: v.union(
+      v.literal("pending"),
+      v.literal("approved"),
+      v.literal("rejected"),
+      v.literal("sent"),
+      v.literal("failed"),
+    ),
+    sequence_type: v.union(
+      v.literal("follow_up"),
+      v.literal("manual"),
+      v.literal("app_to_text"),
+    ),
+    sequence_step: v.optional(v.number()),
+    delay_hours: v.optional(v.number()),
+    rejection_reason: v.optional(v.string()),
+    sent_at: v.optional(v.number()),
+    god_draft_id: v.optional(v.string()),
+    legacy_id: v.optional(v.string()),    // backfill: original Supabase UUID
+    created_at: v.number(),
+    updated_at: v.number(),
+  })
+    .index("by_user_status", ["user_id", "status"])
+    .index("by_user_match", ["user_id", "match_id"])
+    .index("by_status_due", ["status", "scheduled_at"])
+    .index("by_legacy_id", ["legacy_id"]),
+
+  // AI-9535 outbound migration — replaces public.clapcheeks_followup_sequences
+  // (per-user drip cadence config). One row per user_id (uniqueness enforced
+  // in mutation logic, not at index level).
+  followup_sequences: defineTable({
+    user_id: v.string(),
+    enabled: v.boolean(),
+    delays_hours: v.array(v.number()),    // ordered list, e.g. [24, 72, 168]
+    max_followups: v.number(),
+    app_to_text_enabled: v.boolean(),
+    warmth_threshold: v.number(),         // 0..1
+    min_messages_before_transition: v.number(),
+    optimal_send_start_hour: v.number(),  // 0-23
+    optimal_send_end_hour: v.number(),
+    quiet_hours_start: v.number(),
+    quiet_hours_end: v.number(),
+    timezone: v.string(),
+    legacy_id: v.optional(v.string()),
+    created_at: v.number(),
+    updated_at: v.number(),
+  })
+    .index("by_user", ["user_id"])
+    .index("by_legacy_id", ["legacy_id"]),
+
+  // AI-9535 outbound migration — replaces public.clapcheeks_queued_replies.
+  // Operator-approved or AI-drafted iMessage queue consumed by the Mac Mini
+  // queue_poller within ~30s.
+  queued_replies: defineTable({
+    user_id: v.string(),
+    match_name: v.optional(v.string()),
+    platform: v.optional(v.string()),
+    text: v.optional(v.string()),         // legacy column name
+    body: v.optional(v.string()),         // newer column name (imessage/test)
+    recipient_handle: v.optional(v.string()),
+    source: v.optional(v.string()),       // "web_test", "drip", "ai_suggestion", etc.
+    status: v.union(
+      v.literal("queued"),
+      v.literal("sent"),
+      v.literal("failed"),
+    ),
+    legacy_id: v.optional(v.string()),
+    created_at: v.number(),
+  })
+    .index("by_user_status", ["user_id", "status"])
+    .index("by_user_created", ["user_id", "created_at"])
+    .index("by_user_source", ["user_id", "source"])
+    .index("by_legacy_id", ["legacy_id"]),
+
+  // AI-9535 outbound migration — replaces public.clapcheeks_posting_queue.
+  // 7-day rolling outbound posting schedule consumed by the publisher.
+  posting_queue: defineTable({
+    user_id: v.string(),
+    content_library_id: v.string(),       // FK to clapcheeks_content_library on PG; remains string until that table migrates
+    scheduled_for: v.number(),            // unix ms
+    status: v.union(
+      v.literal("pending"),
+      v.literal("in_progress"),
+      v.literal("posted"),
+      v.literal("failed"),
+      v.literal("cancelled"),
+    ),
+    agent_job_id: v.optional(v.string()), // FK to agent_jobs row id (text); null until claimed
+    posted_at: v.optional(v.number()),
+    error: v.optional(v.string()),
+    legacy_id: v.optional(v.string()),
+    created_at: v.number(),
+  })
+    .index("by_status_due", ["status", "scheduled_for"])
+    .index("by_user_scheduled", ["user_id", "scheduled_for"])
+    .index("by_user_status", ["user_id", "status"])
+    .index("by_content_library", ["content_library_id"])
+    .index("by_legacy_id", ["legacy_id"]),
+
+  // AI-9535 outbound migration — replaces public.clapcheeks_approval_queue.
+  // Generic per-action approval queue used by the autonomy engine. Operator
+  // approves/rejects via /autonomy dashboard.
+  approval_queue: defineTable({
+    user_id: v.string(),
+    action_type: v.string(),
+    match_id: v.optional(v.string()),
+    match_name: v.optional(v.string()),
+    platform: v.optional(v.string()),
+    proposed_text: v.optional(v.string()),
+    proposed_data: v.optional(v.any()),
+    confidence: v.number(),               // 0..1
+    ai_reasoning: v.optional(v.string()),
+    status: v.union(
+      v.literal("pending"),
+      v.literal("approved"),
+      v.literal("rejected"),
+      v.literal("expired"),
+    ),
+    expires_at: v.number(),               // unix ms
+    decided_at: v.optional(v.number()),
+    legacy_id: v.optional(v.string()),
+    created_at: v.number(),
+  })
+    .index("by_user_status", ["user_id", "status"])
+    .index("by_status_expires", ["status", "expires_at"])
+    .index("by_legacy_id", ["legacy_id"]),
 
   // AI-9536 telemetry migration -----------------------------------------
   //
@@ -1454,58 +1598,46 @@ export default defineSchema({
     .index("by_user_app_day", ["user_id", "app", "day_iso"]),
 
   // AI-9536 telemetry migration — clapcheeks_weekly_reports
-  // One row per (user, week_start). Stores generated digest snapshot + PDF.
   weekly_reports: defineTable({
     user_id: v.string(),
-    week_start_ms: v.number(),             // unix ms — Monday 00:00 local
-    week_end_ms: v.number(),               // unix ms — Sunday 23:59 local
-    week_start_iso: v.string(),            // "YYYY-MM-DD" for human queries
-    metrics_snapshot: v.any(),             // JSONB blob — flexible schema
+    week_start_ms: v.number(),
+    week_end_ms: v.number(),
+    week_start_iso: v.string(),
+    metrics_snapshot: v.any(),
     pdf_url: v.optional(v.string()),
-    sent_at: v.optional(v.number()),       // unix ms when delivered
-    report_type: v.optional(v.string()),   // "standard" | "dogfood" | "weekly"
+    sent_at: v.optional(v.number()),
+    report_type: v.optional(v.string()),
     created_at: v.number(),
   })
-    // by_user_week: idempotent upsert + most-recent-report query
     .index("by_user_week", ["user_id", "week_start_ms"])
-    // by_user_week_iso: legacy date-string lookup path
     .index("by_user_week_iso", ["user_id", "week_start_iso"]),
 
   // AI-9536 telemetry migration — clapcheeks_agent_events
-  // Granular event log. HIGH WRITE VOLUME — Mac agent emits on every
-  // swipe/match/error/session event. Index for write throughput first.
   agent_events: defineTable({
     user_id: v.string(),
-    event_type: v.string(),                // "match_received", "swipe_left", "ban_detected", ...
-    platform: v.optional(v.string()),      // "tinder" | "bumble" | "hinge" | null
-    data: v.optional(v.any()),             // JSONB payload — schema-free
-    occurred_at: v.optional(v.number()),   // unix ms — when it happened on the daemon
-    ts: v.number(),                        // unix ms — server-assigned, used for ordering
+    event_type: v.string(),
+    platform: v.optional(v.string()),
+    data: v.optional(v.any()),
+    occurred_at: v.optional(v.number()),
+    ts: v.number(),
   })
-    // by_user_ts: feed query "events for user X newest-first"
     .index("by_user_ts", ["user_id", "ts"])
-    // by_user_type_ts: filtered feed (admin events page)
     .index("by_user_type_ts", ["user_id", "event_type", "ts"])
-    // by_type_ts: cross-user admin feed
     .index("by_type_ts", ["event_type", "ts"]),
 
   // AI-9536 telemetry migration — clapcheeks_usage_daily
-  // Per-(user, day) billing-adjacent counters. Bumped by lib/usage.ts.
-  // Increments come from web requests so write rate ≈ user actions / day.
   usage_daily: defineTable({
     user_id: v.string(),
-    day_iso: v.string(),                   // "YYYY-MM-DD"
+    day_iso: v.string(),
     swipes_used: v.number(),
     coaching_calls_used: v.number(),
     ai_replies_used: v.number(),
     created_at: v.number(),
     updated_at: v.number(),
   })
-    // by_user_day: idempotent upsert + lookup path for checkLimit/getUsageSummary
     .index("by_user_day", ["user_id", "day_iso"]),
 
   // AI-9536 telemetry migration — clapcheeks_friction_points
-  // UX-friction event log from the dogfood instrumentation.
   friction_points: defineTable({
     user_id: v.string(),
     title: v.string(),
@@ -1531,7 +1663,7 @@ export default defineSchema({
     ),
     platform: v.optional(v.string()),
     auto_detected: v.boolean(),
-    context: v.optional(v.any()),          // free-form JSONB
+    context: v.optional(v.any()),
     resolved: v.boolean(),
     resolution: v.optional(v.string()),
     resolved_at: v.optional(v.number()),
@@ -1542,19 +1674,16 @@ export default defineSchema({
     .index("by_user_severity", ["user_id", "severity"]),
 
   // AI-9536 telemetry migration — clapcheeks_device_heartbeats
-  // One row per agent_device_token; upserted on every heartbeat.
   device_heartbeats: defineTable({
-    device_token_id: v.id("agent_device_tokens"),  // FK into agent_device_tokens
+    device_token_id: v.id("agent_device_tokens"),
     user_id: v.string(),
-    device_id: v.optional(v.string()),     // friendly device label, echoed from POST body
+    device_id: v.optional(v.string()),
     daemon_version: v.optional(v.string()),
-    last_sync_at: v.optional(v.number()),  // unix ms
+    last_sync_at: v.optional(v.number()),
     errors_jsonb: v.optional(v.any()),
-    last_heartbeat_at: v.number(),         // unix ms — fast staleness query
+    last_heartbeat_at: v.number(),
     created_at: v.number(),
   })
-    // by_device: upsert key — one row per token
     .index("by_device", ["device_token_id"])
-    // by_user_heartbeat: dashboard "most recent heartbeat for user X"
     .index("by_user_heartbeat", ["user_id", "last_heartbeat_at"]),
 });
