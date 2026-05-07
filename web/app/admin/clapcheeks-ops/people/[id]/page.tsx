@@ -24,6 +24,7 @@ const TEMPLATE_OPTIONS = [
   { value: "hot_reply", label: "Hot reply (high interest)" },
   { value: "callback_reference", label: "Callback to something she said" },
   { value: "pattern_interrupt", label: "Pattern interrupt (stale)" },
+  { value: "easy_question_revival", label: "💤 Easy yes/no question (quiet thread revival)" },
   { value: "morning_text", label: "Morning text" },
   { value: "ghost_recovery", label: "Ghost recovery" },
   { value: "date_ask_three_options", label: "Ask for the date" },
@@ -386,8 +387,53 @@ function MemoryTab({ person }: { person: any }) {
   const curiosity = (person.curiosity_ledger ?? []).filter((q: any) => q.status === "pending")
   const events = person.recent_life_events ?? []
   const lit = person.topics_that_lit_her_up ?? []
+
+  // AI-9500 #1 — curiosity-question ratio metric
+  const questionRatio: number | null = person.her_question_ratio_7d ?? null
+  const ratioComputedAt: number | null = person.her_question_ratio_computed_at ?? null
+  const isQuietThread = questionRatio !== null && questionRatio < 0.15
+  const lastInboundAgo = person.last_inbound_at
+    ? Math.round((Date.now() - person.last_inbound_at) / 3600000)
+    : null
+  const isSilent24h = lastInboundAgo !== null && lastInboundAgo > 24
+
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+
+      {/* AI-9500 #1 — Curiosity-question ratio badge */}
+      {questionRatio !== null && (
+        <div className={`col-span-full rounded-lg border p-3 mb-2 ${
+          isQuietThread && isSilent24h
+            ? "border-amber-700/60 bg-amber-900/10"
+            : "border-gray-700 bg-gray-800/40"
+        }`}>
+          <div className="flex items-center gap-3 text-sm">
+            <span className="text-lg">{isQuietThread && isSilent24h ? "💤" : "💬"}</span>
+            <div>
+              <span className="font-medium text-gray-200">
+                Question ratio (7d inbound):&nbsp;
+                <span className={isQuietThread ? "text-amber-300 font-bold" : "text-green-300"}>
+                  {(questionRatio * 100).toFixed(0)}%
+                </span>
+              </span>
+              {isQuietThread && isSilent24h ? (
+                <span className="ml-2 text-xs text-amber-400 font-semibold">
+                  — flagged for easy_question_revival (she's stopped asking questions &amp; hasn't replied in {lastInboundAgo}h)
+                </span>
+              ) : isQuietThread ? (
+                <span className="ml-2 text-xs text-gray-500">low ratio but still active</span>
+              ) : (
+                <span className="ml-2 text-xs text-gray-500">healthy engagement</span>
+              )}
+            </div>
+          </div>
+          {ratioComputedAt && (
+            <div className="text-[10px] text-gray-600 mt-1">
+              computed {new Date(ratioComputedAt).toLocaleString()}
+            </div>
+          )}
+        </div>
+      )}
       <Section title={`Personal details (${details.length})`}>
         {details.length === 0 ? <Empty /> : (
           <ul className="space-y-1 text-sm">

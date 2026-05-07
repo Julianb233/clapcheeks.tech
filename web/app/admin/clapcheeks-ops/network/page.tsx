@@ -165,13 +165,21 @@ export default function NetworkPage() {
 }
 
 function PersonRow({ p }: { p: any }) {
+  const now = Date.now()
   const lastInbound = p.last_inbound_at
-    ? `${Math.round((Date.now() - p.last_inbound_at) / 3600000)}h ago`
+    ? `${Math.round((now - p.last_inbound_at) / 3600000)}h ago`
     : "—"
   const trust = p.trust_score?.toFixed(2) ?? "—"
   const ttas = p.time_to_ask_score?.toFixed(2) ?? "—"
   const lastEmotion = (p.emotional_state_recent ?? []).slice(-1)[0]?.state ?? "—"
   const platforms = Array.from(new Set((p.handles ?? []).map((h: any) => h.channel)))
+
+  // AI-9500 #1 — quiet thread badge
+  const questionRatio: number | null = p.her_question_ratio_7d ?? null
+  const lastInboundAgo = p.last_inbound_at ? (now - p.last_inbound_at) / 3600000 : null
+  const isQuietThread = questionRatio !== null && questionRatio < 0.15
+    && lastInboundAgo !== null && lastInboundAgo > 24
+
   return (
     <Link
       href={`/admin/clapcheeks-ops/people/${p._id}`}
@@ -190,6 +198,15 @@ function PersonRow({ p }: { p: any }) {
             )}
             {p.nurture_state && (
               <span className="text-purple-300 text-xs uppercase">{p.nurture_state}</span>
+            )}
+            {/* AI-9500 #1 — quiet thread badge */}
+            {isQuietThread && (
+              <span
+                className="text-[10px] px-1.5 py-0.5 rounded bg-amber-900/40 text-amber-300 border border-amber-700/50"
+                title={`Question ratio: ${((questionRatio ?? 0) * 100).toFixed(0)}% (last 7d inbound) — silent ${Math.round(lastInboundAgo ?? 0)}h`}
+              >
+                💤 quiet thread
+              </span>
             )}
             {platforms.length > 0 && (
               <span className="text-xs text-gray-600">{platforms.join(" · ")}</span>

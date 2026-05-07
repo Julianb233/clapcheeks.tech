@@ -50,6 +50,7 @@ const TOUCH_TYPE = v.union(
   v.literal("date_dayof"),
   v.literal("date_postmortem"),
   v.literal("reengage_low_temp"),
+  v.literal("easy_question_revival"),  // AI-9500 #1 — low-effort yes/no question
   v.literal("birthday_wish"),
   v.literal("event_day_check"),
   v.literal("pattern_interrupt"),

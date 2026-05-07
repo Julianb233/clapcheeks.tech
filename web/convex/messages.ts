@@ -338,6 +338,62 @@ export const upsertFromWebhook = mutation({
       });
     }
 
+    // 6. AI-9500 #2 — Ask-outcome classifier.
+    //
+    // When an inbound message lands for a linked person, check whether there is
+    // a date_ask touch fired in the last 7 days with ask_outcome still undefined.
+    // If so, classify this message as her reply and patch the touch row.
+    //
+    // Regex-first classifier (cheap, no LLM):
+    //   "yes"/"sure"/"sounds good"/etc.            → yes
+    //   "can't"/"busy"/"not"/"ugh"/etc.             → soft_no
+    //   "no"/"won't"/"don't want to"/etc.           → hard_no
+    //
+    // Only runs on fresh inbound messages (not backfill, has resolvedPersonId).
+    if (isFreshInbound && resolvedPersonId) {
+      const sevenDaysAgo = Date.now() - SEVEN_DAYS_MS;
+      // Find the most recent date_ask touch fired for this person without an outcome.
+      const recentAsk = await ctx.db
+        .query("scheduled_touches")
+        .withIndex("by_person_status", (q) =>
+          q.eq("person_id", resolvedPersonId!),
+        )
+        .filter((q) =>
+          q.and(
+            q.eq(q.field("type"), "date_ask"),
+            q.eq(q.field("status"), "fired"),
+            q.gte(q.field("fired_at"), sevenDaysAgo),
+          ),
+        )
+        .order("desc")
+        .first();
+
+      if (recentAsk && (recentAsk as any).ask_outcome === undefined) {
+        const body = (args.body || "").toLowerCase();
+        let outcome: "yes" | "soft_no" | "hard_no" | undefined;
+
+        // Yes patterns.
+        if (/\b(yes|yeah|yep|yup|sure|sounds\s+good|i'?d?\s*love|absolutely|definitely|of\s+course|let'?s\s+do|i'?m\s+down|down\s+for|count\s+me\s+in|works\s+for\s+me|can'?t\s+wait|that\s+sounds)\b/.test(body)) {
+          outcome = "yes";
+        }
+        // Hard no patterns (check before soft_no to avoid overlap).
+        else if (/\b(no\b|nope|nah\b|won'?t|don'?t\s+want|not\s+going|not\s+happening|never|hard\s+pass|hard\s+no|absolutely\s+not)\b/.test(body)) {
+          outcome = "hard_no";
+        }
+        // Soft no patterns.
+        else if (/\b(can'?t|cannot|busy|not\s+sure|maybe|ugh|idk|i\s+don'?t\s+know|let\s+me\s+check|not\s+right\s+now|not\s+this\s+week|not\s+today|too\s+much|overwhelmed|raincheck|rain\s+check)\b/.test(body)) {
+          outcome = "soft_no";
+        }
+
+        if (outcome !== undefined) {
+          await ctx.db.patch(recentAsk._id, {
+            ask_outcome: outcome,
+            updated_at: Date.now(),
+          } as any);
+        }
+      }
+    }
+
     return { conversation_id: convId, message_id: messageId };
   },
 });

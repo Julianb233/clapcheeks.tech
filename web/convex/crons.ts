@@ -133,4 +133,13 @@ crons.interval(
   internal.touches.autoPick6hCron,
 );
 
+// AI-9500 #2 — Ghost-out sweep for date_ask touches (every 6 hours).
+// Any date_ask touch fired more than 7 days ago without an ask_outcome reply
+// gets patched with ask_outcome = "no_reply" so analytics stay clean.
+crons.interval(
+  "date-ask-ghost-out-sweep",
+  { hours: 6 },
+  internal.enrichment.sweepDateAskGhostOuts,
+);
+
 export default crons;
