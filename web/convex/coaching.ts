@@ -1,8 +1,24 @@
-import { mutation, query } from "./_generated/server";
+import { mutation, query, internalAction } from "./_generated/server";
 import { v } from "convex/values";
 
 // AI-9537 — Coaching sessions + tip feedback (replaces
 // clapcheeks_coaching_sessions + clapcheeks_tip_feedback).
+
+// AI-9526 F9 — Weekly coaching session generator. Wired to a Convex cron
+// (Mondays 9am PT). Heavy generation (LLM tip synthesis) lives in the
+// Next.js API route /api/coaching/tips today; this action exists so the
+// cron has a callable target. It currently no-ops and lets the next page
+// load lazy-generate. Future: move generation logic here and write the
+// session row directly.
+export const generateSession = internalAction({
+  args: {},
+  handler: async () => {
+    // Placeholder: a future iteration will call the existing analytics
+    // pipeline from inside Convex and call upsertSession directly.
+    console.log("[coaching.generateSession] weekly cron tick");
+    return { ok: true as const };
+  },
+});
 
 // ---------------------------------------------------------------------------
 // coaching_sessions

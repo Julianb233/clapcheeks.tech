@@ -117,6 +117,9 @@ export async function GET() {
   }
 
   return NextResponse.json({
+    // AI-9526 F9 — surface sessionId so the page can pass it back when posting
+    // tip feedback. /api/coaching/feedback otherwise 400s with missing fields.
+    sessionId: coaching?.id ?? null,
     score,
     tips: coaching?.tips || [],
     benchmarks,

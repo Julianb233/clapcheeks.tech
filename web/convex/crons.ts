@@ -183,4 +183,13 @@ crons.interval(
 //   internal.enrichment.sweepCompetitionSignalCandidates,
 // );
 
+// AI-9526 F9 — Weekly coaching session refresh. Mondays 9am Pacific.
+// PT = UTC-8 (winter) / UTC-7 (summer). 17:00 UTC ≈ 9am PT in winter;
+// shift to 16:00 UTC if a DST-aware schedule becomes important.
+crons.weekly(
+  "weekly-coaching-session",
+  { dayOfWeek: "monday", hourUTC: 17, minuteUTC: 0 },
+  internal.coaching.generateSession,
+);
+
 export default crons;
