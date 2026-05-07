@@ -81,10 +81,13 @@ export default defineSchema({
     external_guid: v.optional(v.string()),         // BlueBubbles message GUID for dedup + reaction targeting
     attachments_summary: v.optional(v.array(v.object({
       guid: v.string(),
-      name: v.optional(v.string()),
-      mime: v.optional(v.string()),
-      size: v.optional(v.number()),
-      is_audio_message: v.optional(v.boolean()),
+      name: v.optional(v.union(v.string(), v.null())),
+      // AI-9526 F1 — BlueBubbles inbound events send `mime: null` for some
+      // attachment types (audio messages, sticker frames). Accept null
+      // alongside undefined so the Convex insert no longer rejects the write.
+      mime: v.optional(v.union(v.string(), v.null())),
+      size: v.optional(v.union(v.number(), v.null())),
+      is_audio_message: v.optional(v.union(v.boolean(), v.null())),
     }))),
     send_error: v.optional(v.object({
       code: v.optional(v.number()),
