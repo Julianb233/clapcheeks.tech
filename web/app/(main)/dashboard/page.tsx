@@ -79,7 +79,8 @@ export default async function Dashboard() {
   const fourteenDaysAgo = new Date()
   fourteenDaysAgo.setDate(fourteenDaysAgo.getDate() - 14)
 
-  // AI-9536: analytics_daily + device_heartbeats are on Convex now.
+  // AI-9536/AI-9537: analytics_daily + device_heartbeats + devices are on
+  // Convex. AI-9534: matches.countForUser too.
   const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL || process.env.CONVEX_URL
   const convex = convexUrl ? new ConvexHttpClient(convexUrl) : null
 
@@ -126,12 +127,12 @@ export default async function Dashboard() {
           .query(api.telemetry.getLatestHeartbeat, { user_id: user.id })
           .catch(() => null)
       : Promise.resolve(null),
-    // AI-8926: actual matches count (analytics_daily can be empty
-    // for users whose agent does not aggregate per-day yet).
-    supabase
-      .from('clapcheeks_matches')
-      .select('id', { count: 'exact', head: true })
-      .eq('user_id', user.id),
+    // AI-8926/AI-9534: actual matches count (analytics_daily can be empty
+    // for users whose agent does not aggregate per-day yet). Reads from
+    // Convex via api.matches.countForUser.
+    convex
+      ? convex.query(api.matches.countForUser, { user_id: user.id }).catch(() => 0)
+      : Promise.resolve(0),
   ])
 
   // Map Convex rows (day_iso) into the legacy {date} shape that downstream
@@ -188,8 +189,9 @@ export default async function Dashboard() {
     : null
   const hasAgent = !!device
 
-  // AI-8926: real-match-count fallback when analytics_daily is empty.
-  const realMatchCount = (matchCountRes as { count?: number | null } | null)?.count ?? 0
+  // AI-8926 / AI-9534: real-match-count fallback when analytics_daily is
+  // empty. matchCountRes is a plain number from api.matches.countForUser.
+  const realMatchCount = typeof matchCountRes === 'number' ? matchCountRes : 0
 
   // Aggregate totals
   const totals = rows.reduce(

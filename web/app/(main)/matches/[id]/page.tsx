@@ -1,8 +1,11 @@
 import type { Metadata } from 'next'
+import { ConvexHttpClient } from 'convex/browser'
+import { api } from '@/convex/_generated/api'
 import { createClient } from '@/lib/supabase/server'
 import { redirect, notFound } from 'next/navigation'
 import MatchProfileView from './match-profile-view'
 import { getMatchConversationUnified } from '@/lib/matches/conversation'
+import { mapConvexMatchRowToLegacy } from '@/lib/matches/convex-mapper'
 import type { ChatMessage } from './conversation-thread'
 import { getConvexServerClient } from '@/lib/convex/server'
 import { api } from '@/convex/_generated/api'
@@ -26,19 +29,76 @@ export default async function MatchDetailPage({
   } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
-  const { data: match, error } = await (supabase as any)
-    .from('clapcheeks_matches')
-    .select('*')
-    .eq('id', id)
-    .eq('user_id', user.id)
-    .single()
+  // AI-9534 — read from Convex. The URL `[id]` may be either a Convex doc id
+  // (new matches) or the legacy Supabase UUID (existing tabs / bookmarks).
+  // resolveByAnyId handles both. We also enforce ownership against the auth'd
+  // Supabase user_id.
+  const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL
+  if (!convexUrl) notFound()
+  const convex = new ConvexHttpClient(convexUrl)
+  const rawMatch = (await convex.query(api.matches.resolveByAnyId, { id })) as
+    | (Record<string, unknown> & { user_id?: string })
+    | null
+  if (!rawMatch || rawMatch.user_id !== user.id) notFound()
 
-  if (error || !match) notFound()
-
-  const externalId =
-    (match as { external_id?: string | null }).external_id ?? null
-  const herPhone = (match as { her_phone?: string | null }).her_phone ?? null
-  const platform = (match as { platform?: string | null }).platform ?? null
+  // The MatchProfileView expects a wider shape than the shared legacy mapper
+  // produces (it has its own MatchRow type with first_impression, attributes,
+  // etc.). Build it inline from the raw Convex doc — every field is optional
+  // on Convex so all unknowns become nulls.
+  const legacy = mapConvexMatchRowToLegacy(rawMatch)
+  const match = {
+    id: legacy.id,
+    match_name:
+      typeof rawMatch.match_name === 'string' ? rawMatch.match_name : null,
+    name: legacy.name,
+    age: legacy.age,
+    bio: legacy.bio,
+    platform: legacy.platform as string | null,
+    photos_jsonb: legacy.photos_jsonb
+      ? legacy.photos_jsonb.map((p) => ({
+          url: p.url,
+          supabase_path: p.supabase_path,
+          width: typeof p.width === 'number' ? p.width : undefined,
+          height: typeof p.height === 'number' ? p.height : undefined,
+        }))
+      : null,
+    prompts_jsonb: legacy.prompts_jsonb,
+    instagram_handle: legacy.instagram_handle,
+    spotify_artists: legacy.spotify_artists,
+    zodiac: legacy.zodiac,
+    job: legacy.job,
+    school: legacy.school,
+    stage: (legacy.stage as string | null) ?? null,
+    status: (legacy.status as string | null) ?? null,
+    health_score: legacy.health_score ?? null,
+    julian_rank: legacy.julian_rank,
+    first_impression:
+      typeof rawMatch.first_impression === 'string'
+        ? rawMatch.first_impression
+        : null,
+    vision_summary: legacy.vision_summary,
+    match_intel: legacy.match_intel,
+    instagram_intel: (legacy.instagram_intel as Record<string, unknown> | null) ?? null,
+    distance_miles: null as number | null,
+    final_score: legacy.final_score,
+    dealbreaker_flags: null as string[] | null,
+    red_flags: null as string[] | null,
+    opener_sent_at:
+      typeof rawMatch.opener_sent_at === 'string'
+        ? rawMatch.opener_sent_at
+        : null,
+    created_at: legacy.created_at ?? null,
+    attributes:
+      (rawMatch.attributes as Record<string, unknown> | null | undefined) ?? null,
+    attributes_updated_at:
+      typeof rawMatch.attributes_updated_at === 'string'
+        ? rawMatch.attributes_updated_at
+        : null,
+  }
+  const externalId = legacy.external_id
+  const herPhone =
+    typeof rawMatch.her_phone === 'string' ? rawMatch.her_phone : null
+  const platform: string | null = legacy.platform ?? null
 
   // Memo handle prefers E.164 phone, falls back to platform:external_id.
   let memoHandle: string | null = null
