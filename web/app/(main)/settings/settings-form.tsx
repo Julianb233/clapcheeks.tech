@@ -184,7 +184,7 @@ export default function SettingsForm({
             <NumberInput value={settings.persona.age} onChange={(v) => setPersona('age', v)} />
           </Row>
           <Row label="Occupation">
-            <TextInput value={settings.persona.occupation} onChange={(v) => setPersona('occupation', v)} placeholder="founder / engineer / pilot" />
+            <TextInput value={settings.persona.occupation} onChange={(v) => setPersona('occupation', v)} placeholder="your job or lifestyle hook" />
           </Row>
           <Row label="Location">
             <TextInput value={settings.persona.location} onChange={(v) => setPersona('location', v)} />
@@ -200,7 +200,7 @@ export default function SettingsForm({
           </Row>
 
           <Row label="Attraction hooks" hint="Things that make you attractive to women. One per line. AI will weave these in naturally.">
-            <ListInput value={settings.persona.attraction_hooks} onChange={(v) => setPersona('attraction_hooks', v)} placeholder="runs a company&#10;pilot in training&#10;cooks a mean risotto" rows={4} />
+            <ListInput value={settings.persona.attraction_hooks} onChange={(v) => setPersona('attraction_hooks', v)} placeholder={"a quirky thing you do\na strong opinion you hold\na specific obsession"} rows={4} />
           </Row>
           <Row label="Confidence anchors" hint="True things about you to reference casually (never brag).">
             <ListInput value={settings.persona.confidence_anchors} onChange={(v) => setPersona('confidence_anchors', v)} rows={3} />
@@ -312,10 +312,10 @@ export default function SettingsForm({
           <div className="border-t border-white/10 pt-6 space-y-4">
             <h3 className="text-white font-semibold text-sm">Date booking defaults</h3>
             <Row label="Calendar to book on (email)" hint="The Google calendar that receives date events.">
-              <TextInput value={settings.dateCalendarEmail} onChange={(v) => set('dateCalendarEmail', v)} placeholder="julian@aiacrobatics.com" />
+              <TextInput value={settings.dateCalendarEmail} onChange={(v) => set('dateCalendarEmail', v)} placeholder="you@example.com" />
             </Row>
             <Row label="Date slot times (one per line, HH:MM)" hint="Up to N slots per day — default 3.">
-              <ListInput value={settings.dateSlots} onChange={(v) => set('dateSlots', v)} rows={4} placeholder="18:00&#10;20:00&#10;21:30" />
+              <ListInput value={settings.dateSlots} onChange={(v) => set('dateSlots', v)} rows={4} placeholder={"18:00\n20:00\n21:30"} />
             </Row>
             <Row label="Days ahead to offer">
               <NumberInput value={settings.dateSlotDaysAhead} onChange={(v) => set('dateSlotDaysAhead', v)} />
@@ -324,7 +324,7 @@ export default function SettingsForm({
               <NumberInput value={settings.dateSlotDurationHours} onChange={(v) => set('dateSlotDurationHours', v)} step={0.5} />
             </Row>
             <Row label="Timezone (IANA)">
-              <TextInput value={settings.dateTimezone} onChange={(v) => set('dateTimezone', v)} placeholder="America/Los_Angeles" />
+              <TextInput value={settings.dateTimezone} onChange={(v) => set('dateTimezone', v)} placeholder="America/New_York" />
             </Row>
             <p className="text-xs text-white/50">
               These map directly to the agent&apos;s <code>DATE_CALENDAR_EMAIL</code>, <code>DATE_SLOTS</code>,
