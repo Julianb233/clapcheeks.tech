@@ -389,6 +389,9 @@ export default defineSchema({
       banter_density_target: v.optional(v.number()),             // 0..1
       emoji_density_target: v.optional(v.number()),
       message_length_target: v.optional(v.number()),
+      // AI-9500-E: set by recalibrateCadenceForOne (reply-velocity mirror)
+      computed_at: v.optional(v.number()),                       // unix ms — last calibration run
+      sample_pairs: v.optional(v.number()),                      // reply pairs used for median
     })),
     time_to_ask_score: v.optional(v.number()),                   // 0..1 — when crosses 0.7 → schedule date-ask
     last_ask_attempted_at: v.optional(v.number()),               // unix ms — throttle re-asks
@@ -437,6 +440,9 @@ export default defineSchema({
       start_hour: v.number(),                       // 0-23
       end_hour: v.number(),
     })),
+    // AI-9500-E: Hour ints (0-23) where her inbound volume exceeds 1/3 of the
+    // peak hour. Derived from the same 30d window as cadence_overrides.
+    active_hours_computed: v.optional(v.array(v.float64())),
 
     // Live state (computed by daemon, NOT from Obsidian).
     last_inbound_at: v.optional(v.number()),
