@@ -2,7 +2,7 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
   "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!--
-  AI-9500-C (AI-9502) — Hinge message poller launchd agent
+  AI-9500-C (AI-9507) — Hinge message poller launchd agent
   Polls Hinge matches for new messages every 5 minutes.
 
   Install:

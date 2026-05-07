@@ -1,79 +1,84 @@
 #!/usr/bin/env bash
-# AI-9500-C (AI-9502) — Hinge SendBird poller wrapper
+# run-hinge-poller.sh — AI-9500-C (AI-9507)
 #
-# Activates the clapcheeks venv, loads ~/.clapcheeks/.env, and runs the
-# Hinge message poller. Designed for launchd StartInterval invocation.
+# Bash launcher for the Hinge SendBird message poller.
+# Invoked by launchd every 300 seconds via tech.clapcheeks.hingepoller.plist.
 #
-# Usage:
-#   bash run-hinge-poller.sh
+# Behaviour
+# ---------
+# 1. Finds the Python interpreter inside the clapcheeks-local venv (or falls
+#    back to the system python3).
+# 2. Loads ~/.clapcheeks/.env for CONVEX_URL, HINGE_AUTH_TOKEN, etc.
+# 3. Runs `python -m clapcheeks.intel.hinge_poller` (single poll cycle).
+# 4. Logs the exit code and stdout/stderr to ~/.clapcheeks/hinge-poller.log
+#    (capped at 5 000 lines via tail rotation).
 #
-# Environment variables loaded (in order of precedence):
-#   1. ~/.clapcheeks/.env            (per-user secrets: HINGE_AUTH_TOKEN etc.)
-#   2. Shell environment at invocation time
+# Note: this script intentionally does NOT invoke `launchctl load`.
+# The plist is installed and loaded by the user manually (or by install.sh).
 
 set -euo pipefail
 
+# ---------------------------------------------------------------------------
+# Config
+# ---------------------------------------------------------------------------
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-AGENT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-CLAPCHEEKS_ENV_FILE="$HOME/.clapcheeks/.env"
-VENV_PATH="$AGENT_DIR/.venv"
-LOG_DIR="$HOME/.clapcheeks"
+AGENT_DIR="$(dirname "$SCRIPT_DIR")"                 # ~/clapcheeks-local
+LOG_FILE="${HOME}/.clapcheeks/hinge-poller.log"
+MAX_LOG_LINES=5000
 
 # ---------------------------------------------------------------------------
 # Logging helper
 # ---------------------------------------------------------------------------
 log() {
-  echo "$(date -u +"%Y-%m-%dT%H:%M:%SZ") [hinge-poller] $*" >&2
+    echo "$(date '+%Y-%m-%dT%H:%M:%S') [run-hinge-poller] $*" >> "$LOG_FILE"
 }
 
 # ---------------------------------------------------------------------------
-# Load .env (source it so env vars are available to Python subprocess)
+# Environment
 # ---------------------------------------------------------------------------
-if [[ -f "$CLAPCHEEKS_ENV_FILE" ]]; then
-  # shellcheck disable=SC1090
-  set -a
-  source "$CLAPCHEEKS_ENV_FILE" 2>/dev/null || true
-  set +a
-  log "Loaded $CLAPCHEEKS_ENV_FILE"
-else
-  log "No .env at $CLAPCHEEKS_ENV_FILE — relying on shell environment"
+mkdir -p "${HOME}/.clapcheeks"
+
+# Load .env (soft-fail if absent)
+ENV_FILE="${HOME}/.clapcheeks/.env"
+if [[ -f "$ENV_FILE" ]]; then
+    # shellcheck disable=SC1090
+    set -a; source "$ENV_FILE"; set +a
 fi
 
 # ---------------------------------------------------------------------------
-# CONVEX_URL: fall back to well-known deployment if not set
+# Python interpreter — prefer venv, fall back to system python3
 # ---------------------------------------------------------------------------
-if [[ -z "${CONVEX_URL:-}" ]]; then
-  log "CONVEX_URL not set in environment — set it in ~/.clapcheeks/.env"
-fi
-
-# ---------------------------------------------------------------------------
-# Activate virtual environment
-# ---------------------------------------------------------------------------
-if [[ -f "$VENV_PATH/bin/activate" ]]; then
-  # shellcheck disable=SC1091
-  source "$VENV_PATH/bin/activate"
-  log "Activated venv: $VENV_PATH"
+VENV_PYTHON="${AGENT_DIR}/venv/bin/python"
+if [[ -x "$VENV_PYTHON" ]]; then
+    PYTHON="$VENV_PYTHON"
 elif command -v python3 &>/dev/null; then
-  log "No venv found at $VENV_PATH — using system python3"
+    PYTHON="python3"
 else
-  log "ERROR: python3 not found. Install clapcheeks dependencies first."
-  exit 1
+    log "ERROR: No python3 found — aborting"
+    exit 1
 fi
 
 # ---------------------------------------------------------------------------
 # Run the poller
 # ---------------------------------------------------------------------------
-mkdir -p "$LOG_DIR"
-LOG_FILE="$LOG_DIR/hinge-poller.log"
+log "Starting Hinge poller (python=$PYTHON)"
 
-log "Starting Hinge poller (agent_dir=$AGENT_DIR)"
 cd "$AGENT_DIR"
 
-python3 -m clapcheeks.intel.hinge_poller 2>>"$LOG_FILE"
+OUTPUT=$("$PYTHON" -m clapcheeks.intel.hinge_poller 2>&1) || true
 EXIT_CODE=$?
 
-if [[ $EXIT_CODE -ne 0 ]]; then
-  log "Hinge poller exited with code $EXIT_CODE (see $LOG_FILE)"
+log "Exit code: $EXIT_CODE"
+log "Output: $OUTPUT"
+
+# Rotate log (keep last MAX_LOG_LINES lines)
+if [[ -f "$LOG_FILE" ]]; then
+    LINES=$(wc -l < "$LOG_FILE")
+    if (( LINES > MAX_LOG_LINES )); then
+        TMP=$(mktemp)
+        tail -n "$MAX_LOG_LINES" "$LOG_FILE" > "$TMP"
+        mv "$TMP" "$LOG_FILE"
+    fi
 fi
 
-exit $EXIT_CODE
+exit "$EXIT_CODE"
