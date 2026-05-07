@@ -65,6 +65,8 @@ export default function PersonDossierPage() {
 
       <HeaderCard person={person} />
 
+      <OperatorPanel person={person} />
+
       <div className="mt-6 flex gap-1 border-b border-gray-800">
         {TABS.map((t) => (
           <button
@@ -151,6 +153,192 @@ function HeaderCard({ person }: { person: any }) {
         </div>
       </div>
     </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Operator panel — inline editing for ratings + status + cadence + whitelist
+// + nurture + boundaries + notes. Wires every field to people:patchPerson.
+// AI-9500 audit gap: schema + mutation existed but no UI; this fills that gap.
+// ---------------------------------------------------------------------------
+const STATUS_OPTIONS = ["lead", "active", "dating", "paused", "ghosted", "ended"] as const
+const CADENCE_OPTIONS = ["hot", "warm", "slow_burn", "nurture", "dormant"] as const
+const NURTURE_OPTIONS = ["", "active_pursuit", "steady", "nurture", "dormant", "close"] as const
+const STAGE_OPTIONS = [
+  "matched", "early_chat", "phone_swap", "pre_date",
+  "first_date_done", "ongoing", "exclusive", "ghosted", "ended",
+] as const
+
+function OperatorPanel({ person }: { person: any }) {
+  const patch = useMutation(api.people.patchPerson)
+  const [saving, setSaving] = useState<string | null>(null)
+  const [boundaryDraft, setBoundaryDraft] = useState("")
+  const [notesDraft, setNotesDraft] = useState(person.operator_notes ?? "")
+
+  async function save(field: string, value: any) {
+    setSaving(field)
+    try {
+      await patch({ person_id: person._id, [field]: value })
+    } finally {
+      setSaving(null)
+    }
+  }
+
+  async function addBoundary() {
+    const text = boundaryDraft.trim()
+    if (!text) return
+    const next = [...(person.boundaries_stated ?? []), text]
+    await save("boundaries_stated", next)
+    setBoundaryDraft("")
+  }
+
+  async function removeBoundary(idx: number) {
+    const next = [...(person.boundaries_stated ?? [])]
+    next.splice(idx, 1)
+    await save("boundaries_stated", next)
+  }
+
+  return (
+    <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+      {/* Ratings */}
+      <div className="bg-gray-900 border border-gray-800 rounded-lg p-4">
+        <div className="text-xs uppercase tracking-wider text-gray-500 mb-3">Ratings</div>
+
+        <div className="mb-4">
+          <div className="flex items-center justify-between mb-1">
+            <label className="text-sm text-gray-300">🔥 Hotness</label>
+            <span className="text-pink-300 font-mono text-sm">
+              {person.hotness_rating ? `${person.hotness_rating}/10` : "unrated"}
+            </span>
+          </div>
+          <input
+            type="range" min={0} max={10} step={1}
+            value={person.hotness_rating ?? 0}
+            onChange={(e) => save("hotness_rating", Number(e.target.value) || undefined)}
+            disabled={saving === "hotness_rating"}
+            className="w-full accent-pink-500"
+          />
+        </div>
+
+        <div>
+          <div className="flex items-center justify-between mb-1">
+            <label className="text-sm text-gray-300">⚡ Effort</label>
+            <span className="text-amber-300 font-mono text-sm">
+              {person.effort_rating ? `${person.effort_rating}/5` : "unrated"}
+            </span>
+          </div>
+          <input
+            type="range" min={0} max={5} step={1}
+            value={person.effort_rating ?? 0}
+            onChange={(e) => save("effort_rating", Number(e.target.value) || undefined)}
+            disabled={saving === "effort_rating"}
+            className="w-full accent-amber-500"
+          />
+        </div>
+      </div>
+
+      {/* Status, cadence, stage, nurture, whitelist */}
+      <div className="bg-gray-900 border border-gray-800 rounded-lg p-4 grid grid-cols-2 gap-3">
+        <div className="col-span-2 text-xs uppercase tracking-wider text-gray-500">Lifecycle</div>
+
+        <Select label="Status" value={person.status ?? "lead"}
+          options={STATUS_OPTIONS as readonly string[]}
+          onChange={(v) => save("status", v)} disabled={saving === "status"} />
+
+        <Select label="Stage" value={person.courtship_stage ?? "early_chat"}
+          options={STAGE_OPTIONS as readonly string[]}
+          onChange={(v) => save("courtship_stage", v)} disabled={saving === "courtship_stage"} />
+
+        <Select label="Cadence" value={person.cadence_profile ?? "warm"}
+          options={CADENCE_OPTIONS as readonly string[]}
+          onChange={(v) => save("cadence_profile", v)} disabled={saving === "cadence_profile"} />
+
+        <Select label="Nurture" value={person.nurture_state ?? ""}
+          options={NURTURE_OPTIONS as readonly string[]}
+          onChange={(v) => save("nurture_state", v || undefined)} disabled={saving === "nurture_state"} />
+
+        <label className="col-span-2 flex items-center gap-2 text-sm text-gray-300 cursor-pointer mt-2">
+          <input
+            type="checkbox" checked={person.whitelist_for_autoreply ?? false}
+            onChange={(e) => save("whitelist_for_autoreply", e.target.checked)}
+            disabled={saving === "whitelist_for_autoreply"}
+          />
+          <span>
+            <b className={person.whitelist_for_autoreply ? "text-green-400" : "text-gray-400"}>
+              {person.whitelist_for_autoreply ? "✓ Auto-reply ON" : "○ Auto-reply OFF"}
+            </b>
+            <span className="text-xs text-gray-500 ml-2">
+              (5 brakes still apply: active hours · anti-loop · cadence-mirror · boundaries · safety)
+            </span>
+          </span>
+        </label>
+      </div>
+
+      {/* Boundaries */}
+      <div className="bg-gray-900 border border-gray-800 rounded-lg p-4">
+        <div className="text-xs uppercase tracking-wider text-gray-500 mb-2">Boundaries (HARD RULES)</div>
+        <div className="flex flex-wrap gap-1.5 mb-2">
+          {(person.boundaries_stated ?? []).map((b: string, i: number) => (
+            <span key={i} className="bg-red-900/40 border border-red-800/60 text-red-200 text-xs px-2 py-0.5 rounded-full inline-flex items-center gap-1">
+              {b}
+              <button onClick={() => removeBoundary(i)} className="text-red-400 hover:text-red-200">×</button>
+            </span>
+          ))}
+          {(!person.boundaries_stated || person.boundaries_stated.length === 0) && (
+            <span className="text-xs text-gray-500">No boundaries stated yet.</span>
+          )}
+        </div>
+        <div className="flex gap-2">
+          <input
+            type="text" value={boundaryDraft}
+            onChange={(e) => setBoundaryDraft(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && addBoundary()}
+            placeholder="add boundary…"
+            className="flex-1 bg-gray-950 border border-gray-800 rounded px-2 py-1 text-xs"
+          />
+          <button onClick={addBoundary} className="text-xs px-3 py-1 bg-red-900/40 border border-red-800 text-red-200 rounded hover:bg-red-800/40">
+            add
+          </button>
+        </div>
+      </div>
+
+      {/* Operator notes */}
+      <div className="bg-gray-900 border border-gray-800 rounded-lg p-4">
+        <div className="text-xs uppercase tracking-wider text-gray-500 mb-2">Operator notes</div>
+        <textarea
+          value={notesDraft}
+          onChange={(e) => setNotesDraft(e.target.value)}
+          onBlur={() => notesDraft !== (person.operator_notes ?? "") && save("operator_notes", notesDraft)}
+          placeholder="private notes — not shown to her, not used for sends"
+          rows={4}
+          className="w-full bg-gray-950 border border-gray-800 rounded px-2 py-1 text-xs"
+        />
+        {saving === "operator_notes" && <div className="text-xs text-gray-500 mt-1">saving…</div>}
+      </div>
+    </div>
+  )
+}
+
+function Select({
+  label, value, options, onChange, disabled,
+}: {
+  label: string; value: string; options: readonly string[];
+  onChange: (v: string) => void; disabled?: boolean;
+}) {
+  return (
+    <label className="text-xs text-gray-400">
+      <span className="block mb-1">{label}</span>
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        disabled={disabled}
+        className="w-full bg-gray-950 border border-gray-800 rounded px-2 py-1 text-sm text-gray-200 capitalize"
+      >
+        {options.map((o) => (
+          <option key={o} value={o}>{o ? o.replace(/_/g, " ") : "— none —"}</option>
+        ))}
+      </select>
+    </label>
   )
 }
 
