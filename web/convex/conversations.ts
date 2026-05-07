@@ -104,33 +104,6 @@ export const upsert = mutation({
   },
 });
 
-// AI-9500-C: Look up a single conversation by platform + external_match_id.
-// Used by the Hinge poller to resolve the Convex document ID before appending messages.
-export const getByExternal = query({
-  args: {
-    user_id: v.string(),
-    platform: v.union(
-      v.literal("hinge"),
-      v.literal("tinder"),
-      v.literal("bumble"),
-      v.literal("imessage"),
-      v.literal("other"),
-    ),
-    external_match_id: v.string(),
-  },
-  handler: async (ctx, args) => {
-    return await ctx.db
-      .query("conversations")
-      .withIndex("by_user_external", (q) =>
-        q
-          .eq("user_id", args.user_id)
-          .eq("platform", args.platform)
-          .eq("external_match_id", args.external_match_id),
-      )
-      .first();
-  },
-});
-
 // Cron: re-derive last_message_at + unread_count from the messages table
 // for any conversation that may have drifted (agent crash, partial write).
 export const reconcile = internalMutation({

@@ -17,12 +17,14 @@
  *   - drainDue  : safety net cron — finds any "scheduled" rows whose time has
  *                 passed and weren't fired (process crash, etc.)
  *
- * AI-9500-D: Anti-loop enforcement added to fireOne.
- *   Before enqueuing a send_imessage job, fireOne computes a pattern_hash =
- *   sha256(template_id + ":" + first_50_chars(draft_body)).  If any OTHER
- *   person for the same user received a fired touch with the same pattern_hash
- *   within the past 7 days, the touch is skipped with skip_reason
- *   "anti_loop_collision".  The hash is stored on the touch row when it fires.
+ * AI-9500 Wave 2.4D additions:
+ *   - LAYER 1: Anti-loop collision detection via bodyShape (sha1-ish fingerprint
+ *              of type + draft body prefix). Prevents the same message shape from
+ *              firing to ANY person in the last 7 days.
+ *   - LAYER 2: Boundary respect moved to convex_runner.py _draft_with_template,
+ *              which runs BEFORE drafting and AFTER draft generation. The fireOne
+ *              function delegates to the agent_jobs send_imessage job, which calls
+ *              _draft_with_template — boundary checks happen there.
  */
 
 import { mutation, internalAction, internalMutation, query } from "./_generated/server";
@@ -125,29 +127,34 @@ export const cancelForPerson = mutation({
 });
 
 // ---------------------------------------------------------------------------
-// _computePatternHash — deterministic 52-char hex string derived from
-// template_id and the first 50 chars of draft_body.  Used for anti-loop
-// collision detection across different people within 7 days.
+// _computeBodyShape — deterministic fingerprint for anti-loop detection.
 //
-// Pure JS implementation (no Node crypto) so it runs inside Convex V8.
-// Uses FNV-1a 64-bit (two 32-bit words) — good enough for collision detection
-// without a full sha256 (which requires subtle crypto or a dependency).
+// Convex Actions can use the Web Crypto API (globalThis.crypto). We compute
+// sha1( type + ":" + draftBody.slice(0,50) ) as a hex string.
+//
+// Falls back to a pure-string hash if crypto.subtle is unavailable (unit tests,
+// old runtimes). The fallback is "good enough" for dedup — not cryptographically
+// secure, but that's not required here.
 // ---------------------------------------------------------------------------
-function _computePatternHash(templateId: string, draftBody: string): string {
-  const key = templateId + ":" + (draftBody || "").slice(0, 50);
-  // FNV-1a 32-bit — fast, no dependencies, sufficient for collision detection.
-  let h = 2166136261;
-  for (let i = 0; i < key.length; i++) {
-    h ^= key.charCodeAt(i);
-    h = Math.imul(h, 16777619) >>> 0;
+async function _computeBodyShape(type: string, draftBody: string): Promise<string> {
+  const input = `${type}:${draftBody.slice(0, 50)}`;
+  if (typeof crypto !== "undefined" && crypto.subtle) {
+    try {
+      const encoder = new TextEncoder();
+      const data = encoder.encode(input);
+      const hashBuffer = await crypto.subtle.digest("SHA-1", data);
+      const hashArray = Array.from(new Uint8Array(hashBuffer));
+      return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
+    } catch {
+      // fall through to string hash
+    }
   }
-  // Mix again with a second pass seeded by the first result for extra spread.
-  let h2 = h ^ 0xdeadbeef;
-  for (let i = key.length - 1; i >= 0; i--) {
-    h2 ^= key.charCodeAt(i);
-    h2 = Math.imul(h2, 16777619) >>> 0;
+  // Deterministic djb2-style string hash (no crypto needed).
+  let h = 5381;
+  for (let i = 0; i < input.length; i++) {
+    h = ((h << 5) + h + input.charCodeAt(i)) >>> 0;
   }
-  return h.toString(16).padStart(8, "0") + h2.toString(16).padStart(8, "0");
+  return `noncrypto_${h.toString(16)}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -155,11 +162,9 @@ function _computePatternHash(templateId: string, draftBody: string): string {
 // Skip cases: status no longer scheduled, person paused, outside active hours,
 // safety brake (whitelist_for_autoreply false), boundaries violated.
 //
-// AI-9500-D: Anti-loop check added before enqueue.
-//   Computes pattern_hash = fnv1a(template_id + ":" + first_50_chars(draft_body)).
-//   If ANY other person for the same user had a touch fired with the same
-//   pattern_hash in the past 7 days, skip with "anti_loop_collision".
-//   Stores pattern_hash on the touch row so future calls can match.
+// AI-9500 Wave 2.4D — LAYER 1: Anti-loop collision detection.
+// Before enqueueing, compute bodyShape and check the last 7d of fired touches
+// across ALL of this user's people. If any match, skip with anti_loop_collision.
 // ---------------------------------------------------------------------------
 export const fireOne = internalAction({
   args: { touch_id: v.id("scheduled_touches") },
@@ -212,86 +217,59 @@ export const fireOne = internalAction({
     }
 
     // -----------------------------------------------------------------------
-    // AI-9500-D: Anti-loop collision check.
+    // AI-9500 Wave 2.4D — LAYER 1: Anti-loop collision detection.
     //
-    // Compute the pattern_hash for this touch. Query the last 7 days of fired
-    // touches for this user. If any row for a DIFFERENT person carries the same
-    // pattern_hash, skip with anti_loop_collision so Sarah and Kate don't both
-    // receive the identical "btw you mentioned…" line within a week.
+    // We compute a bodyShape fingerprint from the touch type + draft body
+    // prefix (first 50 chars). If the same fingerprint fired in the last 7d
+    // for ANY person under this user_id, we skip with anti_loop_collision.
     //
-    // pattern_hash is computed from (prompt_template || touch.type) and the
-    // first 50 chars of draft_body.  generate_at_fire_time touches don't have
-    // a draft_body yet — hash on template alone, which is still a signal that
-    // the SAME template fired for the SAME user within 7d.
+    // This prevents the cadence runner from repeatedly sending the same
+    // "template + intro" combination across all conversations (e.g., firing
+    // the same morning_text opener to 12 different girls in the same week).
+    //
+    // Note: digest_inclusion touches are exempt — they are not message sends
+    // and have no body to deduplicate.
     // -----------------------------------------------------------------------
-    const templateKey = (touch.prompt_template || touch.type) as string;
-    const draftSnippet = (touch.draft_body || "").slice(0, 50);
-    const patternHash = _computePatternHash(templateKey, draftSnippet);
+    if (touch.type !== "digest_inclusion") {
+      const draftBody = touch.draft_body ?? "";
+      const bodyShape = await _computeBodyShape(touch.type, draftBody);
 
-    const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
-    const recentFired = await ctx.runQuery(internal.touches._getRecentFiredByUser, {
-      user_id: touch.user_id,
-      since_ms: sevenDaysAgo,
-    });
-    for (const ft of recentFired) {
-      if (
-        ft.pattern_hash === patternHash &&
-        ft.person_id !== touch.person_id
-      ) {
-        // Same pattern was sent to a different person within 7 days — skip.
-        await ctx.runMutation(internal.touches._markSkippedWithHash, {
-          touch_id: args.touch_id,
-          skip_reason: "anti_loop_collision",
-          pattern_hash: patternHash,
-        });
-        return {
-          skipped: true,
-          reason: "anti_loop_collision",
-          pattern_hash: patternHash,
-          collided_with_person: ft.person_id,
-        };
-      }
-    }
+      // Collect fired touches in the last 7 days for this user.
+      const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+      const recentFired = await ctx.runQuery(internal.touches._getRecentFiredByUser, {
+        user_id: touch.user_id,
+        since_ms: sevenDaysAgo,
+      });
 
-    // -----------------------------------------------------------------------
-    // AI-9500-E: Reply-velocity cadence-gap enforcement.
-    //
-    // If the person has cadence_overrides (computed by recalibrateCadenceForOne),
-    // compare "now" against her last_inbound_at. If we're firing too soon after
-    // her last reply (< min_reply_gap_ms), push the touch to
-    //   lastReceived + min_reply_gap_ms + jitter(0..30s)
-    // so Julian's AI reply mirrors her natural response rhythm.
-    //
-    // Additive: if cadence_overrides is absent (new person, not enough data),
-    // the existing send path continues unchanged.
-    // -----------------------------------------------------------------------
-    const cadOvr = (person as any).cadence_overrides;
-    if (cadOvr?.min_reply_gap_ms && person.last_inbound_at) {
-      const nowMs = Date.now();
-      const elapsedSinceHerReply = nowMs - person.last_inbound_at;
-      if (elapsedSinceHerReply < cadOvr.min_reply_gap_ms) {
-        // Too soon — reschedule to lastReceived + min_reply_gap_ms + jitter.
-        const jitterMs = Math.floor(Math.random() * 30_000); // 0..30s
-        const newScheduledFor = person.last_inbound_at + cadOvr.min_reply_gap_ms + jitterMs;
-        await ctx.runMutation(internal.touches._reschedule, {
-          touch_id: args.touch_id,
-          scheduled_for: newScheduledFor,
-        });
-        await ctx.scheduler.runAt(newScheduledFor, internal.touches.fireOne, {
-          touch_id: args.touch_id,
-        });
-        return {
-          rescheduled: true,
-          reason: "cadence_gap_too_soon",
-          new_scheduled_for: newScheduledFor,
-          elapsed_ms: elapsedSinceHerReply,
-          min_gap_ms: cadOvr.min_reply_gap_ms,
-        };
+      // Check for shape collision (skip the touch itself — it's still "scheduled").
+      for (const fired of recentFired) {
+        if (fired._id === args.touch_id) continue;
+        if (fired.fired_body_shape === bodyShape) {
+          await ctx.runMutation(internal.touches._markFired, {
+            touch_id: args.touch_id,
+            status: "skipped",
+            skip_reason: "anti_loop_collision",
+          });
+          return {
+            skipped: true,
+            reason: "anti_loop_collision",
+            skip_reason: "anti_loop_collision",
+            colliding_touch_id: fired._id,
+            body_shape: bodyShape,
+          };
+        }
       }
+
+      // Store the bodyShape on the row so future fires can detect us.
+      await ctx.runMutation(internal.touches._setBodyShape, {
+        touch_id: args.touch_id,
+        body_shape: bodyShape,
+      });
     }
 
     // Enqueue an agent_jobs row for the Mac Mini daemon to actually send.
     // (Actual send happens daemon-side because BlueBubbles HTTP is on Mac.)
+    // Boundary-checking (Layer 2) runs inside convex_runner._draft_with_template.
     await ctx.runMutation(internal.touches._enqueueSendJob, {
       user_id: touch.user_id,
       person_id: touch.person_id,
@@ -302,11 +280,10 @@ export const fireOne = internalAction({
       media_asset_id: touch.media_asset_id,
       prompt_template: touch.prompt_template,
     });
-    // Mark fired AND store the pattern_hash for future anti-loop checks.
     await ctx.runMutation(internal.touches._markFired, {
-      touch_id: args.touch_id, status: "fired", pattern_hash: patternHash,
+      touch_id: args.touch_id, status: "fired",
     });
-    return { fired: true, type: touch.type, pattern_hash: patternHash };
+    return { fired: true, type: touch.type };
   },
 });
 
@@ -346,14 +323,33 @@ export const _getPerson = internalQuery({
   handler: async (ctx, args) => await ctx.db.get(args.person_id),
 });
 
+// AI-9500D: Query recent fired touches for a user (anti-loop).
+// Uses the by_user_fired_at index to efficiently scan within the 7d window.
+export const _getRecentFiredByUser = internalQuery({
+  args: {
+    user_id: v.string(),
+    since_ms: v.number(),
+  },
+  handler: async (ctx, args) => {
+    // Collect fired touches since since_ms across all people for this user.
+    // We use by_user_status index to narrow to "fired" status, then filter by fired_at.
+    // The by_user_fired_at index allows us to range-scan on fired_at.
+    const rows = await ctx.db
+      .query("scheduled_touches")
+      .withIndex("by_user_fired_at", (q) =>
+        q.eq("user_id", args.user_id).gte("fired_at", args.since_ms),
+      )
+      .filter((q) => q.eq(q.field("status"), "fired"))
+      .collect();
+    return rows;
+  },
+});
+
 export const _markFired = internalMutation({
   args: {
     touch_id: v.id("scheduled_touches"),
     status: v.union(v.literal("fired"), v.literal("skipped"), v.literal("error")),
     skip_reason: v.optional(v.string()),
-    // AI-9500-D: store pattern_hash on the row when firing so future
-    // fireOne calls can detect anti-loop collisions across people.
-    pattern_hash: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     await ctx.db.patch(args.touch_id, {
@@ -361,53 +357,21 @@ export const _markFired = internalMutation({
       skip_reason: args.skip_reason,
       fired_at: Date.now(),
       updated_at: Date.now(),
-      ...(args.pattern_hash !== undefined ? { pattern_hash: args.pattern_hash } : {}),
     });
   },
 });
 
-// AI-9500-D: Skip with hash — marks the touch skipped AND stores the
-// pattern_hash so the collision is auditable in the dashboard.
-export const _markSkippedWithHash = internalMutation({
+// AI-9500D: Store the bodyShape fingerprint before firing (for anti-loop).
+export const _setBodyShape = internalMutation({
   args: {
     touch_id: v.id("scheduled_touches"),
-    skip_reason: v.string(),
-    pattern_hash: v.string(),
+    body_shape: v.string(),
   },
   handler: async (ctx, args) => {
     await ctx.db.patch(args.touch_id, {
-      status: "skipped",
-      skip_reason: args.skip_reason,
-      pattern_hash: args.pattern_hash,
-      fired_at: Date.now(),
+      fired_body_shape: args.body_shape,
       updated_at: Date.now(),
     });
-  },
-});
-
-// AI-9500-D: Return all fired touches for a user since since_ms, including
-// their pattern_hash and person_id, for the anti-loop check.
-// Uses the by_user_fired_at index defined in schema.ts.
-// Cap at 500 rows (realistic — 7d × ~10 fires/day = 70 rows for most users).
-export const _getRecentFiredByUser = internalQuery({
-  args: {
-    user_id: v.string(),
-    since_ms: v.number(),
-  },
-  handler: async (ctx, args) => {
-    const rows = await ctx.db
-      .query("scheduled_touches")
-      .withIndex("by_user_fired", (q) =>
-        q.eq("user_id", args.user_id).gte("fired_at", args.since_ms),
-      )
-      .filter((q) => q.eq(q.field("status"), "fired"))
-      .take(500);
-    return rows.map((r) => ({
-      _id: r._id,
-      person_id: r.person_id,
-      pattern_hash: r.pattern_hash,
-      fired_at: r.fired_at,
-    }));
   },
 });
 

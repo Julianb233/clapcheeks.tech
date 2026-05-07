@@ -1,4 +1,4 @@
-import { mutation, query, internalMutation } from "./_generated/server";
+import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 
 // AI-9449 — Unified person record across iMessage / dating apps / email / Telegram.
@@ -324,83 +324,6 @@ export const upsertFromGoogleContacts = mutation({
 // O(N) over the user's people rows because Convex doesn't index inside
 // arrays-of-objects. Fine at human scale (<10k people per user).
 // ----------------------------------------------------------------------------
-// Single-row reader by id. Used by the Mac Mini convex_runner to resolve
-// person details for drafting.
-export const get = query({
-  args: { id: v.id("people") },
-  handler: async (ctx, args) => await ctx.db.get(args.id),
-});
-
-// ----------------------------------------------------------------------------
-// Wave 2.4 Task B — getDossier(person_id)
-//
-// Bundles everything the dashboard needs to render the per-person deep-dive
-// page in a single round trip: the person row + last 100 messages
-// (denormalized via by_person_recent index) + scheduled touches +
-// recent media uses + active conversations + open pending links.
-// ----------------------------------------------------------------------------
-export const getDossier = query({
-  args: { person_id: v.id("people") },
-  handler: async (ctx, args) => {
-    const person = await ctx.db.get(args.person_id);
-    if (!person) return null;
-
-    // Recent messages — by_person_recent index over messages table.
-    const messages = await ctx.db
-      .query("messages")
-      .withIndex("by_person_recent", (q) => q.eq("person_id", args.person_id))
-      .order("desc")
-      .take(100);
-
-    // Conversations the person is linked to (cross-channel).
-    const conversations = await ctx.db
-      .query("conversations")
-      .withIndex("by_person", (q) => q.eq("person_id", args.person_id))
-      .collect();
-
-    // Scheduled + recent fired touches (50 each).
-    const scheduledTouches = await ctx.db
-      .query("scheduled_touches")
-      .withIndex("by_person_status", (q) => q.eq("person_id", args.person_id))
-      .order("desc")
-      .take(50);
-
-    // Media uses for this person (last 30).
-    const mediaUses = await ctx.db
-      .query("media_uses")
-      .withIndex("by_person", (q) => q.eq("person_id", args.person_id))
-      .order("desc")
-      .take(30);
-
-    // Hydrate media assets referenced by uses (so dashboard can render thumbnails).
-    const mediaAssetIds = Array.from(new Set(mediaUses.map((u) => u.asset_id)));
-    const mediaAssets = await Promise.all(
-      mediaAssetIds.map((id) => ctx.db.get(id)),
-    );
-
-    // Open pending_links pointing at this person as a candidate.
-    const allOpenLinks = await ctx.db
-      .query("pending_links")
-      .withIndex("by_user_status", (q) =>
-        q.eq("user_id", person.user_id).eq("status", "open"),
-      )
-      .collect();
-    const pendingLinks = allOpenLinks.filter((l) =>
-      l.candidate_person_ids.includes(args.person_id),
-    );
-
-    return {
-      person,
-      messages,                                              // newest first
-      conversations,
-      scheduled_touches: scheduledTouches,
-      media_uses: mediaUses,
-      media_assets: mediaAssets.filter((a) => a !== null),
-      pending_links: pendingLinks,
-    };
-  },
-});
-
 export const findByHandle = query({
   args: {
     user_id: v.string(),
@@ -520,86 +443,6 @@ export const linkConversation = mutation({
   },
 });
 
-// Dashboard reader for the pending_links queue. Returns open rows with
-// their candidate person rows + recent message context already joined.
-export const listPendingLinks = query({
-  args: { user_id: v.string(), limit: v.optional(v.number()) },
-  handler: async (ctx, args) => {
-    const rows = await ctx.db
-      .query("pending_links")
-      .withIndex("by_user_status", (q) => q.eq("user_id", args.user_id).eq("status", "open"))
-      .order("desc")
-      .take(Math.min(args.limit ?? 50, 200));
-    const out = [] as any[];
-    for (const r of rows) {
-      const conv = await ctx.db.get(r.conversation_id);
-      const candidates: any[] = [];
-      for (const pid of r.candidate_person_ids) {
-        const p = await ctx.db.get(pid);
-        if (p) candidates.push({
-          _id: p._id, display_name: p.display_name,
-          courtship_stage: p.courtship_stage, status: p.status,
-          handles: p.handles?.slice(0, 3),
-        });
-      }
-      out.push({
-        _id: r._id, handle_channel: r.handle_channel, handle_value: r.handle_value,
-        raw_context: r.raw_context, created_at: r.created_at,
-        conversation: conv ? {
-          _id: conv._id, last_message_at: conv.last_message_at,
-          imessage_handle: conv.imessage_handle,
-        } : null,
-        candidates,
-      });
-    }
-    return out;
-  },
-});
-
-// Resolve a pending_link row to a chosen person — patches conversation +
-// associated messages with person_id, marks the link resolved.
-export const resolvePendingLink = mutation({
-  args: { pending_id: v.id("pending_links"), person_id: v.id("people") },
-  handler: async (ctx, args) => {
-    const link = await ctx.db.get(args.pending_id);
-    if (!link) return { error: "not_found" };
-    const person = await ctx.db.get(args.person_id);
-    if (!person) return { error: "person_not_found" };
-    // Patch conversation
-    await ctx.db.patch(link.conversation_id, {
-      person_id: args.person_id, updated_at: Date.now(),
-    });
-    // Patch messages in this conversation that lack person_id
-    const msgs = await ctx.db
-      .query("messages")
-      .withIndex("by_conversation", (q) => q.eq("conversation_id", link.conversation_id))
-      .collect();
-    let patched = 0;
-    for (const m of msgs) {
-      if (!m.person_id) {
-        await ctx.db.patch(m._id, { person_id: args.person_id });
-        patched++;
-      }
-    }
-    // Mark link resolved
-    await ctx.db.patch(args.pending_id, {
-      status: "resolved", resolved_person_id: args.person_id, updated_at: Date.now(),
-    });
-    return { resolved: true, conversations: 1, messages_patched: patched };
-  },
-});
-
-// Ignore a pending_link (e.g. spam / unknown number). Marks ignored.
-export const ignorePendingLink = mutation({
-  args: { pending_id: v.id("pending_links") },
-  handler: async (ctx, args) => {
-    await ctx.db.patch(args.pending_id, {
-      status: "ignored", updated_at: Date.now(),
-    });
-    return { ignored: true };
-  },
-});
-
 // ----------------------------------------------------------------------------
 // recordPendingLink
 //
@@ -659,26 +502,19 @@ export const listForUser = query({
     user_id: v.string(),
     status: v.optional(PERSON_STATUS),
     limit: v.optional(v.number()),
-    only_cc_tech: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     const limit = Math.min(args.limit ?? 100, 500);
-    let rows;
     if (args.status) {
-      rows = await ctx.db
+      return await ctx.db
         .query("people")
         .withIndex("by_user_status", (q) => q.eq("user_id", args.user_id).eq("status", args.status!))
         .take(limit);
-    } else {
-      rows = await ctx.db
-        .query("people")
-        .withIndex("by_user", (q) => q.eq("user_id", args.user_id))
-        .take(limit);
     }
-    if (args.only_cc_tech) {
-      rows = rows.filter((p) => (p.google_contacts_labels ?? []).includes("CC TECH"));
-    }
-    return rows;
+    return await ctx.db
+      .query("people")
+      .withIndex("by_user", (q) => q.eq("user_id", args.user_id))
+      .take(limit);
   },
 });
 
@@ -767,69 +603,6 @@ export const updateVibe = mutation({
 // signals + "next best move" suggestion the dashboard can show.
 // ----------------------------------------------------------------------------
 export const updateCourtship = mutation({
-  args: {
-    person_id: v.id("people"),
-    trust_score: v.optional(v.number()),
-    courtship_stage: v.optional(v.union(
-      v.literal("matched"), v.literal("early_chat"), v.literal("phone_swap"),
-      v.literal("pre_date"), v.literal("first_date_done"), v.literal("ongoing"),
-      v.literal("exclusive"), v.literal("ghosted"), v.literal("ended"),
-    )),
-    trust_signals_observed: v.optional(v.array(v.string())),
-    trust_signals_missing: v.optional(v.array(v.string())),
-    things_she_loves: v.optional(v.array(v.string())),
-    things_she_dislikes: v.optional(v.array(v.string())),
-    boundaries_stated: v.optional(v.array(v.string())),
-    green_flags: v.optional(v.array(v.string())),
-    red_flags: v.optional(v.array(v.string())),
-    compliments_that_landed: v.optional(v.array(v.string())),
-    references_to_callback: v.optional(v.array(v.string())),
-    her_love_languages: v.optional(v.array(v.string())),
-    next_best_move: v.optional(v.string()),
-    next_best_move_confidence: v.optional(v.number()),
-  },
-  handler: async (ctx, args) => {
-    const { person_id, ...rest } = args;
-    const patch: Record<string, unknown> = {
-      courtship_last_analyzed: Date.now(),
-      updated_at: Date.now(),
-    };
-    for (const [k, v] of Object.entries(rest)) {
-      if (v !== undefined) patch[k] = v;
-    }
-    await ctx.db.patch(person_id, patch);
-  },
-});
-
-// ----------------------------------------------------------------------------
-// _updateVibeInternal / _updateCourtshipInternal
-//
-// internalMutation versions of updateVibe / updateCourtship — called by
-// convex/enrichment.ts internalActions which can't invoke public mutations
-// on themselves. Same signature, internal access only.
-// ----------------------------------------------------------------------------
-export const _updateVibeInternal = internalMutation({
-  args: {
-    person_id: v.id("people"),
-    vibe_classification: v.union(
-      v.literal("dating"), v.literal("platonic"),
-      v.literal("professional"), v.literal("unclear"),
-    ),
-    vibe_confidence: v.number(),
-    vibe_evidence: v.optional(v.string()),
-  },
-  handler: async (ctx, args) => {
-    await ctx.db.patch(args.person_id, {
-      vibe_classification: args.vibe_classification,
-      vibe_confidence: args.vibe_confidence,
-      vibe_evidence: args.vibe_evidence,
-      vibe_classified_at: Date.now(),
-      updated_at: Date.now(),
-    });
-  },
-});
-
-export const _updateCourtshipInternal = internalMutation({
   args: {
     person_id: v.id("people"),
     trust_score: v.optional(v.number()),
@@ -1192,143 +965,5 @@ export const updateLiveState = mutation({
     if (args.next_followup_at !== undefined) patch.next_followup_at = args.next_followup_at;
     if (args.style_profile !== undefined) patch.style_profile = args.style_profile;
     await ctx.db.patch(args.person_id, patch);
-  },
-});
-
-// ============================================================================
-// WAVE 2.4 — DOSSIER ROUTE (AI-9501)
-// ============================================================================
-
-// Simple list for the /network page. Returns people ordered by most recently
-// updated, filtered by status. Supports all status values from the schema.
-export const list = query({
-  args: {
-    user_id: v.optional(v.string()),
-    status: v.optional(v.string()),
-  },
-  handler: async (ctx, args) => {
-    const status = (args.status ?? "active") as
-      | "lead"
-      | "active"
-      | "paused"
-      | "ghosted"
-      | "dating"
-      | "ended";
-
-    if (args.user_id) {
-      return await ctx.db
-        .query("people")
-        .withIndex("by_user_status", (q) =>
-          q.eq("user_id", args.user_id!).eq("status", status),
-        )
-        .order("desc")
-        .take(200);
-    }
-    return await ctx.db
-      .query("people")
-      .withIndex("by_user_status", (q) => q.eq("user_id", "fleet-julian").eq("status", status))
-      .order("desc")
-      .take(200);
-  },
-});
-
-// Full dossier — person row + related tables joined in one reactive query.
-// Powers /admin/clapcheeks-ops/people/[id].
-export const getDossier = query({
-  args: { person_id: v.id("people") },
-  handler: async (ctx, args) => {
-    const person = await ctx.db.get(args.person_id);
-    if (!person) return null;
-
-    // Last 100 messages from the conversation(s) linked to this person.
-    // Walk all conversations where person_id matches, or fall back to the
-    // primary imessage handle if person_id isn't set on conversations yet.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const rawMessages: any[] = [];
-
-    // First: try by person_id on conversations (AI-9449 field)
-    const convsByPerson = await ctx.db
-      .query("conversations")
-      .withIndex("by_person", (q) => q.eq("person_id", args.person_id))
-      .take(10);
-
-    // Fallback: match via primary imessage handle
-    let convIds = convsByPerson.map((c) => c._id);
-    if (convIds.length === 0 && person.handles?.length) {
-      const primaryHandle = person.handles.find((h) => h.primary) ?? person.handles[0];
-      if (primaryHandle) {
-        const conv = await ctx.db
-          .query("conversations")
-          .withIndex("by_imessage_handle", (q) =>
-            q.eq("imessage_handle", primaryHandle.value),
-          )
-          .first();
-        if (conv) convIds = [conv._id];
-      }
-    }
-
-    // Collect last 100 messages across matched conversations
-    for (const convId of convIds.slice(0, 3)) {
-      const msgs = await ctx.db
-        .query("messages")
-        .withIndex("by_conversation", (q) => q.eq("conversation_id", convId))
-        .order("desc")
-        .take(100);
-      rawMessages.push(...msgs);
-    }
-    // Sort by sent_at desc, take 100, then reverse for chronological display
-    rawMessages.sort((a, b) => b.sent_at - a.sent_at);
-    const messages = rawMessages.slice(0, 100).reverse();
-
-    // Active + pending scheduled touches
-    const scheduledTouches = await ctx.db
-      .query("scheduled_touches")
-      .withIndex("by_person", (q) => q.eq("person_id", args.person_id))
-      .order("desc")
-      .take(50);
-
-    const pendingTouches = scheduledTouches.filter(
-      (t) => t.status === "pending" || t.status === "approved",
-    );
-
-    // Latest 20 media uses
-    const mediaUses = await ctx.db
-      .query("media_uses")
-      .withIndex("by_person", (q) => q.eq("person_id", args.person_id))
-      .order("desc")
-      .take(20);
-
-    return {
-      person,
-      messages,
-      scheduledTouches,
-      pendingTouches,
-      mediaUses,
-    };
-  },
-});
-
-// Schedule a manual touch for a person.
-// "Send a touch now" button → type="reply", scheduled_for=now+5min.
-export const scheduleOne = mutation({
-  args: {
-    person_id: v.id("people"),
-    user_id: v.string(),
-    type: v.optional(v.string()),
-    draft_body: v.optional(v.string()),
-    scheduled_for: v.optional(v.number()),
-  },
-  handler: async (ctx, args) => {
-    const now = Date.now();
-    return await ctx.db.insert("scheduled_touches", {
-      person_id: args.person_id,
-      user_id: args.user_id,
-      type: args.type ?? "reply",
-      draft_body: args.draft_body,
-      status: "pending",
-      scheduled_for: args.scheduled_for ?? now + 5 * 60 * 1000,
-      created_at: now,
-      updated_at: now,
-    });
   },
 });
