@@ -32,6 +32,21 @@ export default function ClapcheeksOpsOverview() {
         Your dating co-pilot — live state, ranked surfaces, one-tap controls.
       </p>
 
+      {/* AI-9500 #7 — Self-coaching nav card */}
+      <Link href="/admin/clapcheeks-ops/coach"
+            className="block mb-6 bg-gradient-to-r from-purple-950 to-gray-900 border border-purple-800 rounded-xl p-5 hover:border-purple-600 transition">
+        <div className="flex items-center gap-3">
+          <span className="text-2xl">🧠</span>
+          <div>
+            <div className="font-bold text-lg text-white">Self-coaching dashboard</div>
+            <div className="text-sm text-purple-300">
+              See your patterns — over-pursue, late-night sends, opener overuse, cut list, stuck threads, heatmap
+            </div>
+          </div>
+          <span className="ml-auto text-purple-400 text-xl">→</span>
+        </div>
+      </Link>
+
       <div className="grid grid-cols-2 gap-4 mb-8">
         <Card title="Pending media for approval"
               value={pendingMedia?.length ?? "—"}
