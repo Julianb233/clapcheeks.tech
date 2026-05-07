@@ -14,6 +14,7 @@ import type * as calendar from "../calendar.js";
 import type * as coach from "../coach.js";
 import type * as conversations from "../conversations.js";
 import type * as crons from "../crons.js";
+import type * as date_logistics from "../date_logistics.js";
 import type * as digest from "../digest.js";
 import type * as drip from "../drip.js";
 import type * as enrichment from "../enrichment.js";
@@ -40,6 +41,7 @@ declare const fullApi: ApiFromModules<{
   coach: typeof coach;
   conversations: typeof conversations;
   crons: typeof crons;
+  date_logistics: typeof date_logistics;
   digest: typeof digest;
   drip: typeof drip;
   enrichment: typeof enrichment;

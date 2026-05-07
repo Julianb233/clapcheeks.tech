@@ -1,6 +1,22 @@
 /**
  * AI-9449 Phase A — scheduled_touches engine.
  *
+ * AI-9500 W2 #G additions (voice-memo trigger):
+ *   - sweepVoiceMemoCandidates  : internalMutation cron (every 6h).
+ *                                 Detects three high-leverage moments and schedules a
+ *                                 voice_memo touch for each qualifying person:
+ *                                   1. Phone-swap +24h  — courtship_stage="phone_swap",
+ *                                      no voice_memo sent yet.
+ *                                   2. 3rd inbound reply — exactly 3 total inbound messages
+ *                                      across all their conversations, no voice_memo yet.
+ *                                   3. Post-second-date  — 2 post_date_calibration touches
+ *                                      both fired, no voice_memo in last 7d.
+ *                                 Each touch carries a short script in draft_body so the
+ *                                 operator knows what to say before recording on their phone.
+ *   - markVoiceMemoSent          : mutation. Operator calls after physically sending the
+ *                                 voice memo. Patches the touch to status="fired" and
+ *                                 records sent_at so the sweep won't re-schedule.
+ *
  * Per-row scheduling instead of global polling. Every touch picks its own
  * runAt timestamp so Convex fires it within ~50ms of the target — no cron
  * scan, no rate-limit spikes, naturally spread load.
@@ -1311,3 +1327,193 @@ function nextHourLocalToUnix(tz: string, hour: number): number {
   );
   return utcGuess - tzOffsetMs;
 }
+
+// ===========================================================================
+// AI-9500 W2 #G — Voice-memo trigger sweep
+//
+// sweepVoiceMemoCandidates — internalMutation called every 6h via cron.
+//
+// Detects three high-leverage moments and schedules a voice_memo touch:
+//
+//   Trigger 1 — Phone swap +24h
+//     courtship_stage = "phone_swap"
+//     AND last_outbound_at within last 4d (still active)
+//     AND last_outbound_at <= 24h ago (swap happened at least 24h back)
+//     AND no voice_memo scheduled/fired for this person yet
+//
+//   Trigger 2 — 3rd inbound reply
+//     total inbound messages across all conversations = 3 exactly
+//     AND no voice_memo scheduled/fired for this person
+//
+//   Trigger 3 — Post-second-date
+//     >= 2 fired post_date_calibration touches for this person
+//     AND no voice_memo sent in last 7d
+//
+// Each touch:
+//   - draft_body: 1-2 sentence script the operator reads before recording
+//   - generate_at_fire_time: false (script is pre-set, operator records manually)
+//   - urgency: "warm"
+//
+// Idempotent: skips any person that already has a voice_memo touch scheduled
+// or fired within the 7d cooldown window.
+//
+// IMPORTANT: voice_memo touches do NOT auto-fire via the standard send pipeline.
+// The operator must physically record and send the voice memo on their phone, then
+// call markVoiceMemoSent from the dossier to close the loop.
+// ===========================================================================
+
+const VOICE_MEMO_COOLDOWN_MS = 7 * 24 * 60 * 60 * 1000;          // 7d
+const VOICE_MEMO_PHONE_SWAP_WINDOW_MS = 4 * 24 * 60 * 60 * 1000;  // 4d active window
+const VOICE_MEMO_MAX_SWEEP = 30;
+
+/** Build the 1-2 sentence voice-memo script for a given trigger. */
+function _voiceMemoScript(
+  trigger: "phone_swap" | "third_reply" | "post_second_date",
+  name: string,
+): string {
+  const firstName = name.split(" ")[0];
+  switch (trigger) {
+    case "phone_swap":
+      return `Hey ${firstName} — just wanted to say hey properly. Hope you're having a great day`;
+    case "third_reply":
+      return `Hey ${firstName} — you seem really cool, figured a voice note beats another text`;
+    case "post_second_date":
+      return `${firstName} — that was honestly so fun. Thinking about you`;
+  }
+}
+
+export const sweepVoiceMemoCandidates = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const now = Date.now();
+    const sevenDaysAgo = now - VOICE_MEMO_COOLDOWN_MS;
+
+    // Load all non-ended people for this user.
+    const allPeople = await ctx.db
+      .query("people")
+      .withIndex("by_user", (q) => q.eq("user_id", "fleet-julian"))
+      .collect();
+
+    const candidates = allPeople.filter(
+      (p) => p.status !== "ended" && p.status !== "ghosted" && p.whitelist_for_autoreply,
+    );
+
+    let scheduled = 0;
+    let scanned = 0;
+
+    for (const person of candidates.slice(0, VOICE_MEMO_MAX_SWEEP)) {
+      scanned++;
+
+      // -----------------------------------------------------------------
+      // Guard: no existing voice_memo touch (scheduled or recently fired).
+      // -----------------------------------------------------------------
+      const existingTouches = await ctx.db
+        .query("scheduled_touches")
+        .withIndex("by_person_status", (q) => q.eq("person_id", person._id))
+        .collect();
+
+      const hasScheduled = existingTouches.some(
+        (t) => t.type === "voice_memo" && t.status === "scheduled",
+      );
+      const hasRecentFired = existingTouches.some(
+        (t) =>
+          t.type === "voice_memo" &&
+          t.status === "fired" &&
+          t.fired_at !== undefined &&
+          t.fired_at >= sevenDaysAgo,
+      );
+      if (hasScheduled || hasRecentFired) continue;
+
+      // -----------------------------------------------------------------
+      // Trigger 1: Phone-swap +24h.
+      // -----------------------------------------------------------------
+      let triggerKind: "phone_swap" | "third_reply" | "post_second_date" | null = null;
+
+      if (person.courtship_stage === "phone_swap") {
+        const lastOut = person.last_outbound_at ?? 0;
+        const twentyFourHoursAgo = now - 24 * 60 * 60 * 1000;
+        if (lastOut >= (now - VOICE_MEMO_PHONE_SWAP_WINDOW_MS) && lastOut <= twentyFourHoursAgo) {
+          triggerKind = "phone_swap";
+        }
+      }
+
+      // -----------------------------------------------------------------
+      // Trigger 2: 3rd inbound reply.
+      // -----------------------------------------------------------------
+      if (!triggerKind) {
+        const inboundMsgs = await ctx.db
+          .query("messages")
+          .withIndex("by_person_recent", (q) => q.eq("person_id", person._id))
+          .filter((q) => q.eq(q.field("direction"), "inbound"))
+          .collect();
+        if (inboundMsgs.length === 3) {
+          triggerKind = "third_reply";
+        }
+      }
+
+      // -----------------------------------------------------------------
+      // Trigger 3: Post-second-date.
+      // -----------------------------------------------------------------
+      if (!triggerKind) {
+        const firedCalibrations = existingTouches.filter(
+          (t) => t.type === "post_date_calibration" && t.status === "fired",
+        );
+        if (firedCalibrations.length >= 2) {
+          triggerKind = "post_second_date";
+        }
+      }
+
+      if (!triggerKind) continue;
+
+      // -----------------------------------------------------------------
+      // Schedule the voice_memo touch ~30min from now.
+      // -----------------------------------------------------------------
+      const script = _voiceMemoScript(triggerKind, person.display_name);
+      const fireAt = now + 30 * 60 * 1000;
+
+      await ctx.db.insert("scheduled_touches", {
+        user_id: "fleet-julian",
+        person_id: person._id,
+        type: "voice_memo",
+        scheduled_for: fireAt,
+        status: "scheduled",
+        draft_body: script,
+        generate_at_fire_time: false,
+        urgency: "warm",
+        prompt_template: `voice_memo_trigger_${triggerKind}`,
+        created_at: now,
+        updated_at: now,
+      });
+
+      // voice_memo touches do NOT auto-fire — operator records manually on phone.
+      // We intentionally skip ctx.scheduler.runAfter(fireOne) here.
+
+      scheduled++;
+    }
+
+    return { scanned, scheduled };
+  },
+});
+
+// ---------------------------------------------------------------------------
+// markVoiceMemoSent — operator calls from dossier Schedule tab after recording
+// and sending the voice memo on their phone. Patches status to "fired".
+// ---------------------------------------------------------------------------
+export const markVoiceMemoSent = mutation({
+  args: {
+    touch_id: v.id("scheduled_touches"),
+  },
+  handler: async (ctx, args) => {
+    const touch = await ctx.db.get(args.touch_id);
+    if (!touch) return { not_found: true };
+    if (touch.type !== "voice_memo") return { wrong_type: touch.type };
+    if (touch.status === "fired") return { already_fired: true };
+
+    await ctx.db.patch(args.touch_id, {
+      status: "fired",
+      fired_at: Date.now(),
+      updated_at: Date.now(),
+    });
+    return { marked_sent: true };
+  },
+});
