@@ -10,11 +10,22 @@
  *   - enqueueFetchJob (internalMutation) — fired by the cron; inserts an
  *     agent_job for Mac Mini to claim.
  *   - upsertSlots — Mac Mini calls this to write free-busy windows.
- *   - listFreeSlots — Mac Mini draft engine reads this for date_ask templates;
- *     returns up to N upcoming free windows in preferred evening hours.
+ *   - listFreeSlots — Mac Mini draft engine reads this for date_ask templates.
+ *     AI-9500 #3: now returns a curated 1-weeknight + 1-weekend + 1-activity
+ *     mix so date_ask offers feel varied and thoughtful instead of 3 dinner slots.
+ *   - listActivitySuggestions — dashboard read: which activity slots are populated.
  *   - markProposed / markConfirmed — when a slot is offered to a person and
  *     when she confirms, so the same slot isn't proposed twice.
  *   - clearStale — removes free slots whose start has passed.
+ *
+ * AI-9500 #3 Slot-kind encoding (no schema change — slot_kind stays "free"):
+ *   label_local prefix "[weeknight] " → evening weekday slot
+ *   label_local prefix "[weekend] "   → Saturday/Sunday daytime slot
+ *   label_local prefix "[activity] "  → curated activity (hike/brunch/rooftop)
+ *   no prefix                         → legacy free slot, categorised by weekday
+ *
+ * Activity slots are seeded by the VPS cc-calendar-worker reading
+ * clapcheeks-local/activity-suggestions.yml and writing calendar_slots rows.
  */
 import { v } from "convex/values";
 import { mutation, query, internalMutation } from "./_generated/server";
@@ -104,8 +115,17 @@ export const upsertSlots = mutation({
 });
 
 // ---------------------------------------------------------------------------
-// listFreeSlots — Mac Mini draft engine reads this for date_ask drafts.
-// Returns N upcoming free slots in preferred evening hours, deduped by day.
+// listFreeSlots — AI-9500 #3: Triple-slot diversification.
+//
+// Returns a curated 1-weeknight + 1-weekend + 1-activity mix at the front of
+// the result, followed by remaining free slots up to `limit`. The Python caller
+// (_free_slot_options_triple in convex_runner.py) reads the first 3 for date_ask.
+//
+// Category resolution (no schema change — slot_kind always "free"):
+//   [activity] prefix in label_local → activity bucket
+//   [weekend] prefix in label_local  → weekend bucket
+//   [weeknight] prefix in label_local → weeknight bucket
+//   no prefix → infer from UTC weekday (Sat/Sun → weekend, else weeknight)
 // ---------------------------------------------------------------------------
 export const listFreeSlots = query({
   args: {
@@ -116,16 +136,128 @@ export const listFreeSlots = query({
   handler: async (ctx, args) => {
     const now = Date.now();
     const horizonMs = (args.horizon_days ?? 14) * 24 * 60 * 60 * 1000;
+    const rawLimit = Math.min(args.limit ?? 60, 200);
+
     const rows = await ctx.db
       .query("calendar_slots")
       .withIndex("by_user_kind", (q) =>
         q.eq("user_id", args.user_id).eq("slot_kind", "free"),
       )
       .collect();
-    return rows
+
+    const allFree = rows
       .filter((r) => r.slot_start_ms >= now && r.slot_start_ms <= now + horizonMs)
+      .sort((a, b) => a.slot_start_ms - b.slot_start_ms);
+
+    // --- Categorise each slot ---
+    const weeknightBucket: typeof allFree = [];
+    const weekendBucket: typeof allFree = [];
+    const activityBucket: typeof allFree = [];
+    const fallbackBucket: typeof allFree = [];
+
+    for (const slot of allFree) {
+      const label = slot.label_local ?? "";
+      if (label.startsWith("[activity] ")) {
+        activityBucket.push(slot);
+      } else if (label.startsWith("[weekend] ")) {
+        weekendBucket.push(slot);
+      } else if (label.startsWith("[weeknight] ")) {
+        weeknightBucket.push(slot);
+      } else {
+        // Legacy slots: infer from UTC weekday (off by at most a day, fine for UX).
+        const dow = new Date(slot.slot_start_ms).getUTCDay(); // 0=Sun, 6=Sat
+        if (dow === 0 || dow === 6) {
+          weekendBucket.push(slot);
+        } else {
+          weeknightBucket.push(slot);
+        }
+      }
+    }
+
+    // --- Build the curated triple (one from each bucket) ---
+    const curated: typeof allFree = [];
+    const usedIds = new Set<string>();
+
+    const pickFirst = (bucket: typeof allFree): boolean => {
+      const s = bucket.find((x) => !usedIds.has(x._id));
+      if (!s) return false;
+      usedIds.add(s._id);
+      curated.push(s);
+      return true;
+    };
+
+    // Priority order: weeknight → weekend → activity.
+    // Fall back to fallbackBucket if a bucket is empty.
+    if (!pickFirst(weeknightBucket)) pickFirst(fallbackBucket);
+    if (!pickFirst(weekendBucket)) pickFirst(fallbackBucket);
+    if (!pickFirst(activityBucket)) pickFirst(fallbackBucket);
+
+    // Append remaining slots (not already in curated) up to rawLimit.
+    const remaining = allFree.filter((s) => !usedIds.has(s._id));
+    const combined = [...curated, ...remaining].slice(0, rawLimit);
+
+    // Annotate each row with a _category hint for the Python caller so it can
+    // build the prompt ("1 weeknight + 1 weekend + 1 activity").
+    return combined.map((s) => {
+      const label = s.label_local ?? "";
+      let category: "weeknight" | "weekend" | "activity";
+      if (label.startsWith("[activity] ")) {
+        category = "activity";
+      } else if (label.startsWith("[weekend] ")) {
+        category = "weekend";
+      } else if (label.startsWith("[weeknight] ")) {
+        category = "weeknight";
+      } else {
+        const dow = new Date(s.slot_start_ms).getUTCDay();
+        category = (dow === 0 || dow === 6) ? "weekend" : "weeknight";
+      }
+      return { ...s, _category: category };
+    });
+  },
+});
+
+// ---------------------------------------------------------------------------
+// listActivitySuggestions — dashboard read.
+// Returns upcoming activity-tagged free slots so the ops UI can show which
+// curated activities are populated and in what quantity.
+// ---------------------------------------------------------------------------
+export const listActivitySuggestions = query({
+  args: { user_id: v.string() },
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    const windowEnd = now + 14 * 24 * 60 * 60 * 1000;
+
+    const rows = await ctx.db
+      .query("calendar_slots")
+      .withIndex("by_user_kind", (q) =>
+        q.eq("user_id", args.user_id).eq("slot_kind", "free"),
+      )
+      .collect();
+
+    const activities = rows
+      .filter(
+        (s) =>
+          s.slot_start_ms >= now &&
+          s.slot_start_ms <= windowEnd &&
+          (s.label_local ?? "").startsWith("[activity] "),
+      )
       .sort((a, b) => a.slot_start_ms - b.slot_start_ms)
-      .slice(0, Math.min(args.limit ?? 60, 200));
+      .map((s) => ({
+        _id: s._id,
+        slot_start_ms: s.slot_start_ms,
+        slot_end_ms: s.slot_end_ms,
+        label_local: s.label_local,
+        fetched_at_ms: s.fetched_at_ms,
+      }));
+
+    return {
+      count: activities.length,
+      slots: activities,
+      note:
+        activities.length === 0
+          ? "No activity slots populated yet — run cc-calendar-worker to seed from activity-suggestions.yml."
+          : null,
+    };
   },
 });
 

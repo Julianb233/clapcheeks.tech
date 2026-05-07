@@ -20,6 +20,7 @@ import type * as http from "../http.js";
 import type * as inbound from "../inbound.js";
 import type * as media from "../media.js";
 import type * as messages from "../messages.js";
+import type * as opener from "../opener.js";
 import type * as people from "../people.js";
 import type * as profile_import from "../profile_import.js";
 import type * as scheduled_messages from "../scheduled_messages.js";
@@ -44,6 +45,7 @@ declare const fullApi: ApiFromModules<{
   inbound: typeof inbound;
   media: typeof media;
   messages: typeof messages;
+  opener: typeof opener;
   people: typeof people;
   profile_import: typeof profile_import;
   scheduled_messages: typeof scheduled_messages;
