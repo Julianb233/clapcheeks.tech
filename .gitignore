@@ -45,3 +45,9 @@ yarn-error.log*
 # Playwright
 test-results/
 playwright-report/
+
+# AI-9606 — track convex-only enforcement hook
+!.claude/
+!.claude/hooks/
+!.claude/hooks/*
+!.claude/settings.json
