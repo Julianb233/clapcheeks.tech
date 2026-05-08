@@ -138,6 +138,29 @@ export const upsertByExternal = mutation({
       created_at: now,
       updated_at: now,
     });
+    // AI-9526 Q28 — auto-enqueue a score_photos agent_jobs row when a new
+    // match arrives WITH photos. The Mac runner picks this up in its
+    // poll cycle, runs the photo scorer, and patches photo_scores back
+    // onto the row. Skipping when there are no photos avoids queue spam.
+    if (Array.isArray(args.photos) && args.photos.length > 0) {
+      await ctx.db.insert("agent_jobs", {
+        user_id: args.user_id,
+        job_type: "score_photos",
+        payload: {
+          match_id: id,
+          platform: args.platform,
+          external_match_id: args.external_match_id,
+          photo_count: args.photos.length,
+          source: "matches:upsertByExternal_insert",
+        },
+        status: "queued",
+        priority: 0,
+        attempts: 0,
+        max_attempts: 3,
+        created_at: now,
+        updated_at: now,
+      });
+    }
     return { action: "inserted" as const, _id: id };
   },
 });
