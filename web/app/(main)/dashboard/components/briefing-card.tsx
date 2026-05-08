@@ -3,6 +3,7 @@ import { ArrowRight } from 'lucide-react'
 import { createClient } from '@/lib/supabase/server'
 import { getConvexServerClient } from '@/lib/convex/server'
 import { api } from '@/convex/_generated/api'
+import { getFleetUserId } from '@/lib/fleet-user'
 
 /**
  * Operator briefing card — top-of-dashboard glanceable counts that point to
@@ -24,48 +25,46 @@ export default async function BriefingCard() {
   const userId = userRes.user?.id
   if (!userId) return null
 
-  const fortyEightHoursAgo = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString()
-  const nowIso = new Date().toISOString()
-  const sevenDaysFromNow = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
+  const fortyEightHoursAgoMs = Date.now() - 48 * 60 * 60 * 1000
+  const sevenDaysFromNowMs = Date.now() + 7 * 24 * 60 * 60 * 1000
 
   // The roster pipeline uses these "still warm" stages. Anything else (ghosted,
   // archived, hooked_up, recurring, etc.) is intentionally excluded — we only
   // want stale convos the operator can still salvage.
-  //
-  // Note: clapcheeks_conversations.stage default is 'opened' (legacy); the
-  // newer clapcheeks_matches.stage uses 'chatting' / 'chatting_phone' /
-  // 'date_proposed'. We query the conversations table because that's where
-  // last_message_at lives, and we union both vocabularies.
-  const ACTIVE_STAGES = [
+  const ACTIVE_STAGES = new Set([
     'opened',
     'replying',
     'chatting',
     'chatting_phone',
+    'conversing',
     'date_proposed',
-  ]
-
-  // AI-9535 — approval_queue lives on Convex; the rest stays Supabase.
-  const convex = getConvexServerClient()
-  const [approvalsCount, staleRes, datesRes] = await Promise.all([
-    convex.query(api.queues.countPendingApprovalsForUser, { user_id: userId }),
-    supabase
-      .from('clapcheeks_conversations')
-      .select('id', { count: 'exact', head: true })
-      .eq('user_id', userId)
-      .lt('last_message_at', fortyEightHoursAgo)
-      .in('stage', ACTIVE_STAGES)
-      .limit(50),
-    supabase
-      .from('clapcheeks_dates')
-      .select('id', { count: 'exact', head: true })
-      .eq('user_id', userId)
-      .gte('scheduled_at', nowIso)
-      .lte('scheduled_at', sevenDaysFromNow),
+    'new',
   ])
 
+  // AI-9607 — moved off Supabase clapcheeks_conversations + clapcheeks_dates.
+  // Convex matches table is the authoritative source for stage + activity time.
+  // Dates are derived from matches with stage in (date_proposed, date_booked).
+  const convex = getConvexServerClient()
+  const fleetUser = getFleetUserId()
+  const [approvalsCount, matches] = await Promise.all([
+    convex.query(api.queues.countPendingApprovalsForUser, { user_id: fleetUser }).catch(() => 0),
+    convex.query(api.matches.listForUser, { user_id: fleetUser }).catch(() => [] as Array<Record<string, unknown>>),
+  ])
+
+  const matchRows = matches as Array<Record<string, unknown>>
   const approvals = approvalsCount ?? 0
-  const stale = staleRes.count ?? 0
-  const dates = datesRes.count ?? 0
+  const stale = matchRows.filter((m) => {
+    const stage = (m.stage as string | undefined) ?? (m.status as string | undefined) ?? ''
+    const last = (m.last_activity_at as number | undefined) ?? (m.updated_at as number | undefined) ?? 0
+    return ACTIVE_STAGES.has(stage) && last > 0 && last < fortyEightHoursAgoMs
+  }).length
+  const dates = matchRows.filter((m) => {
+    const stage = (m.stage as string | undefined) ?? (m.status as string | undefined) ?? ''
+    return stage === 'date_proposed' || stage === 'date_booked'
+  }).length
+
+  // Suppress unused-var lint (sevenDaysFromNowMs reserved for future scheduled-message join)
+  void sevenDaysFromNowMs
 
   // TODO(token-expiry): clapcheeks_user_settings has tinder_auth_token /
   // hinge_auth_token plus *_updated_at, but no *_expires_at column. When the
