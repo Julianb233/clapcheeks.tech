@@ -11,6 +11,32 @@ This codebase was previously associated with a product called "Outward" but has 
 - Do NOT rename back to Outward
 - Do NOT change "Clapcheeks" to "Outward" in any file
 
+## ⚠️ CRITICAL DATA RULE — Convex is the ONLY data store for the dating engine
+
+**All dating-engine data lives in Convex.** Supabase is auth-only (sessions + landing-site billing). Do NOT query Supabase for matches, conversations, messages, outbound queue, autonomy config, agent jobs, photos, people, drips, touches, or anything else dating-related — those tables are either deprecated, migration leftovers, or stale.
+
+| Data | Where it lives | Where it does NOT live |
+|---|---|---|
+| matches, conversations, messages | **Convex** (`matches`, `conversations`, `messages` tables) | NOT in `clapcheeks_matches` / `clapcheeks_conversations` / `clapcheeks_messages` Supabase tables (those are legacy pre-migration; do not read or write) |
+| outbound queue (manual + scheduled) | **Convex** (`outbound_scheduled_messages`) | NOT in Supabase |
+| agent_jobs (HTTP-call jobs, score_photos, sync_tinder, etc.) | **Convex** (`agent_jobs`) | NOT in `clapcheeks_agent_jobs` Supabase (legacy) |
+| autonomy_config (global_level, per-platform overrides) | **Convex** (`autonomy_config`) — written via `touches:upsertAutonomyConfig`, mirrored from Supabase by `/api/autonomy-config` route only as a back-compat bridge | Stop reading directly from Supabase `clapcheeks_autonomy_config` |
+| people (canonical person rows linking matches across platforms) | **Convex** (`people`) | NOT in Supabase |
+| photos / media / touches / drips / digest | **Convex** | NOT in Supabase |
+| user_id namespace | Always `"fleet-julian"` (string) for all data writes/reads | Never the Supabase auth user UUID. Use `getFleetUserId()` helper in `web/lib/fleet-user.ts` |
+
+**What Supabase IS still used for (do NOT migrate these):**
+- Auth sessions (Supabase Auth) — login, signup, JWT, password reset, OAuth
+- Landing-site users / billing / Stripe webhooks (`users`, `billing` tables) — separate from dating-engine data
+- `clapcheeks_user_settings` table — read by Mac daemon for persona/drip/voice. Settings page writes here. Keep until full Convex settings migration ships.
+
+**Common drift to watch for:**
+- An agent grep'ing for "matches" finds `clapcheeks_matches` in Supabase, assumes it's authoritative, queries it, sees stale data, "fixes" the dashboard to use it. **STOP.** Convex `matches` is the truth; the Supabase table is a frozen pre-migration snapshot.
+- An API route at `web/app/api/*/route.ts` that uses `user.id` (Supabase UUID) for a Convex query — this is a bug. Convex namespace is `fleet-julian`. PR #167 swept the major routes; if you add a new route, use `getFleetUserId()`.
+- Mac daemon writing to Supabase via service-role: only for `clapcheeks_user_settings` reads and Stripe-related billing. Never for dating data.
+
+If you find yourself writing `supabase.from("clapcheeks_matches")` or any other dating-engine table — STOP and use Convex instead.
+
 ## What This System Is
 
 Clapcheeks is Julian's **personal AI dating co-pilot** running on Mac Mini + Convex + Vercel.
