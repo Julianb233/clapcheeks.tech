@@ -87,6 +87,83 @@ export const upsertProfileDigest = mutation({
 });
 
 // ---------------------------------------------------------------------------
+// Voice training picks — operator multiple-choice + write-in answers
+// stored in voice_profiles.boosted_samples so the daemon's
+// _load_julian_examples can pull them as voice exemplars.
+// ---------------------------------------------------------------------------
+export const saveTrainingPicks = mutation({
+  args: {
+    user_id: v.string(),
+    picks: v.array(
+      v.object({
+        scenario: v.string(),
+        label: v.string(),
+        context: v.optional(v.string()),
+        pick: v.optional(v.string()),
+        text: v.optional(v.string()),
+        note: v.optional(v.string()),
+        write_in: v.optional(v.string()),
+      })
+    ),
+    sheet_version: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    const samples = args.picks
+      .map((p) => {
+        const body = p.write_in?.trim() || p.text?.trim();
+        if (!body) return null;
+        return {
+          source: p.write_in ? "write_in" : "manual_pick",
+          scenario: p.scenario,
+          label: p.label,
+          context: p.context ?? "",
+          pick: p.pick ?? "",
+          text: body,
+          note: p.note?.trim() || undefined,
+          sheet_version: args.sheet_version,
+          saved_at: now,
+        };
+      })
+      .filter(Boolean);
+
+    const existing = await ctx.db
+      .query("voice_profiles")
+      .withIndex("by_user", (q) => q.eq("user_id", args.user_id))
+      .first();
+    if (existing) {
+      await ctx.db.patch(existing._id, {
+        boosted_samples: samples,
+        updated_at: now,
+      });
+      return { ok: true as const, id: existing._id, count: samples.length };
+    }
+    const id = await ctx.db.insert("voice_profiles", {
+      user_id: args.user_id,
+      boosted_samples: samples,
+      created_at: now,
+      updated_at: now,
+    });
+    return { ok: true as const, id, count: samples.length };
+  },
+});
+
+export const getTrainingPicks = query({
+  args: { user_id: v.string() },
+  handler: async (ctx, args) => {
+    const row = await ctx.db
+      .query("voice_profiles")
+      .withIndex("by_user", (q) => q.eq("user_id", args.user_id))
+      .first();
+    if (!row) return null;
+    return {
+      boosted_samples: row.boosted_samples ?? [],
+      updated_at: row.updated_at,
+    };
+  },
+});
+
+// ---------------------------------------------------------------------------
 // voice_context
 // ---------------------------------------------------------------------------
 export const getContext = query({
