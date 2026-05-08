@@ -42,7 +42,11 @@ export function SpendingChart({ totalSpent, costPerMatch, costPerDate, cpn, cpnG
     color: CATEGORY_COLORS[category] || '#94a3b8',
   }))
 
-  if (chartData.length === 0 && totalSpent === 0) return null
+  // AI-9526 Q9 — Always show the Spend Tracker tile, even when totalSpent
+  // is 0. Previously the component returned null which made it look like
+  // the dashboard was hiding spend data. PRD says: show "$0 (no usage
+  // logged this month)" so it's clear the value is real, not stale.
+  const noSpendLogged = chartData.length === 0 && totalSpent === 0
 
   return (
     <div className="bg-white/5 border border-white/10 rounded-xl p-5">
@@ -52,7 +56,12 @@ export function SpendingChart({ totalSpent, costPerMatch, costPerDate, cpn, cpnG
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 mb-4">
         <div className="text-center">
           <div className="text-lg font-bold text-white">${totalSpent.toFixed(2)}</div>
-          <div className="text-white/40 text-xs">Total This Month</div>
+          <div className="text-white/40 text-xs">
+            Total This Month
+            {noSpendLogged && (
+              <span className="block text-[10px] text-white/30">(no usage logged)</span>
+            )}
+          </div>
         </div>
         <div className="text-center">
           <div className="text-lg font-bold text-white">${costPerMatch.toFixed(2)}</div>
