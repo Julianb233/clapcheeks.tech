@@ -95,7 +95,9 @@ export default async function Dashboard() {
   }
 
   // AI-9575: conversation_stats + spending migrated to Convex.
-  const [analyticsRows, convoRows, spendRows, deviceRes, subRes, profileRes, heartbeatRow, matchCountRes] = await Promise.all([
+  // AI-9606: also pull people count so the dashboard surfaces the Google
+  // Contacts / Obsidian network — Julian's "people from my phone" view.
+  const [analyticsRows, convoRows, spendRows, deviceRes, subRes, profileRes, heartbeatRow, matchCountRes, peopleRes] = await Promise.all([
     convex
       ? convex
           .query(api.telemetry.getDailyForUser, {
@@ -149,6 +151,13 @@ export default async function Dashboard() {
     convex
       ? convex.query(api.matches.countForUser, { user_id: getFleetUserId() }).catch(trackErr('matches_count', 0))
       : Promise.resolve(0),
+    // AI-9606: people network (Google Contacts + Obsidian + dating profiles).
+    // listForUser is paginated; take a 1000-row slice for the count tile.
+    convex
+      ? convex
+          .query(api.people.listForUser, { user_id: getFleetUserId(), limit: 1000 })
+          .catch(trackErr('people', [] as Array<{ _id: string }>))
+      : Promise.resolve([] as Array<{ _id: string }>),
   ])
 
   // Map Convex rows (day_iso) into the legacy {date} shape that downstream
@@ -218,6 +227,9 @@ export default async function Dashboard() {
   // AI-8926 / AI-9534: real-match-count fallback when analytics_daily is
   // empty. matchCountRes is a plain number from api.matches.countForUser.
   const realMatchCount = typeof matchCountRes === 'number' ? matchCountRes : 0
+
+  // AI-9606: people count for the Network tile.
+  const peopleCount = Array.isArray(peopleRes) ? peopleRes.length : 0
 
   // Aggregate totals
   const totals = rows.reduce(
@@ -456,6 +468,33 @@ export default async function Dashboard() {
 
         {/* Operator briefing — actionable counts pointing to the next page to open */}
         <BriefingCard />
+
+        {/* AI-9606: Quick navigation tiles — Network (people from phone +
+            Google Contacts + Obsidian), Matches, Insights, Approval queue.
+            Replaces the silent dashboard where Julian couldn't see his
+            people pulling in. */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+          <a href="/admin/clapcheeks-ops/network" className="bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl p-4 text-center transition">
+            <div className="text-2xl font-bold text-white mb-1">{peopleCount}</div>
+            <div className="text-white/40 text-xs">Your Network</div>
+            <div className="text-purple-400 text-[10px] mt-1">Open →</div>
+          </a>
+          <a href="/matches" className="bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl p-4 text-center transition">
+            <div className="text-2xl font-bold text-white mb-1">{realMatchCount}</div>
+            <div className="text-white/40 text-xs">Dating Matches</div>
+            <div className="text-purple-400 text-[10px] mt-1">Open →</div>
+          </a>
+          <a href="/coaching" className="bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl p-4 text-center transition">
+            <div className="text-2xl font-bold text-white mb-1">📊</div>
+            <div className="text-white/40 text-xs">Insights & Coaching</div>
+            <div className="text-purple-400 text-[10px] mt-1">Open →</div>
+          </a>
+          <a href="/autonomy" className="bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl p-4 text-center transition">
+            <div className="text-2xl font-bold text-white mb-1">⚡</div>
+            <div className="text-white/40 text-xs">Approvals & Autonomy</div>
+            <div className="text-purple-400 text-[10px] mt-1">Open →</div>
+          </a>
+        </div>
 
         {/* Stats row -- 5 cards with trend arrows */}
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3 mb-8">

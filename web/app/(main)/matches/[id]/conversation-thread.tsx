@@ -188,6 +188,8 @@ type Props = {
   matchId?: string | null
   /** AI-9572: Convex conversation _id for reactive subscription */
   convexConversationId?: string | null
+  /** AI-9606: Convex person _id for cross-channel unified thread fallback */
+  personId?: string | null
   /** reactions JSONB from the conversation row */
   reactions?: ReactionEntry[] | null
   emptyHint?: string
@@ -199,6 +201,7 @@ export default function ConversationThread({
   messages,
   matchId,
   convexConversationId,
+  personId,
   reactions,
   emptyHint,
 }: Props) {
@@ -232,19 +235,34 @@ export default function ConversationThread({
     convexConversationId ? { conversation_id: convexConversationId as any } : 'skip',
   )
 
-  // Map Convex message rows -> ChatMessage whenever the query updates
+  // ── AI-9606: cross-channel fallback via person_id ────────────────────────
+  // The match's stub conversation row often has 0 messages (history lives in
+  // a person-keyed conversation written by the inbound webhook). When the
+  // primary conversation is empty AND we have a person_id, also subscribe to
+  // the unified thread which merges every channel for this person.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const unifiedThread = useQuery(
+    (convexApi as any).messages.unifiedThreadForPerson,
+    personId ? { person_id: personId as any } : 'skip',
+  )
+
+  // Map Convex message rows -> ChatMessage. Prefer convexMessages when it
+  // returns at least one row; fall back to unifiedThread for rich history.
   useEffect(() => {
-    if (!convexMessages) return
+    const primary = (convexMessages as Array<Record<string, unknown>> | undefined) ?? []
+    const fallback = (unifiedThread as Array<Record<string, unknown>> | undefined) ?? []
+    const source = primary.length > 0 ? primary : fallback
+    if (!convexMessages && !unifiedThread) return
     setLiveMessages(
-      (convexMessages as Array<Record<string, unknown>>).map((m) => ({
+      source.map((m) => ({
         id: m._id as string,
-        text: m.body as string,
+        text: (m.body as string) ?? (m.text as string) ?? '',
         is_from_me: (m.direction as string) === 'outbound',
         sent_at: m.sent_at ? new Date(m.sent_at as number).toISOString() : null,
-        channel: (m.platform as string | undefined) ?? 'imessage',
+        channel: (m.platform as string | undefined) ?? (m.channel as string | undefined) ?? 'imessage',
       })),
     )
-  }, [convexMessages])
+  }, [convexMessages, unifiedThread])
 
   // Cleanup typing timer on unmount
   useEffect(() => {
