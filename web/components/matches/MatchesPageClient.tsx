@@ -46,7 +46,14 @@ export default function MatchesPageClient({ matches, errorMessage }: Props) {
   const filtered = useMemo(() => {
     return matches.filter((m) => {
       if (filters.platform !== 'all' && m.platform !== filters.platform) return false
-      if (filters.status !== 'all' && m.status !== filters.status) return false
+      // AI-9526 Q24 — default view hides 'ghosted' / 'archived' matches.
+      // The user can opt in to seeing them by selecting status='ghosted'
+      // explicitly. Once they do, that single status is shown.
+      if (filters.status === 'all') {
+        if (m.status === 'ghosted' || m.status === 'archived') return false
+      } else if (m.status !== filters.status) {
+        return false
+      }
       if (filters.minScore > 0) {
         const s = typeof m.final_score === 'number' ? m.final_score : 0
         if (s < filters.minScore) return false
