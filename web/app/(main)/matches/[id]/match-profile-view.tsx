@@ -7,6 +7,8 @@ import { toast } from 'sonner'
 import { VoiceInput, VoiceTextarea } from '@/components/voice'
 import ConversationThread, { type ChatMessage } from './conversation-thread'
 import MemoViewer from './memo-viewer'
+import QuickNotePanel from './quick-note-panel'
+import ThoughtfulQuestions from './thoughtful-questions'
 import AttributeChips, { type MatchAttributes } from '@/components/matches/AttributeChips'
 import ConversationComposer from './conversation-composer'
 
@@ -125,7 +127,10 @@ export default function MatchProfileView({
   const router = useRouter()
   const [m, setM] = useState<MatchRow>(initial)
   const [active, setActive] = useState(0)
-  const [tab, setTab] = useState<TabKey>('profile')
+  // AI-9608 — default to Conversation tab so the operator lands directly on
+  // the thread + quick-note + thoughtful-questions on mobile. Previously the
+  // page opened on Profile and forced an extra tap on small screens.
+  const [tab, setTab] = useState<TabKey>('conversation')
 
   const displayName = m.name || m.match_name || 'Unknown'
   const photos = (m.photos_jsonb ?? []).filter((p): p is Photo => !!p?.url)
@@ -281,7 +286,7 @@ export default function MatchProfileView({
               key={t.key}
               type="button"
               onClick={() => setTab(t.key)}
-              className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors -mb-px ${
+              className={`px-4 py-3 sm:py-2 min-h-[44px] text-sm font-medium border-b-2 transition-colors -mb-px ${
                 isActive
                   ? 'border-pink-500 text-white'
                   : 'border-transparent text-white/50 hover:text-white/80 hover:border-white/20'
@@ -312,6 +317,20 @@ export default function MatchProfileView({
             convexConversationId={convexConversationId}
             personId={personId}
             reactions={conversationReactions}
+          />
+          {/* AI-9608 — thoughtful-question chips (mobile-friendly) */}
+          <ThoughtfulQuestions
+            matchName={m.name ?? m.match_name ?? null}
+            interests={intelInterests}
+            topics={intelTopics}
+            prompts={prompts}
+            lifeEvents={[]}
+          />
+          {/* AI-9608 — inline quick-note above the composer; auto-saves to Convex memo */}
+          <QuickNotePanel
+            handle={memoHandle ?? null}
+            initialContent={memoInitial?.content}
+            initialUpdatedAt={memoInitial?.updated_at}
           />
           {/* AI-8876: attachment send + outbound typing composer */}
           <ConversationComposer
