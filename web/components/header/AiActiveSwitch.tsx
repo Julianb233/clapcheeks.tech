@@ -53,12 +53,21 @@ export default function AiActiveSwitch() {
       if (!user) return
       setUserId(user.id)
 
+      // AI-9605: settings row may not exist yet for a new user. `.single()`
+      // returns an error in that case; default to ai_active=true so the
+      // toggle is interactive instead of permanently `disabled`.
       const { data } = await supabase
         .from('clapcheeks_user_settings')
         .select('ai_active, ai_paused_until, ai_paused_reason')
         .eq('user_id', user.id)
-        .single()
-      if (data) setSettings(data as AiSettings)
+        .maybeSingle()
+      setSettings(
+        (data as AiSettings | null) ?? {
+          ai_active: true,
+          ai_paused_until: null,
+          ai_paused_reason: null,
+        },
+      )
     })()
   }, [])
 
