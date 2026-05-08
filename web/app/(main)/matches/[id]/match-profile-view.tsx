@@ -104,6 +104,7 @@ export default function MatchProfileView({
   conversation = [],
   conversationMatchId = null,
   convexConversationId = null,
+  personId = null,
   conversationReactions = null,
   memoHandle = null,
   memoInitial = null,
@@ -114,6 +115,8 @@ export default function MatchProfileView({
   conversationMatchId?: string | null
   /** AI-9572: Convex conversation _id for reactive subscription */
   convexConversationId?: string | null
+  /** AI-9606: Convex person _id for unified-thread fallback */
+  personId?: string | null
   /** reactions JSONB from conversation row (AI-8876) */
   conversationReactions?: Array<{ msg_guid?: string; kind?: string; actor?: string; ts?: string }> | null
   memoHandle?: string | null
@@ -307,6 +310,7 @@ export default function MatchProfileView({
             messages={conversation}
             matchId={conversationMatchId}
             convexConversationId={convexConversationId}
+            personId={personId}
             reactions={conversationReactions}
           />
           {/* AI-8876: attachment send + outbound typing composer */}

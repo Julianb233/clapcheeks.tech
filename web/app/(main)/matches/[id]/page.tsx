@@ -163,6 +163,12 @@ export default async function MatchDetailPage({
     }
   }
 
+  // AI-9606 — Pull person_id off the match row for unified-thread fallback.
+  // After backfill, every iMessage match has a person_id pointing at the
+  // canonical person (whose conversations carry the full cross-channel history).
+  const personId =
+    typeof rawMatch.person_id === 'string' ? rawMatch.person_id : null
+
   // AI-8876: fetch reactions JSONB from the conversation row (best-effort)
   type ReactionEntry = { msg_guid?: string; kind?: string; actor?: string; ts?: string }
   let conversationReactions: ReactionEntry[] | null = null
@@ -211,6 +217,7 @@ export default async function MatchDetailPage({
           conversation={conversation}
           conversationMatchId={conversationMatchId}
           convexConversationId={convexConversationId}
+          personId={personId}
           conversationReactions={conversationReactions}
           memoHandle={memoHandle}
           memoInitial={memoInitial}
