@@ -248,18 +248,34 @@ export default function ConversationThread({
 
   // Map Convex message rows -> ChatMessage. Prefer convexMessages when it
   // returns at least one row; fall back to unifiedThread for rich history.
+  // unifiedThreadForPerson returns {messages, _handles_summary}, not a bare array.
   useEffect(() => {
-    const primary = (convexMessages as Array<Record<string, unknown>> | undefined) ?? []
-    const fallback = (unifiedThread as Array<Record<string, unknown>> | undefined) ?? []
-    const source = primary.length > 0 ? primary : fallback
     if (!convexMessages && !unifiedThread) return
+    const primary = Array.isArray(convexMessages)
+      ? (convexMessages as Array<Record<string, unknown>>)
+      : []
+    const unifiedRaw = unifiedThread as
+      | { messages?: Array<Record<string, unknown>> }
+      | Array<Record<string, unknown>>
+      | null
+      | undefined
+    const fallback = Array.isArray(unifiedRaw)
+      ? unifiedRaw
+      : Array.isArray(unifiedRaw?.messages)
+        ? (unifiedRaw!.messages as Array<Record<string, unknown>>)
+        : []
+    const source = primary.length > 0 ? primary : fallback
     setLiveMessages(
       source.map((m) => ({
         id: m._id as string,
         text: (m.body as string) ?? (m.text as string) ?? '',
         is_from_me: (m.direction as string) === 'outbound',
         sent_at: m.sent_at ? new Date(m.sent_at as number).toISOString() : null,
-        channel: (m.platform as string | undefined) ?? (m.channel as string | undefined) ?? 'imessage',
+        channel:
+          (m.platform as string | undefined) ??
+          (m._platform as string | undefined) ??
+          (m.channel as string | undefined) ??
+          'imessage',
       })),
     )
   }, [convexMessages, unifiedThread])
