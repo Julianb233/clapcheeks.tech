@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { api } from '@/convex/_generated/api'
 import { getConvexServerClient } from '@/lib/convex/server'
 import { createClient } from '@/lib/supabase/server'
+import { getFleetUserId } from '@/lib/fleet-user'
 
 /**
  * POST /api/match-profile/add — create a manually-added match profile.
@@ -70,7 +71,10 @@ export async function POST(request: NextRequest) {
   let inserted: { _id: string } | null = null
   try {
     const result = await convex.mutation(api.matches.insertManual, {
-      user_id: user.id,
+      // AI-9526 Q14: use fleet-julian for Convex writes (matches webhook
+      // receiver namespace). user.id is the Supabase UUID — wrong for
+      // Convex.
+      user_id: getFleetUserId(),
       platform: normalizedPlatform,
       external_match_id: match_id,
       match_id,
@@ -106,7 +110,7 @@ export async function POST(request: NextRequest) {
     ? {
         id: inserted._id,
         _id: inserted._id,
-        user_id: user.id,
+        user_id: getFleetUserId(),
         platform: normalizedPlatform,
         match_id,
         external_id: match_id,
@@ -140,7 +144,8 @@ export async function GET() {
   let data: Array<Record<string, unknown> & { _id?: unknown }> = []
   try {
     const rows = (await convex.query(api.matches.listManualByUser, {
-      user_id: user.id,
+      // AI-9526 Q14: read with fleet-julian to match write namespace.
+      user_id: getFleetUserId(),
       limit: 200,
     })) as Array<Record<string, unknown>>
     data = (rows ?? []) as Array<Record<string, unknown> & { _id?: unknown }>

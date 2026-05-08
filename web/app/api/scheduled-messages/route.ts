@@ -15,14 +15,36 @@ export async function GET(request: NextRequest) {
   const limit = parseInt(searchParams.get('limit') ?? '50')
 
   try {
-    const rows = await getConvexServerClient().query(
-      api.outbound.listForUser,
-      { user_id: getFleetUserId(), status: status ?? undefined, limit },
-    )
+    // AI-9526 Q7 — composite "queued" view = pending + approved AND
+    // scheduled_at > now. Two queries combined client-side because the
+    // Convex by_user_status index doesn't support OR.
+    let rows: unknown[]
+    if (status === 'queued') {
+      const convex = getConvexServerClient()
+      const [pendingRows, approvedRows] = await Promise.all([
+        convex.query(api.outbound.listForUser, {
+          user_id: getFleetUserId(), status: 'pending', limit,
+        }),
+        convex.query(api.outbound.listForUser, {
+          user_id: getFleetUserId(), status: 'approved', limit,
+        }),
+      ])
+      const nowMs = Date.now()
+      rows = [...(pendingRows ?? []), ...(approvedRows ?? [])]
+        .filter((r: any) => typeof r?.scheduled_at === 'number' && r.scheduled_at > nowMs)
+        .sort((a: any, b: any) => a.scheduled_at - b.scheduled_at)
+        .slice(0, limit)
+    } else {
+      rows = await getConvexServerClient().query(
+        api.outbound.listForUser,
+        { user_id: getFleetUserId(), status: status ?? undefined, limit },
+      )
+    }
     // AI-9582: transform Convex shape (_id, unix-ms timestamps) → UI shape
     // (id string, ISO timestamps). The /scheduled UI renders id as React key
     // and scheduled_at via new Date() — wrong shape causes duplicate keys +
     // "Invalid Date".
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const messages = (rows ?? []).map((r: any) => ({
       id: r._id,
       match_id: r.match_id ?? null,

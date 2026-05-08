@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { ConvexHttpClient } from 'convex/browser'
+import { getFleetUserId } from '@/lib/fleet-user'
 
 import { createClient } from '@/lib/supabase/server'
 import { getLatestCoaching, generateCoaching } from '@/lib/coaching/generate'
@@ -30,11 +31,13 @@ export async function GET() {
   const convex = convexUrl ? new ConvexHttpClient(convexUrl) : null
 
   // AI-9575: conversation_stats migrated to Convex.
+  // AI-9526 Q14: Convex namespace is fleet-julian, not the Supabase auth UUID.
+  const fleetUserId = getFleetUserId()
   const [analyticsRows, convoRows] = await Promise.all([
     convex
       ? convex
           .query(api.telemetry.getDailyForUser, {
-            user_id: user.id,
+            user_id: fleetUserId,
             since_day_iso: sinceStr,
           })
           .catch(() => [])
@@ -42,7 +45,7 @@ export async function GET() {
     convex
       ? convex
           .query(api.conversation_stats.listForUser, {
-            user_id: user.id,
+            user_id: fleetUserId,
             since_date: sinceStr,
           })
           .catch(() => [])

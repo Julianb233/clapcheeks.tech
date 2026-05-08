@@ -3,6 +3,7 @@ import { api } from '@/convex/_generated/api'
 import type { Id } from '@/convex/_generated/dataModel'
 import { getConvexServerClient } from '@/lib/convex/server'
 import { createClient } from '@/lib/supabase/server'
+import { getFleetUserId } from '@/lib/fleet-user'
 import { signFromBirthday, signFromText, getCompatibility, TRAITS, ELEMENTS, MODALITIES, EMOJIS } from '@/lib/match-profile/zodiac'
 import { buildDiscProfile } from '@/lib/match-profile/disc-profiler'
 import { extractInterestsKeyword } from '@/lib/match-profile/interest-extractor'
@@ -46,7 +47,14 @@ export async function POST(request: NextRequest) {
       })
     | null
 
-  if (!profile || !profile._id || profile.user_id !== user.id) {
+  // AI-9526 Q14: matches in Convex are namespaced by fleet-julian.
+  // The profile.user_id WILL be 'fleet-julian' (post Q14 fix to add route),
+  // not user.id. Compare against fleet-julian going forward; allow the
+  // legacy user.id case for rows written before the Q14 fix.
+  const fleetUserId = getFleetUserId()
+  const profileOwnerOk =
+    profile && profile.user_id && (profile.user_id === fleetUserId || profile.user_id === user.id)
+  if (!profile || !profile._id || !profileOwnerOk) {
     return NextResponse.json({ error: 'Profile not found' }, { status: 404 })
   }
   const profileConvexId = profile._id
@@ -64,7 +72,8 @@ export async function POST(request: NextRequest) {
     try {
       await convex.mutation(api.matches.patchByUser, {
         id: profileConvexId,
-        user_id: user.id,
+        // AI-9526 Q14: Convex writes use fleet-julian.
+        user_id: fleetUserId,
         match_intel: partialIntel,
       })
     } catch {
@@ -195,7 +204,8 @@ export async function POST(request: NextRequest) {
   try {
     await convex.mutation(api.matches.patchByUser, {
       id: profileConvexId,
-      user_id: user.id,
+      // AI-9526 Q14: Convex writes use fleet-julian.
+      user_id: fleetUserId,
       match_intel: intel,
       ...((directUpdates.zodiac !== undefined
         ? { zodiac: directUpdates.zodiac as string }

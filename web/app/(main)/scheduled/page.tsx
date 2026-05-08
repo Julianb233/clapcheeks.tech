@@ -54,7 +54,10 @@ const SEQ_LABELS: Record<string, string> = {
 export default function ScheduledPage() {
   const [messages, setMessages] = useState<ScheduledMessage[]>([])
   const [loading, setLoading] = useState(true)
-  const [filter, setFilter] = useState<string>('pending')
+  // AI-9526 Q7: default view = queued (pending + approved), per PRD
+  // "renders all outbound_scheduled_messages for fleet-julian where status
+  // IN (pending, approved) AND scheduled_at > now".
+  const [filter, setFilter] = useState<string>('queued')
   const [actionLoading, setActionLoading] = useState<string | null>(null)
   const [showCompose, setShowCompose] = useState(false)
   const [compose, setCompose] = useState<{
@@ -313,7 +316,7 @@ export default function ScheduledPage() {
 
         {/* Filter Tabs */}
         <div className="flex gap-2 mb-6 flex-wrap">
-          {['pending', 'approved', 'sent', 'rejected', 'all'].map(f => (
+          {['queued', 'pending', 'approved', 'sent', 'rejected', 'all'].map(f => (
             <button
               key={f}
               onClick={() => setFilter(f)}
