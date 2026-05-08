@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import * as Sentry from '@sentry/nextjs'
+import { getConvexServerClient } from '@/lib/convex/server'
+import { api } from '@/convex/_generated/api'
+import { getFleetUserId } from '@/lib/fleet-user'
 
 // Whitelist of columns that exist on `clapcheeks_autonomy_config`
 // (see supabase/migrations/20260420450000_autonomy_engine.sql).
@@ -102,6 +105,27 @@ export async function PUT(request: NextRequest) {
       console.error('autonomy-config upsert error:', error)
       Sentry.captureException(error)
       return NextResponse.json({ error: error.message }, { status: 500 })
+    }
+
+    // AI-9526 Q18 — mirror autonomy_level to the Convex autonomy_config
+    // table so touches.fireOne and the rest of the Convex side read from
+    // a single source of truth. Best-effort: failure does NOT fail the
+    // primary Supabase write (we already returned 200 on the row).
+    try {
+      const supabaseLevel = (data?.autonomy_level as string | undefined) ?? null
+      let convexLevel: 'supervised' | 'semi_auto' | 'auto_send' | 'full_auto' | null = null
+      if (supabaseLevel === 'supervised') convexLevel = 'supervised'
+      else if (supabaseLevel === 'semi_auto') convexLevel = 'semi_auto'
+      else if (supabaseLevel === 'full_auto') convexLevel = 'full_auto'
+      if (convexLevel) {
+        await getConvexServerClient().mutation(api.touches.upsertAutonomyConfig, {
+          user_id: getFleetUserId(),
+          global_level: convexLevel,
+        })
+      }
+    } catch (mirrorErr) {
+      console.warn('autonomy-config Convex mirror failed:', mirrorErr)
+      Sentry.captureException(mirrorErr, { tags: { mirror: 'convex_autonomy_config' } })
     }
 
     return NextResponse.json({ config: data })
