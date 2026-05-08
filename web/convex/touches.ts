@@ -856,6 +856,43 @@ export const _getAutonomyLevel = internalQuery({
   },
 });
 
+// AI-9526 Q18 — public mutation to upsert autonomy_config from the web
+// /api/autonomy-config route. Mirrors Supabase
+// clapcheeks_autonomy_config.autonomy_level into the new Convex
+// autonomy_config table so fireOne and other Convex-side gates read
+// from a single source of truth.
+export const upsertAutonomyConfig = mutation({
+  args: {
+    user_id: v.string(),
+    global_level: v.union(
+      v.literal("supervised"),
+      v.literal("semi_auto"),
+      v.literal("auto_send"),
+      v.literal("full_auto"),
+    ),
+  },
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    const existing = await ctx.db
+      .query("autonomy_config")
+      .withIndex("by_user", (q) => q.eq("user_id", args.user_id))
+      .first();
+    if (existing) {
+      await ctx.db.patch(existing._id, {
+        global_level: args.global_level,
+        updated_at: now,
+      });
+      return { _id: existing._id, action: "updated" as const };
+    }
+    const id = await ctx.db.insert("autonomy_config", {
+      user_id: args.user_id,
+      global_level: args.global_level,
+      updated_at: now,
+    });
+    return { _id: id, action: "inserted" as const };
+  },
+});
+
 // AI-9500D: Query recent fired touches for a user (anti-loop).
 // Uses the by_user_fired_at index to efficiently scan within the 7d window.
 export const _getRecentFiredByUser = internalQuery({
