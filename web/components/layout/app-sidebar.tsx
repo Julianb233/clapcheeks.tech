@@ -6,6 +6,7 @@ import { memo, useCallback, useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { logout } from '@/app/auth/actions'
 import AiActiveSwitch from '@/components/header/AiActiveSwitch'
+import { ThemeToggle } from '@/components/theme-toggle'
 
 // AI-9500: defer non-critical work until the browser is idle so it doesn't
 // compete with first paint and worsen INP. The sidebar mounts on every authed
@@ -213,12 +214,16 @@ export default function AppSidebar() {
       >
         {/* Logo header */}
         <div className="px-5 pt-5 pb-4 border-b border-white/8">
-          <Link href="/dashboard" className="flex items-center gap-2">
-            <Logo />
-            <span className="font-display text-2xl gold-text uppercase tracking-wide">
-              Clapcheeks
-            </span>
-          </Link>
+          <div className="flex items-center justify-between">
+            <Link href="/dashboard" className="flex items-center gap-2">
+              <Logo />
+              <span className="font-display text-2xl gold-text uppercase tracking-wide">
+                Clapcheeks
+              </span>
+            </Link>
+            {/* AI-9648 — theme toggle (dark / light teal / light) */}
+            <ThemeToggle className="text-white/70 hover:text-white shrink-0" />
+          </div>
           <p className="mt-1 ml-9 text-[10px] uppercase tracking-widest text-white/30 font-mono">
             co-pilot v1
           </p>

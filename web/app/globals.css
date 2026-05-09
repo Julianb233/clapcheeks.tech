@@ -125,3 +125,126 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* AI-9648 — Light teal theme.
+ *
+ * Activated when <html class="light-teal">. The clapcheeks-ops dashboard
+ * surfaces use hardcoded dark-mode utility classes (bg-black, bg-gray-900,
+ * text-white, etc.) — rewriting all of them in component code would be a
+ * months-long migration. Instead this layer remaps the most common
+ * hardcoded dark classes to teal equivalents whenever the theme is active.
+ * Existing dark / default themes are unchanged.
+ *
+ * Palette anchors (Julian: "light teal"):
+ *   page bg          #eff7f8   very light teal-50
+ *   surface          #d6f0f2   teal-100
+ *   surface alt      #c5e7ea   teal-200
+ *   surface deep     #b3dee2   teal-300
+ *   text default     #0f3a3f   deep teal
+ *   text secondary   #2a5860
+ *   text muted       #5a8e96
+ *   text subtle      #7aa9b0
+ *   border           #99e6ea   teal-200
+ *   border strong    #80d8de
+ *   accent           #14b8a6   teal-500 (kept for ring/active)
+ */
+.light-teal {
+  --background: #eff7f8;
+  --foreground: #0f3a3f;
+  --card: #d6f0f2;
+  --card-foreground: #0f3a3f;
+  --popover: #ffffff;
+  --popover-foreground: #0f3a3f;
+  --primary: #14b8a6;
+  --primary-foreground: #ffffff;
+  --secondary: #c5e7ea;
+  --secondary-foreground: #0f3a3f;
+  --muted: #c5e7ea;
+  --muted-foreground: #5a8e96;
+  --accent: #99e6ea;
+  --accent-foreground: #0f3a3f;
+  --border: #99e6ea;
+  --input: #c5e7ea;
+  --ring: #14b8a6;
+  --sidebar: #d6f0f2;
+  --sidebar-foreground: #0f3a3f;
+  --sidebar-primary: #14b8a6;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #c5e7ea;
+  --sidebar-accent-foreground: #0f3a3f;
+  --sidebar-border: #99e6ea;
+  --sidebar-ring: #14b8a6;
+}
+
+.light-teal body {
+  background-color: #eff7f8;
+  color: #0f3a3f;
+}
+
+/* Background remaps. Order matters — most-specific first. */
+.light-teal .bg-black { background-color: #eff7f8 !important; }
+.light-teal .bg-gray-950 { background-color: #c5e7ea !important; }
+.light-teal .bg-gray-900 { background-color: #d6f0f2 !important; }
+.light-teal .bg-gray-800 { background-color: #c5e7ea !important; }
+.light-teal .bg-gray-800\/60 { background-color: rgba(197, 231, 234, 0.6) !important; }
+.light-teal .bg-gray-900\/60 { background-color: rgba(214, 240, 242, 0.6) !important; }
+.light-teal .bg-gray-950\/40 { background-color: rgba(197, 231, 234, 0.4) !important; }
+.light-teal .bg-gray-700 { background-color: #b3dee2 !important; }
+.light-teal .bg-gray-700\/40 { background-color: rgba(179, 222, 226, 0.4) !important; }
+
+/* Gradient surfaces — flatten to single tone for readability. */
+.light-teal [class*="from-gray-950"],
+.light-teal [class*="from-gray-900"],
+.light-teal [class*="to-gray-950"],
+.light-teal [class*="to-gray-900"] {
+  background-image: none !important;
+  background-color: #d6f0f2 !important;
+}
+
+/* Text remaps. Keep brand accents (purple, pink, emerald, amber, rose) as-is
+ * so important affordances stay readable on the new background. */
+.light-teal .text-white { color: #0f3a3f !important; }
+.light-teal .text-gray-100 { color: #0f3a3f !important; }
+.light-teal .text-gray-200 { color: #234e54 !important; }
+.light-teal .text-gray-300 { color: #2a5860 !important; }
+.light-teal .text-gray-400 { color: #4a7780 !important; }
+.light-teal .text-gray-500 { color: #5a8e96 !important; }
+.light-teal .text-gray-600 { color: #7aa9b0 !important; }
+
+/* Brand accents on light bg — bump saturation for legibility. */
+.light-teal .text-purple-300 { color: #6b21a8 !important; }
+.light-teal .text-purple-400 { color: #7e22ce !important; }
+.light-teal .text-pink-300 { color: #be185d !important; }
+.light-teal .text-rose-300 { color: #be123c !important; }
+.light-teal .text-rose-400 { color: #e11d48 !important; }
+.light-teal .text-amber-300 { color: #b45309 !important; }
+.light-teal .text-amber-400 { color: #d97706 !important; }
+.light-teal .text-emerald-400 { color: #047857 !important; }
+.light-teal .text-emerald-500 { color: #059669 !important; }
+
+/* Borders. */
+.light-teal .border-gray-700 { border-color: #80d8de !important; }
+.light-teal .border-gray-700\/50 { border-color: rgba(128, 216, 222, 0.5) !important; }
+.light-teal .border-gray-800 { border-color: #99e6ea !important; }
+.light-teal .border-gray-800\/50 { border-color: rgba(153, 230, 234, 0.5) !important; }
+.light-teal .border-gray-900 { border-color: #b3dee2 !important; }
+.light-teal .border-gray-950 { border-color: #b3dee2 !important; }
+
+/* Hover states stay subtle on the lighter palette. */
+.light-teal .hover\:border-gray-500:hover { border-color: #14b8a6 !important; }
+.light-teal .hover\:border-gray-600:hover { border-color: #14b8a6 !important; }
+.light-teal .hover\:border-gray-700:hover { border-color: #80d8de !important; }
+.light-teal .hover\:bg-gray-700:hover { background-color: #b3dee2 !important; }
+.light-teal .hover\:bg-gray-800:hover { background-color: #c5e7ea !important; }
+.light-teal .hover\:bg-gray-800\/60:hover { background-color: rgba(197, 231, 234, 0.7) !important; }
+
+/* Inputs. */
+.light-teal input, .light-teal textarea, .light-teal select {
+  background-color: #ffffff !important;
+  color: #0f3a3f !important;
+  border-color: #80d8de !important;
+}
+.light-teal input::placeholder,
+.light-teal textarea::placeholder {
+  color: #7aa9b0 !important;
+}
