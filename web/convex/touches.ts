@@ -1182,6 +1182,66 @@ export const cancelOne = mutation({
   },
 });
 
+// AI-9643 — Quick-action: edit a draft inline from the dashboard. Patches
+// draft_body and clears generate_at_fire_time so the operator's edit is
+// preserved through fireOne.
+export const editDraft = mutation({
+  args: {
+    touch_id: v.id("scheduled_touches"),
+    draft_body: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const t = await ctx.db.get(args.touch_id);
+    if (!t) return { not_found: true };
+    if (t.status !== "scheduled") return { skipped: true, status: t.status };
+    const trimmed = args.draft_body.trim();
+    if (!trimmed) return { skipped: true, reason: "empty" };
+    await ctx.db.patch(args.touch_id, {
+      draft_body: trimmed,
+      generate_at_fire_time: false,
+      updated_at: Date.now(),
+    });
+    return { ok: true };
+  },
+});
+
+// AI-9643 — Quick-action: fire a touch immediately. Pulls scheduled_for to now
+// so drainDue picks it up on the next 5s tick. Safer than calling fireOne
+// directly because the standard safety brakes (whitelist, active hours,
+// anti-loop, boundary) still run.
+export const fireNow = mutation({
+  args: { touch_id: v.id("scheduled_touches") },
+  handler: async (ctx, args) => {
+    const t = await ctx.db.get(args.touch_id);
+    if (!t) return { not_found: true };
+    if (t.status !== "scheduled") return { skipped: true, status: t.status };
+    await ctx.db.patch(args.touch_id, {
+      scheduled_for: Date.now(),
+      updated_at: Date.now(),
+    });
+    return { ok: true, fires_within: "next 5s tick" };
+  },
+});
+
+// AI-9643 — Quick-action: regenerate a draft. Clears draft_body and sets
+// generate_at_fire_time so the next fire pass redrafts via the LLM cascade
+// using the same template + person context. Reactive subscriptions on
+// listUpcoming pick up the swap automatically.
+export const regenerateDraft = mutation({
+  args: { touch_id: v.id("scheduled_touches") },
+  handler: async (ctx, args) => {
+    const t = await ctx.db.get(args.touch_id);
+    if (!t) return { not_found: true };
+    if (t.status !== "scheduled") return { skipped: true, status: t.status };
+    await ctx.db.patch(args.touch_id, {
+      draft_body: undefined,
+      generate_at_fire_time: true,
+      updated_at: Date.now(),
+    });
+    return { ok: true };
+  },
+});
+
 // Public reader for dashboard.
 export const listForPerson = query({
   args: { person_id: v.id("people"), limit: v.optional(v.number()) },

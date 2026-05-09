@@ -2,12 +2,18 @@
  * Network — operator's dating-relevant people, ranked by hotness × recency.
  * Click a person → /admin/clapcheeks-ops/people/[id] for the full dossier.
  *
- * Filter (default ON): only show people who are dating-relevant —
- *   - status in {lead, active, dating, paused} AND
- *   - (has any iMessage/dating-app handle OR last_inbound_at within 90d
- *     OR explicitly hotness_rating set OR vibe_classification=="dating")
+ * Filter (default ON): show only people who are actually dating prospects.
+ *   1. status in {lead, active, dating, paused}
+ *   2. NOT classified as platonic or professional (hard exclude)
+ *   3. has at least one DEFINITIVE dating signal:
+ *        - imported from a dating-app profile screenshot, OR
+ *        - vibe_classification === "dating", OR
+ *        - operator set hotness_rating or effort_rating, OR
+ *        - has a handle on Hinge / Tinder / Bumble (dating-only platforms)
  *
- * Toggle the "Everyone" switch to drop the filter and see all 500+ rows.
+ * iMessage / SMS / Instagram handles alone are NOT enough — those channels are
+ * full of guys, family, clients, etc. Recent inbound alone is also not enough
+ * for the same reason. The "show all" toggle bypasses every filter.
  */
 "use client"
 
@@ -25,16 +31,32 @@ const STAGE_ORDER = [
 
 const NINETY_DAYS = 90 * 24 * 60 * 60 * 1000
 
+// Dating-only platforms: presence of one of these handles is itself a strong
+// signal the person is a romantic prospect. iMessage / SMS / Instagram /
+// Telegram / WhatsApp / email are all general-purpose and routinely carry
+// guys, family, clients, etc., so they don't count as a dating signal on
+// their own.
+const DATING_ONLY_CHANNELS = new Set(["hinge", "tinder", "bumble"])
+
 function isDatingRelevant(p: any): boolean {
   if (!["lead", "active", "dating", "paused"].includes(p.status)) return false
-  const hasHandle = (p.handles ?? []).some((h: any) =>
-    ["imessage", "hinge", "tinder", "bumble", "instagram"].includes(h.channel)
-  )
-  const hasRecentInbound = p.last_inbound_at && (Date.now() - p.last_inbound_at) < NINETY_DAYS
-  const hasOperatorRating = p.hotness_rating !== undefined || p.effort_rating !== undefined
-  const isDatingVibe = p.vibe_classification === "dating"
+
+  // Hard exclude: anyone the vibe classifier already tagged as not-dating.
+  // This is the main fix for guys' names showing up in the network — Hitesh,
+  // Sean, Brendan, etc. all classify as "professional" or "platonic".
+  if (p.vibe_classification === "platonic" || p.vibe_classification === "professional") {
+    return false
+  }
+
+  // Definitive dating signals — any one of these is enough on its own.
   const isImported = p.imported_from_profile_screenshot === true
-  return Boolean(hasHandle || hasRecentInbound || hasOperatorRating || isDatingVibe || isImported)
+  const isDatingVibe = p.vibe_classification === "dating"
+  const hasOperatorRating = p.hotness_rating !== undefined || p.effort_rating !== undefined
+  const hasDatingAppHandle = (p.handles ?? []).some((h: any) =>
+    DATING_ONLY_CHANNELS.has(h.channel)
+  )
+
+  return Boolean(isImported || isDatingVibe || hasOperatorRating || hasDatingAppHandle)
 }
 
 function priorityScore(p: any): number {
@@ -160,7 +182,7 @@ export default function NetworkPage() {
       <div className="text-xs text-gray-600 mb-4">
         {showArchived
           ? "Archived people — auto-cut after 30d silence or manually cut from the cut list."
-          : "Default view: lead/active/dating/paused with dating-channel handle, recent inbound, operator rating, or dating vibe."
+          : "Default view: dating prospects only. Excludes anyone classified as platonic or professional. Toggle 'show all' to include the rest of the network."
         }
       </div>
 

@@ -28,7 +28,12 @@ export default function TouchesPage() {
     user_id: FLEET_USER_ID, horizon_hours: horizon, limit: 200,
   })
   const cancel = useMutation(api.touches.cancelOne)
+  const fireNow = useMutation(api.touches.fireNow)
+  const regenerate = useMutation(api.touches.regenerateDraft)
+  const editDraft = useMutation(api.touches.editDraft)
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [draftText, setDraftText] = useState("")
 
   if (upcoming === undefined) return <div className="p-8 text-gray-500">Loading…</div>
 
@@ -108,11 +113,34 @@ export default function TouchesPage() {
                           </Link>
                         )}
                       </div>
-                      {/* Draft preview (non-debrief) */}
-                      {t.draft_body && !isDebriefTouch && (
+                      {/* Draft preview / inline editor (non-debrief) */}
+                      {!isDebriefTouch && editingId === t._id ? (
+                        <div className="mt-1.5">
+                          <textarea
+                            value={draftText}
+                            onChange={(e) => setDraftText(e.target.value)}
+                            rows={3}
+                            className="w-full bg-gray-950 border border-gray-700 rounded px-2 py-1 text-sm"
+                            placeholder="rewrite..."
+                          />
+                          <div className="flex gap-1.5 mt-1.5">
+                            <button
+                              onClick={async () => {
+                                await editDraft({ touch_id: t._id, draft_body: draftText })
+                                setEditingId(null)
+                              }}
+                              className="text-xs px-2 py-1 rounded bg-emerald-700 hover:bg-emerald-600 text-white"
+                            >save draft</button>
+                            <button
+                              onClick={() => setEditingId(null)}
+                              className="text-xs px-2 py-1 rounded bg-gray-800 hover:bg-gray-700 text-gray-300"
+                            >cancel edit</button>
+                          </div>
+                        </div>
+                      ) : t.draft_body && !isDebriefTouch ? (
                         <div className="text-sm text-gray-400 mt-1 line-clamp-2">{t.draft_body}</div>
-                      )}
-                      {t.prompt_template && !t.draft_body && (
+                      ) : null}
+                      {t.prompt_template && !t.draft_body && !isDebriefTouch && editingId !== t._id && (
                         <div className="text-xs text-gray-500 mt-1 italic">
                           regenerate at fire time · template={t.prompt_template}
                         </div>
@@ -125,6 +153,23 @@ export default function TouchesPage() {
                         >
                           {isExpanded ? "▲ hide debrief" : "▼ show debrief"}
                         </button>
+                      )}
+                      {/* Quick actions row (non-debrief, not editing) */}
+                      {!isDebriefTouch && editingId !== t._id && (
+                        <div className="flex gap-1.5 mt-2 flex-wrap">
+                          <button
+                            onClick={() => fireNow({ touch_id: t._id })}
+                            className="text-xs px-2 py-1 rounded bg-purple-700 hover:bg-purple-600 text-white"
+                          >Send now</button>
+                          <button
+                            onClick={() => regenerate({ touch_id: t._id })}
+                            className="text-xs px-2 py-1 rounded bg-gray-800 hover:bg-gray-700 text-gray-200"
+                          >Regenerate</button>
+                          <button
+                            onClick={() => { setEditingId(t._id); setDraftText(t.draft_body ?? "") }}
+                            className="text-xs px-2 py-1 rounded bg-gray-800 hover:bg-gray-700 text-gray-200"
+                          >Edit draft</button>
+                        </div>
                       )}
                     </div>
                     <button onClick={() => cancel({ touch_id: t._id, reason: "manual_cancel" })}
