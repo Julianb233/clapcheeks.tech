@@ -63,6 +63,21 @@ export default function ClapcheeksOpsOverview() {
         Your dating co-pilot — live state, ranked surfaces, one-tap controls.
       </p>
 
+      {/* AI-9643 — Live messages dashboard nav card */}
+      <Link href="/admin/clapcheeks-ops/messages"
+            className="block mb-4 bg-gradient-to-r from-rose-950 to-gray-900 border border-rose-800 rounded-xl p-5 hover:border-rose-600 transition">
+        <div className="flex items-center gap-3">
+          <span className="text-2xl">💬</span>
+          <div>
+            <div className="font-bold text-lg text-white">Live messages dashboard</div>
+            <div className="text-sm text-rose-300">
+              Real-time inbound + outbound feed across the network. Quick send, regenerate, edit, and comms preferences in one screen.
+            </div>
+          </div>
+          <span className="ml-auto text-rose-400 text-xl">→</span>
+        </div>
+      </Link>
+
       {/* AI-9500 W2 #M — Cohort retro nav card */}
       <Link href="/admin/clapcheeks-ops/cohort"
             className="block mb-4 bg-gradient-to-r from-indigo-950 to-gray-900 border border-indigo-800 rounded-xl p-5 hover:border-indigo-600 transition">

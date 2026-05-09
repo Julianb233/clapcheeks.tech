@@ -20,6 +20,7 @@ import { useState, useMemo } from "react"
 import { useParams } from "next/navigation"
 import Link from "next/link"
 import { Id } from "@/convex/_generated/dataModel"
+import { CommsPreferencesPanel } from "@/components/clapcheeks-ops/comms-preferences-panel"
 
 const TABS = ["Timeline", "Memory", "Schedule", "Media", "Profile", "Notes"] as const
 type TabName = typeof TABS[number]
@@ -102,6 +103,13 @@ export default function PersonDossierPage() {
       <TagsRow person={person} />
 
       <OperatorPanel person={person} />
+
+      {/* AI-9643 — Unified communication preferences (cadence, active hours,
+          whitelist, pursuit posture, response insights). Single source of
+          truth, mirrored on /messages right rail. */}
+      <div className="mt-4">
+        <CommsPreferencesPanel person={person} />
+      </div>
 
       <PreDateDebriefCard touches={scheduled_touches ?? []} />
 
