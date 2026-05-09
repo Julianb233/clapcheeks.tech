@@ -196,6 +196,37 @@ export function CommsPreferencesPanel({ person, compact = false }: { person: Per
         </select>
       </div>
 
+      {/* AI-9645 — Dev-mode bypass for over-pursue protection. ONLY visible on
+          rows already flagged as dev tests OR explicitly toggled here. Hidden
+          from the casual operator flow so it doesn't get misused on real
+          prospects. */}
+      <details className="mb-3">
+        <summary className="text-[11px] text-gray-500 cursor-pointer hover:text-gray-300">
+          🧪 dev test settings (advanced)
+        </summary>
+        <label className={`mt-2 flex items-center justify-between gap-3 px-3 py-2 rounded border cursor-pointer ${
+          person?.dev_mode_bypass_overpursue
+            ? "border-amber-700/60 bg-amber-950/30"
+            : "border-gray-800 bg-gray-950/40"
+        }`}>
+          <div className="flex-1 min-w-0">
+            <div className="text-xs font-medium">
+              {person?.dev_mode_bypass_overpursue ? "🧪 Dev test target — over-pursue bypassed" : "Dev test target (bypass over-pursue)"}
+            </div>
+            <div className="text-[10px] text-gray-500">
+              When ON, cadence-runner will NOT auto-flip whitelist=false on 3+ unanswered outbounds. Use ONLY on rows you control for testing the send pipeline. Never on real prospects.
+            </div>
+          </div>
+          <input
+            type="checkbox"
+            className="w-4 h-4"
+            checked={person?.dev_mode_bypass_overpursue ?? false}
+            onChange={(e) => save("dev_mode_bypass_overpursue", e.target.checked)}
+            disabled={saving === "dev_mode_bypass_overpursue"}
+          />
+        </label>
+      </details>
+
       {/* Insights strip */}
       <div className="grid grid-cols-2 gap-2 text-[11px]">
         <Insight

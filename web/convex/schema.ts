@@ -535,6 +535,13 @@ export default defineSchema({
     // for daemon to autoreply. Default false.
     whitelist_for_autoreply: v.boolean(),
 
+    // AI-9645 — dev-mode bypass for the AI-9608 over-pursue protection.
+    // When true, cadence_runner._tick will NOT auto-flip whitelist to false
+    // even if the most-recent-6 messages are all unanswered outbounds. Use
+    // ONLY on dedicated test rows for E2E send-pipeline verification. Real
+    // prospects must never have this set. Operator-set, default unset.
+    dev_mode_bypass_overpursue: v.optional(v.boolean()),
+
     created_at: v.number(),
     updated_at: v.number(),
   })
