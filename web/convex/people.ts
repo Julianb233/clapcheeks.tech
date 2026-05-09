@@ -1134,6 +1134,8 @@ export const patchPerson = mutation({
       start_hour: v.number(),
       end_hour: v.number(),
     })),
+    // AI-9645 — dev-mode bypass for over-pursue safety. ONLY for test rows.
+    dev_mode_bypass_overpursue: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     const now = Date.now();
@@ -1143,6 +1145,7 @@ export const patchPerson = mutation({
       "courtship_stage", "hotness_rating", "effort_rating", "nurture_state",
       "next_followup_kind", "operator_notes", "interests", "boundaries_stated",
       "things_she_loves", "things_she_dislikes", "active_hours_local",
+      "dev_mode_bypass_overpursue",
     ];
     for (const k of allowed) {
       const v_ = (args as any)[k];
