@@ -11,6 +11,39 @@ import QuickNotePanel from './quick-note-panel'
 import ThoughtfulQuestions from './thoughtful-questions'
 import AttributeChips, { type MatchAttributes } from '@/components/matches/AttributeChips'
 import ConversationComposer from './conversation-composer'
+import { useQuery } from 'convex/react'
+import { api } from '@/convex/_generated/api'
+
+// AI-9648 — map Convex match doc into the subset of MatchRow this view
+// actually re-renders on. Limited to fields the view actually reads so we
+// don't have to mirror the full ChatRow shape.
+function mapLiveConvexMatch(row: any | null | undefined): Partial<MatchRow> | null {
+  if (!row) return null
+  return {
+    status: row.status ?? null,
+    stage: row.stage ?? null,
+    julian_rank: typeof row.julian_rank === 'number' ? row.julian_rank : null,
+    final_score: typeof row.final_score === 'number' ? row.final_score : null,
+    name: row.name ?? null,
+    age: typeof row.age === 'number' ? row.age : null,
+    bio: row.bio ?? null,
+    job: row.job ?? null,
+    school: row.school ?? null,
+    instagram_handle: row.instagram_handle ?? null,
+    zodiac: row.zodiac ?? null,
+    match_intel: row.match_intel ?? null,
+    photos_jsonb: Array.isArray(row.photos)
+      ? row.photos.map((p: any) => ({
+          url: typeof p?.url === 'string' ? p.url : '',
+          supabase_path: typeof p?.supabase_path === 'string' ? p.supabase_path : null,
+          width: typeof p?.width === 'number' ? p.width : null,
+          height: typeof p?.height === 'number' ? p.height : null,
+        }))
+      : null,
+    health_score: typeof row.health_score === 'number' ? row.health_score : null,
+    attributes: row.attributes ?? null,
+  }
+}
 
 type TabKey = 'profile' | 'conversation' | 'memo' | 'intel'
 
@@ -127,6 +160,19 @@ export default function MatchProfileView({
   const router = useRouter()
   const [m, setM] = useState<MatchRow>(initial)
   const [active, setActive] = useState(0)
+
+  // AI-9648 — live match doc subscription. Convex pushes a new snapshot on
+  // every Hinge / Tinder / IG webhook write to this row, so status / photos /
+  // intel / score stay current without a refresh. SSR `initial` already
+  // covers first paint; useQuery takes over on first hydrate.
+  const liveRow = useQuery(api.matches.resolveByAnyId, {
+    id: initial.id as string,
+  })
+  useEffect(() => {
+    const live = mapLiveConvexMatch(liveRow)
+    if (!live) return
+    setM((prev) => ({ ...prev, ...live } as MatchRow))
+  }, [liveRow])
   // AI-9608 — default to Conversation tab so the operator lands directly on
   // the thread + quick-note + thoughtful-questions on mobile. Previously the
   // page opened on Profile and forced an extra tap on small screens.

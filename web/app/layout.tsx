@@ -92,6 +92,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           defaultTheme="dark"
           enableSystem
           disableTransitionOnChange
+          themes={['light', 'dark', 'system', 'light-teal']}
         >
           <ConvexProvider>
             {children}
