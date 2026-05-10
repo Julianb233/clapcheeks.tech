@@ -230,6 +230,59 @@
 .light-teal .border-gray-900 { border-color: #b3dee2 !important; }
 .light-teal .border-gray-950 { border-color: #b3dee2 !important; }
 
+/* AI-9648 P2 — white-opacity utilities. The dashboard / sidebar / auth use
+ * `text-white/N` / `bg-white/N` / `border-white/N` extensively for muted
+ * labels, subtle surfaces, and dividers. On a light bg these vanish entirely.
+ * Remap each opacity bucket to a teal-on-light equivalent that hits WCAG AA. */
+.light-teal .text-white,
+.light-teal .text-white\/90,
+.light-teal .text-white\/80 { color: #0f3a3f !important; }
+.light-teal .text-white\/70 { color: #234e54 !important; }
+.light-teal .text-white\/60 { color: #2a5860 !important; }
+.light-teal .text-white\/50 { color: #3d6c74 !important; }
+.light-teal .text-white\/40 { color: #4a7780 !important; }
+.light-teal .text-white\/30 { color: #5a8e96 !important; }
+.light-teal .text-white\/20 { color: #7aa9b0 !important; }
+
+.light-teal .bg-white\/5 { background-color: rgba(15, 58, 63, 0.04) !important; }
+.light-teal .bg-white\/10 { background-color: rgba(15, 58, 63, 0.08) !important; }
+.light-teal .bg-white\/20 { background-color: rgba(15, 58, 63, 0.12) !important; }
+
+.light-teal .border-white\/5 { border-color: rgba(15, 58, 63, 0.05) !important; }
+.light-teal .border-white\/8 { border-color: rgba(15, 58, 63, 0.08) !important; }
+.light-teal .border-white\/10 { border-color: rgba(15, 58, 63, 0.12) !important; }
+.light-teal .border-white\/20 { border-color: rgba(15, 58, 63, 0.18) !important; }
+.light-teal .border-white\/30 { border-color: rgba(15, 58, 63, 0.25) !important; }
+
+.light-teal .hover\:bg-white\/5:hover { background-color: rgba(15, 58, 63, 0.05) !important; }
+.light-teal .hover\:bg-white\/10:hover { background-color: rgba(15, 58, 63, 0.10) !important; }
+.light-teal .hover\:text-white:hover { color: #0f3a3f !important; }
+.light-teal .hover\:text-white\/40:hover { color: #4a7780 !important; }
+
+/* AI-9648 P2 — text-gray-{500,600} were the worst contrast-fail in the
+ * earlier mapping (4.1:1 / 2.6:1). Bump to the darker teal-grays so muted
+ * metadata and small icons are readable on the light bg. */
+.light-teal .text-gray-500 { color: #3d6c74 !important; }
+.light-teal .text-gray-600 { color: #4a7780 !important; }
+
+/* AI-9648 P2 — brand accents that fell below 4.5:1. */
+.light-teal .text-rose-400 { color: #9f1239 !important; }
+.light-teal .text-amber-400 { color: #92400e !important; }
+.light-teal .text-emerald-500 { color: #047857 !important; }
+
+/* The sidebar in app-sidebar.tsx uses a hardcoded `bg-[#05050A]/95`. That's
+ * an arbitrary value — needs an explicit override since the class remap can't
+ * match the bracket-syntax. */
+.light-teal [class*="bg-[#05050A]"] { background-color: #d6f0f2 !important; }
+.light-teal .gold-text {
+  /* gold-text is a custom utility in globals.css (oklch-based gradient).
+   * On light bg the gradient washes out — flatten to deep teal so the wordmark
+   * stays legible. */
+  background-image: none !important;
+  -webkit-text-fill-color: #0f3a3f !important;
+  color: #0f3a3f !important;
+}
+
 /* Hover states stay subtle on the lighter palette. */
 .light-teal .hover\:border-gray-500:hover { border-color: #14b8a6 !important; }
 .light-teal .hover\:border-gray-600:hover { border-color: #14b8a6 !important; }
