@@ -140,6 +140,34 @@ export const fail = mutation({
   },
 });
 
+// AI-9650 — fail a job permanently, bypass retry cap. Used by the runner
+// when the handler raises a code-level exception (TypeError, AttributeError,
+// ImportError, SyntaxError, NameError) — those are bugs, not transient,
+// and retrying 3x just burns 3x the broken sends. Caller passes the
+// classified error_class so it's queryable in telemetry.
+export const failPermanent = mutation({
+  args: {
+    id: v.id("agent_jobs"),
+    error: v.string(),
+    error_class: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const job = await ctx.db.get(args.id);
+    if (!job) throw new Error("Not found");
+    const now = Date.now();
+    const cls = args.error_class ? `[${args.error_class}] ` : "";
+    await ctx.db.patch(args.id, {
+      status: "failed",
+      last_error: `${cls}${args.error}`,
+      // Bump attempts so accidental re-claims still terminate.
+      attempts: job.max_attempts,
+      locked_by: undefined,
+      locked_until: undefined,
+      updated_at: now,
+    });
+  },
+});
+
 // Live view of pending + running jobs for a user (powers the dashboard).
 export const listForUser = query({
   args: { user_id: v.string() },
