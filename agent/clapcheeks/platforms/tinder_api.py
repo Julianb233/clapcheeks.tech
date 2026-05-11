@@ -445,6 +445,19 @@ class TinderAPIClient:
         return out
 
     def send_message(self, match_id: str, message: str) -> bool:
+        # Emergency hard-stop: never let Tinder sends bypass the global kill
+        # switch. This is intentionally checked inside the platform adapter so
+        # every caller (drips, autonomy, tests, one-off scripts) is blocked in
+        # one place. Resume requires deleting ~/.clapcheeks/EMERGENCY_STOP and
+        # setting CLAPCHEEKS_ALLOW_TINDER_SEND=1 explicitly.
+        from pathlib import Path
+
+        if (Path.home() / ".clapcheeks" / "EMERGENCY_STOP").exists():
+            logger.critical("Blocked Tinder send_message: EMERGENCY_STOP is active")
+            return False
+        if os.environ.get("CLAPCHEEKS_ALLOW_TINDER_SEND") != "1":
+            logger.critical("Blocked Tinder send_message: CLAPCHEEKS_ALLOW_TINDER_SEND is not enabled")
+            return False
         try:
             if self.wire == "protobuf":
                 body = self._encode_message(match_id, message)
