@@ -286,7 +286,7 @@ export async function GET() {
     })),
     sendbird: tokenHealth.sendbird,
     blockers: [
-      ...(tokenHealth.missing_required > 0 ? ['missing_required_platform_or_sendbird_token'] : []),
+      ...tokenHealth.missing_required_services.map((item) => `missing_required_${item.name}_token`),
       ...(inboundHealth.ok ? [] : [inboundBlocker || 'inbound_watcher_not_ready']),
       ...physicalIOSBlockers,
       ...(latestCompletionAudit.status === 'passed' ? [] : ['physical_ios_observe_png_not_verified']),
