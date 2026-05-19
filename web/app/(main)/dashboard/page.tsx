@@ -19,6 +19,7 @@ import { DashboardCharts } from './components/dashboard-charts'
 import { calculateRizzScore, getRizzTrend } from '@/lib/rizz'
 import { calculateCPN, getCPNTrend } from '@/lib/cpn'
 import { ClapcheeksMatchRow, RosterStage, formatTimeAgo } from '@/lib/matches/types'
+import { isDisplayableMatchProfile } from '@/lib/matches/visibility'
 
 export const metadata: Metadata = {
   title: 'Dashboard — Clapcheeks',
@@ -207,7 +208,7 @@ export default async function Dashboard() {
   const convos: ConvoRow[] = convoRes.data || []
   const spending: SpendingRow[] = spendRes.data || []
   const device: DeviceRow | null = deviceRes.data?.[0] || null
-  const rosterMatches: ClapcheeksMatchRow[] = (matchesRes as any).data || []
+  const rosterMatches: ClapcheeksMatchRow[] = ((matchesRes as any).data || []).filter(isDisplayableMatchProfile)
   const hasAgent = !!device || rows.length > 0 || convos.length > 0 || rosterMatches.length > 0
 
   // Aggregate totals

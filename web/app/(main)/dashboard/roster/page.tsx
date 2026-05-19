@@ -6,6 +6,7 @@ import RosterKanban from '@/components/roster/RosterKanban'
 import RosterStatsBar from '@/components/roster/RosterStatsBar'
 import DailyTopThree from '@/components/roster/DailyTopThree'
 import { ClapcheeksMatchRow } from '@/lib/matches/types'
+import { isDisplayableMatchProfile } from '@/lib/matches/visibility'
 
 export const metadata: Metadata = {
   title: 'Roster - Clapcheeks',
@@ -39,7 +40,7 @@ export default async function RosterPage() {
     if (error) {
       fetchError = error.message
     } else if (data) {
-      matches = data as ClapcheeksMatchRow[]
+      matches = (data as ClapcheeksMatchRow[]).filter(isDisplayableMatchProfile)
     }
   } catch (e) {
     fetchError = (e as Error).message

@@ -6,6 +6,8 @@ const files = {
   visibility: readFileSync('lib/matches/visibility.ts', 'utf8'),
   matchProfileRoute: readFileSync('app/api/match-profile/add/route.ts', 'utf8'),
   matchesPage: readFileSync('app/(main)/matches/page.tsx', 'utf8'),
+  dashboardPage: readFileSync('app/(main)/dashboard/page.tsx', 'utf8'),
+  rosterPage: readFileSync('app/(main)/dashboard/roster/page.tsx', 'utf8'),
   dashboardMatchesGrid: readFileSync('app/(main)/dashboard/matches/matches-grid.tsx', 'utf8'),
 }
 
@@ -28,4 +30,6 @@ test('profile list and match pages use visibility helper by default', () => {
   assert.match(files.matchesPage, /status, health_score/)
   assert.match(files.dashboardMatchesGrid, /isTransportOnlyPlaceholder\(m\)/)
   assert.match(files.dashboardMatchesGrid, /isArchivedMatch\(m\)/)
+  assert.match(files.dashboardPage, /isDisplayableMatchProfile/)
+  assert.match(files.rosterPage, /isDisplayableMatchProfile/)
 })
