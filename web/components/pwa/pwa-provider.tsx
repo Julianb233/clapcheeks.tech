@@ -43,7 +43,10 @@ export default function PWAProvider() {
       if (process.env.NEXT_PUBLIC_ENABLE_PWA_SW === '1') {
         fetch('/sw.js', { method: 'HEAD', cache: 'no-store' })
           .then((res) => {
-            if (res.ok) return navigator.serviceWorker.register('/sw.js', { scope: '/' })
+            if (res.ok) {
+              void navigator.serviceWorker.register('/sw.js', { scope: '/' })
+              return
+            }
             return unregisterStaleWorkers()
           })
           .catch((err) => console.warn('SW register failed:', err))
