@@ -107,6 +107,18 @@ function normalizeThread(row: ConversationRow): CommunicationThread | null {
   }
 }
 
+function isDisplayableCommunicationThread(thread: CommunicationThread): boolean {
+  const name = thread.match_name.trim().toLowerCase()
+  const hasMessage = Boolean(thread.last_message?.trim()) || thread.messages.length > 0
+  const isGenericTransportName =
+    !name ||
+    name === 'unknown' ||
+    name === 'hinge chat' ||
+    name === 'group channel'
+
+  return hasMessage || !isGenericTransportName
+}
+
 function sortThreads(a: CommunicationThread, b: CommunicationThread) {
   const aTime = a.last_message_at ? new Date(a.last_message_at).getTime() : 0
   const bTime = b.last_message_at ? new Date(b.last_message_at).getTime() : 0
@@ -141,6 +153,7 @@ export default async function CommunicationsPage() {
   const threads = rows
     .map(normalizeThread)
     .filter((thread): thread is CommunicationThread => Boolean(thread))
+    .filter(isDisplayableCommunicationThread)
     .sort(sortThreads)
 
   return (
