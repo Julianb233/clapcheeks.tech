@@ -283,8 +283,28 @@ export async function POST(request: NextRequest) {
   if (fetchErr || !msg) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
   if (msg.status !== 'approved') {
+    const rejectionReason = String(msg.rejection_reason ?? '')
+    if (claim_probe === true && msg.status === 'rejected' && rejectionReason.startsWith(LIVE_SEND_CLAIM_PREFIX)) {
+      return NextResponse.json(
+        {
+          error: 'This scheduled message is already being sent or claim-probed. Refresh the queue before retrying.',
+          claim_probe: true,
+          no_live_send_performed: true,
+          claim: {
+            claimed: false,
+            reason: 'existing_claim',
+            rejection_reason_prefix: LIVE_SEND_CLAIM_PREFIX,
+          },
+        },
+        { status: 409 },
+      )
+    }
+
     return NextResponse.json(
-      { error: 'Message must be approved before sending' },
+      {
+        error: 'Message must be approved before sending',
+        ...(claim_probe === true ? { claim_probe: true, no_live_send_performed: true } : {}),
+      },
       { status: 400 },
     )
   }

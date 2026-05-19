@@ -73,6 +73,8 @@ test('scheduled live send claims the row before transport to prevent duplicate r
   assert.match(files.scheduledSendRoute, /claimLiveSend/)
   assert.match(files.scheduledSendRoute, /claim_probe === true/)
   assert.match(files.scheduledSendRoute, /claim_probe_restored_no_send/)
+  assert.match(files.scheduledSendRoute, /reason: 'existing_claim'/)
+  assert.match(files.scheduledSendRoute, /no_live_send_performed: true/)
   assert.match(files.scheduledSendRoute, /status: 'rejected', rejection_reason: rejectionReason/)
   assert.match(files.scheduledSendRoute, /This scheduled message is already being sent/)
   assert.match(files.scheduledSendRoute, /no_send_performed: true/)
