@@ -269,6 +269,9 @@ export async function POST(request: NextRequest) {
 
   const body = await request.json()
   const { id, confirm_send, dry_run, live_send_phrase, claim_probe, claim_probe_phrase } = body
+  const claimProbeHoldMs = claim_probe === true
+    ? Math.min(Math.max(Number(body.claim_probe_hold_ms) || 0, 0), 1000)
+    : 0
 
   if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 })
   if (confirm_send !== true) {
@@ -373,6 +376,10 @@ export async function POST(request: NextRequest) {
         },
         { status: 409 },
       )
+    }
+
+    if (claimProbeHoldMs > 0) {
+      await new Promise((resolve) => setTimeout(resolve, claimProbeHoldMs))
     }
 
     const { data: restored, error: restoreErr } = await convex

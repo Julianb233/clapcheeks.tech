@@ -71,6 +71,8 @@ test('scheduled live send claims the row before transport to prevent duplicate r
   assert.match(files.scheduledSendRoute, /CLAIM_PROBE_PHRASE = 'PROBE CLAIM WITHOUT SENDING'/)
   assert.match(files.scheduledSendRoute, /acquireLiveSendLock/)
   assert.match(files.scheduledSendRoute, /claimLiveSend/)
+  assert.match(files.scheduledSendRoute, /claim_probe_hold_ms/)
+  assert.match(files.scheduledSendRoute, /Math\.min\(Math\.max\(Number\(body\.claim_probe_hold_ms\) \|\| 0, 0\), 1000\)/)
   assert.match(files.scheduledSendRoute, /claim_probe === true/)
   assert.match(files.scheduledSendRoute, /claim_probe_restored_no_send/)
   assert.match(files.scheduledSendRoute, /reason: 'existing_claim'/)
