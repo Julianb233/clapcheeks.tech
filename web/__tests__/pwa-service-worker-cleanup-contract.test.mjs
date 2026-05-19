@@ -14,6 +14,14 @@ test('production PWA provider retires stale service workers by default', () => {
   assert.match(files.provider, /caches\.delete\(key\)/)
 })
 
+test('PWA install prompt stays out of operational dashboard routes', () => {
+  assert.match(files.provider, /usePathname/)
+  assert.match(files.provider, /OPERATIONAL_ROUTE_PREFIXES/)
+  assert.match(files.provider, /'\/leads'/)
+  assert.match(files.provider, /'\/dashboard'/)
+  assert.match(files.provider, /isOperationalRoute\(pathname\)/)
+})
+
 test('public sw.js is a kill switch for previously installed workers', () => {
   assert.match(files.sw, /skipWaiting/)
   assert.match(files.sw, /caches\.keys/)

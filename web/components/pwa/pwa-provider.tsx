@@ -1,10 +1,40 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { usePathname } from 'next/navigation'
 
 type BeforeInstallPromptEvent = Event & {
   prompt: () => Promise<void>
   userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>
+}
+
+const OPERATIONAL_ROUTE_PREFIXES = [
+  '/admin',
+  '/ai-first-date',
+  '/alpha',
+  '/analytics',
+  '/autonomy',
+  '/billing',
+  '/coaching',
+  '/communications',
+  '/conversation',
+  '/dashboard',
+  '/device',
+  '/dogfood',
+  '/intelligence',
+  '/leads',
+  '/matches',
+  '/photos',
+  '/reports',
+  '/scheduled',
+  '/settings',
+  '/support',
+]
+
+function isOperationalRoute(pathname: string | null) {
+  return OPERATIONAL_ROUTE_PREFIXES.some(
+    (prefix) => pathname === prefix || pathname?.startsWith(`${prefix}/`),
+  )
 }
 
 /**
@@ -15,6 +45,7 @@ type BeforeInstallPromptEvent = Event & {
  * it can keep serving a stale loading shell after deploys.
  */
 export default function PWAProvider() {
+  const pathname = usePathname()
   const [deferred, setDeferred] = useState<BeforeInstallPromptEvent | null>(null)
   const [dismissed, setDismissed] = useState(false)
 
@@ -75,7 +106,7 @@ export default function PWAProvider() {
     }
   }, [])
 
-  if (!deferred || dismissed) return null
+  if (!deferred || dismissed || isOperationalRoute(pathname)) return null
 
   async function handleInstall() {
     if (!deferred) return
