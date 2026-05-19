@@ -1,24 +1,24 @@
 import type { Metadata } from "next"
 import { redirect } from "next/navigation"
-import { createClient } from "@/lib/supabase/server"
+import { createClient } from "@/lib/convex/server"
 import { Shield, CheckCircle, ArrowLeft } from "lucide-react"
 import Link from "next/link"
 
 export const metadata: Metadata = { title: 'Verify Profile | Clapcheeks' }
 
 export default async function VerifyProfilePage() {
-  const supabase = await createClient()
+  const convex = await createClient()
 
   const {
     data: { user },
-  } = await supabase.auth.getUser()
+  } = await convex.auth.getUser()
 
   if (!user) {
     redirect("/auth/login")
   }
 
   // Get user profile
-  const { data: profile } = await supabase.from("profiles").select("*").eq("id", user.id).single()
+  const { data: profile } = await convex.from("profiles").select("*").eq("id", user.id).single()
 
   if (profile?.is_verified) {
     redirect("/profile")

@@ -1,15 +1,15 @@
 import type { Metadata } from 'next'
 import { redirect } from 'next/navigation'
-import { createClient } from '@/lib/supabase/server'
+import { createClient } from '@/lib/convex/server'
 import PhotoLibrary from './photo-library'
 
 export const metadata: Metadata = { title: 'Photo Library | Clapcheeks' }
 
 export default async function PhotoLibraryPage() {
-  const supabase = await createClient()
+  const convex = await createClient()
   const {
     data: { user },
-  } = await supabase.auth.getUser()
+  } = await convex.auth.getUser()
 
   if (!user) {
     redirect('/auth/login')

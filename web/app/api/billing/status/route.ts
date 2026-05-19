@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import { createClient } from '@/lib/convex/server'
 import { checkAccessStatus } from '@/lib/billing/dunning'
 
 /**
@@ -8,8 +8,8 @@ import { checkAccessStatus } from '@/lib/billing/dunning'
  */
 export async function GET() {
   try {
-    const supabase = await createClient()
-    const { data: { user } } = await supabase.auth.getUser()
+    const convex = await createClient()
+    const { data: { user } } = await convex.auth.getUser()
 
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })

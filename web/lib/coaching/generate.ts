@@ -1,5 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk'
-import { SupabaseClient } from '@supabase/supabase-js'
+import { ConvexCompatClient } from '@/lib/convex/compat-client'
 
 interface CoachingTip {
   category: 'timing' | 'messaging' | 'platform' | 'general'
@@ -30,10 +30,10 @@ function getWeekStart(): string {
   return monday.toISOString().split('T')[0]
 }
 
-export async function getLatestCoaching(supabase: SupabaseClient, userId: string) {
+export async function getLatestCoaching(convex: ConvexCompatClient, userId: string) {
   const weekStart = getWeekStart()
 
-  const { data } = await supabase
+  const { data } = await convex
     .from('clapcheeks_coaching_sessions')
     .select('*')
     .eq('user_id', userId)
@@ -43,7 +43,7 @@ export async function getLatestCoaching(supabase: SupabaseClient, userId: string
   if (!data) return null
 
   // Fetch feedback for this session
-  const { data: feedback } = await supabase
+  const { data: feedback } = await convex
     .from('clapcheeks_tip_feedback')
     .select('tip_index, helpful')
     .eq('coaching_session_id', data.id)
@@ -55,11 +55,11 @@ export async function getLatestCoaching(supabase: SupabaseClient, userId: string
   }
 }
 
-export async function generateCoaching(supabase: SupabaseClient, userId: string) {
+export async function generateCoaching(convex: ConvexCompatClient, userId: string) {
   const weekStart = getWeekStart()
 
   // Check if we already have coaching for this week
-  const existing = await getLatestCoaching(supabase, userId)
+  const existing = await getLatestCoaching(convex, userId)
   if (existing) return existing
 
   // Fetch last 30 days of analytics
@@ -67,7 +67,7 @@ export async function generateCoaching(supabase: SupabaseClient, userId: string)
   since.setDate(since.getDate() - 30)
   const sinceStr = since.toISOString().split('T')[0]
 
-  const { data: rows } = await supabase
+  const { data: rows } = await convex
     .from('clapcheeks_analytics_daily')
     .select('app, swipes_right, swipes_left, matches, conversations_started, dates_booked, date')
     .eq('user_id', userId)
@@ -178,7 +178,7 @@ Generate 3 personalized coaching tips for this week.`,
   }
 
   // Store in database
-  const { data: session, error } = await supabase
+  const { data: session, error } = await convex
     .from('clapcheeks_coaching_sessions')
     .upsert({
       user_id: userId,

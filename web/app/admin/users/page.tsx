@@ -1,5 +1,5 @@
 import type { Metadata } from "next"
-import { createAdminClient } from "@/lib/supabase/admin"
+import { createAdminClient } from "@/lib/convex/admin"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Users } from "lucide-react"
@@ -19,10 +19,10 @@ export default async function AdminUsersPage({
   const filterTier = params.tier ?? "all"
   const searchQuery = params.q ?? ""
 
-  const supabase = createAdminClient()
+  const convex = createAdminClient()
 
   // Build query
-  let query = supabase
+  let query = convex
     .from("profiles")
     .select("id, email, full_name, subscription_tier, created_at, updated_at")
     .order("created_at", { ascending: false })
@@ -42,10 +42,10 @@ export default async function AdminUsersPage({
 
   const [{ data: agentTokens }, { data: analytics }] = await Promise.all([
     userIds.length > 0
-      ? supabase.from("clapcheeks_agent_tokens").select("user_id, last_seen_at").in("user_id", userIds)
+      ? convex.from("clapcheeks_agent_tokens").select("user_id, last_seen_at").in("user_id", userIds)
       : Promise.resolve({ data: [] }),
     userIds.length > 0
-      ? supabase
+      ? convex
           .from("clapcheeks_analytics_daily")
           .select("user_id, swipes_right, swipes_left, matches")
           .in("user_id", userIds)

@@ -7,8 +7,8 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
-import { createAdminClient } from '@/lib/supabase/admin'
+import { createClient } from '@/lib/convex/server'
+import { createAdminClient } from '@/lib/convex/admin'
 import { PHOTO_BUCKET, isPhotoCategory } from '@/lib/photo-ai'
 
 export const dynamic = 'force-dynamic'
@@ -27,10 +27,10 @@ export async function PATCH(
     return NextResponse.json({ error: 'id required' }, { status: 400 })
   }
 
-  const supabase = await createClient()
+  const convex = await createClient()
   const {
     data: { user },
-  } = await supabase.auth.getUser()
+  } = await convex.auth.getUser()
   if (!user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
@@ -62,7 +62,7 @@ export async function PATCH(
 
   updates.updated_at = new Date().toISOString()
 
-  const { data, error } = await supabase
+  const { data, error } = await convex
     .from('profile_photos')
     .update(updates)
     .eq('id', id)
@@ -91,15 +91,15 @@ export async function DELETE(
     return NextResponse.json({ error: 'id required' }, { status: 400 })
   }
 
-  const supabase = await createClient()
+  const convex = await createClient()
   const {
     data: { user },
-  } = await supabase.auth.getUser()
+  } = await convex.auth.getUser()
   if (!user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const { data: row, error: fetchErr } = await supabase
+  const { data: row, error: fetchErr } = await convex
     .from('profile_photos')
     .select('id, storage_path')
     .eq('id', id)
@@ -110,7 +110,7 @@ export async function DELETE(
     return NextResponse.json({ error: 'Not found' }, { status: 404 })
   }
 
-  const { error: delErr } = await supabase
+  const { error: delErr } = await convex
     .from('profile_photos')
     .delete()
     .eq('id', id)

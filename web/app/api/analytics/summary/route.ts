@@ -1,12 +1,58 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import { createClient } from '@/lib/convex/server'
 import { calculateRizzScore, getRizzTrend, type AnalyticsRow } from '@/lib/rizz'
 
 const VALID_DAYS = [7, 30, 90] as const
 
+type AnalyticsDailyRow = {
+  app: string | null
+  swipes_right: number | null
+  swipes_left: number | null
+  matches: number | null
+  conversations_started: number | null
+  dates_booked: number | null
+  money_spent?: number | null
+  date: string
+}
+
+type ConversationStatsRow = {
+  platform: string | null
+  messages_sent: number | null
+  messages_received: number | null
+  conversations_started: number | null
+  conversations_replied: number | null
+  conversations_ghosted: number | null
+  date: string
+}
+
+type SpendingRow = {
+  amount: number | string | null
+  category: string | null
+  date: string
+}
+
+type RangeTotals = {
+  swipes_right: number
+  swipes_left: number
+  matches: number
+  messages_sent: number
+  dates_booked: number
+}
+
+type ConversationTotals = {
+  conversations_started: number
+  conversations_replied: number
+}
+
+type WeekTotals = {
+  swipes: number
+  matches: number
+  dates: number
+}
+
 export async function GET(request: NextRequest) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const convex = await createClient()
+  const { data: { user } } = await convex.auth.getUser()
   if (!user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
@@ -25,31 +71,31 @@ export async function GET(request: NextRequest) {
   const fmt = (d: Date) => d.toISOString().split('T')[0]
 
   const [analyticsRes, convoRes, spendRes] = await Promise.all([
-    supabase
+    convex
       .from('clapcheeks_analytics_daily')
       .select('app, swipes_right, swipes_left, matches, conversations_started, dates_booked, money_spent, date')
       .eq('user_id', user.id)
       .gte('date', fmt(rangeStart))
       .order('date', { ascending: true }),
-    supabase
+    convex
       .from('clapcheeks_conversation_stats')
       .select('platform, messages_sent, messages_received, conversations_started, conversations_replied, conversations_ghosted, date')
       .eq('user_id', user.id)
       .gte('date', fmt(rangeStart))
       .order('date', { ascending: true }),
-    supabase
+    convex
       .from('clapcheeks_spending')
       .select('amount, category, date')
       .eq('user_id', user.id)
       .gte('date', fmt(rangeStart)),
   ])
 
-  const analytics = analyticsRes.data || []
-  const convos = convoRes.data || []
-  const spending = spendRes.data || []
+  const analytics = (analyticsRes.data || []) as AnalyticsDailyRow[]
+  const convos = (convoRes.data || []) as ConversationStatsRow[]
+  const spending = (spendRes.data || []) as SpendingRow[]
 
   // Range aggregates
-  const totals = analytics.reduce(
+  const totals = analytics.reduce<RangeTotals>(
     (acc, r) => ({
       swipes_right: acc.swipes_right + (r.swipes_right || 0),
       swipes_left: acc.swipes_left + (r.swipes_left || 0),
@@ -60,7 +106,7 @@ export async function GET(request: NextRequest) {
     { swipes_right: 0, swipes_left: 0, matches: 0, messages_sent: 0, dates_booked: 0 }
   )
 
-  const convoTotals = convos.reduce(
+  const convoTotals = convos.reduce<ConversationTotals>(
     (acc, r) => ({
       conversations_started: acc.conversations_started + (r.conversations_started || 0),
       conversations_replied: acc.conversations_replied + (r.conversations_replied || 0),
@@ -71,11 +117,12 @@ export async function GET(request: NextRequest) {
   // Per-platform breakdown
   const platforms: Record<string, { swipes_right: number; matches: number; messages_sent: number; dates_booked: number }> = {}
   for (const r of analytics) {
-    if (!platforms[r.app]) platforms[r.app] = { swipes_right: 0, matches: 0, messages_sent: 0, dates_booked: 0 }
-    platforms[r.app].swipes_right += r.swipes_right || 0
-    platforms[r.app].matches += r.matches || 0
-    platforms[r.app].messages_sent += r.conversations_started || 0
-    platforms[r.app].dates_booked += r.dates_booked || 0
+    const platform = r.app ?? 'unknown'
+    if (!platforms[platform]) platforms[platform] = { swipes_right: 0, matches: 0, messages_sent: 0, dates_booked: 0 }
+    platforms[platform].swipes_right += r.swipes_right || 0
+    platforms[platform].matches += r.matches || 0
+    platforms[platform].messages_sent += r.conversations_started || 0
+    platforms[platform].dates_booked += r.dates_booked || 0
   }
 
   // Daily time series (merge analytics + conversations by date)
@@ -127,13 +174,22 @@ export async function GET(request: NextRequest) {
   const rizzTrend = getRizzTrend(rizzScore, lastWeekRizz)
 
   // Spending
-  const totalSpent = spending.reduce((s, r) => s + Number(r.amount), 0)
+  const totalSpent = spending.reduce<number>((s, r) => s + Number(r.amount ?? 0), 0)
   const spendByCategory: Record<string, number> = {}
   for (const r of spending) {
-    spendByCategory[r.category] = (spendByCategory[r.category] || 0) + Number(r.amount)
+    const category = r.category ?? 'uncategorized'
+    spendByCategory[category] = (spendByCategory[category] || 0) + Number(r.amount ?? 0)
   }
   const costPerMatch = totals.matches > 0 ? totalSpent / totals.matches : 0
   const costPerDate = totals.dates_booked > 0 ? totalSpent / totals.dates_booked : 0
+
+  const dataQualityWarnings: string[] = []
+  if (totals.matches > 0 && totals.swipes_right === 0) {
+    dataQualityWarnings.push('Swipe totals are unavailable from Convex, so match rate and swipe-to-match funnel percentages are hidden.')
+  }
+  if (totals.matches > 0 && convoTotals.conversations_started > totals.matches) {
+    dataQualityWarnings.push('Conversation rows exceed match rows; conversations are live activity counts, not a strict funnel denominator.')
+  }
 
   // Conversion funnel
   const funnel = [
@@ -146,14 +202,14 @@ export async function GET(request: NextRequest) {
   // Today stats
   const today = fmt(now)
   const todayRows = analytics.filter(r => r.date === today)
-  const todaySwipes = todayRows.reduce((a, r) => a + (r.swipes_right || 0) + (r.swipes_left || 0), 0)
+  const todaySwipes = todayRows.reduce<number>((a, r) => a + (r.swipes_right || 0) + (r.swipes_left || 0), 0)
 
   // Week-over-week trends
-  const thisWeekTotals = analytics.filter(r => r.date >= fmt(sevenDaysAgo)).reduce(
+  const thisWeekTotals = analytics.filter(r => r.date >= fmt(sevenDaysAgo)).reduce<WeekTotals>(
     (acc, r) => ({ swipes: acc.swipes + (r.swipes_right || 0), matches: acc.matches + (r.matches || 0), dates: acc.dates + (r.dates_booked || 0) }),
     { swipes: 0, matches: 0, dates: 0 }
   )
-  const lastWeekTotals = analytics.filter(r => r.date >= fmt(fourteenDaysAgo) && r.date < fmt(sevenDaysAgo)).reduce(
+  const lastWeekTotals = analytics.filter(r => r.date >= fmt(fourteenDaysAgo) && r.date < fmt(sevenDaysAgo)).reduce<WeekTotals>(
     (acc, r) => ({ swipes: acc.swipes + (r.swipes_right || 0), matches: acc.matches + (r.matches || 0), dates: acc.dates + (r.dates_booked || 0) }),
     { swipes: 0, matches: 0, dates: 0 }
   )
@@ -169,6 +225,8 @@ export async function GET(request: NextRequest) {
     totals: { ...totals, conversations: convoTotals.conversations_started },
     todaySwipes,
     matchRate: totals.swipes_right > 0 ? ((totals.matches / totals.swipes_right) * 100) : 0,
+    matchRateAvailable: totals.swipes_right > 0,
+    dataQuality: { warnings: dataQualityWarnings },
     rizzScore,
     rizzTrend,
     platforms,

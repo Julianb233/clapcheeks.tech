@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from 'react'
 
 // ── Constants ──────────────────────────────────────────────────────────
 const ALL_PLATFORMS = [
-  'tinder', 'bumble', 'hinge', 'grindr', 'badoo',
+  'tinder', 'bumble', 'hinge', 'imessage', 'grindr', 'badoo',
   'happn', 'okcupid', 'pof', 'feeld', 'cmb',
 ] as const
 
@@ -12,6 +12,7 @@ const DISPLAY_NAMES: Record<string, string> = {
   tinder: 'Tinder',
   bumble: 'Bumble',
   hinge: 'Hinge',
+  imessage: 'iMessage',
   grindr: 'Grindr',
   badoo: 'Badoo',
   happn: 'Happn',
@@ -54,6 +55,9 @@ interface SummaryData {
     costPerDate: number
     byCategory: Record<string, number>
   }
+  dataQuality?: {
+    warnings?: string[]
+  }
 }
 
 // Per-platform row for today
@@ -81,8 +85,9 @@ function healthBadge(todaySwipes: number, configured: boolean) {
   return <span className="inline-block w-2 h-2 rounded-full bg-yellow-400" title="Idle" />
 }
 
-function pct(num: number, denom: number): string {
-  if (denom === 0) return '0.0%'
+function pct(num: number, denom: number): string | null {
+  if (denom <= 0) return null
+  if (num > denom) return null
   return ((num / denom) * 100).toFixed(1) + '%'
 }
 
@@ -90,7 +95,7 @@ function pct(num: number, denom: number): string {
 export default function DashboardLive({ initialData, hasAgent }: DashboardLiveProps) {
   const [data, setData] = useState<SummaryData | null>(initialData)
   const [loading, setLoading] = useState(!initialData)
-  const [lastUpdated, setLastUpdated] = useState<Date>(new Date())
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
 
   const fetchStats = useCallback(async () => {
     try {
@@ -104,6 +109,10 @@ export default function DashboardLive({ initialData, hasAgent }: DashboardLivePr
     } finally {
       setLoading(false)
     }
+  }, [])
+
+  useEffect(() => {
+    setLastUpdated(new Date())
   }, [])
 
   // Poll every 30 seconds
@@ -132,6 +141,7 @@ export default function DashboardLive({ initialData, hasAgent }: DashboardLivePr
   // We use 30-day data for the table breakdown
   const platformsFromApi = data.platforms || {}
   const configuredPlatforms = new Set(Object.keys(platformsFromApi))
+  const dataQualityWarnings = data.dataQuality?.warnings || []
 
   const todayTotals: TodayPlatformRow = {
     swipes: 0,
@@ -182,8 +192,14 @@ export default function DashboardLive({ initialData, hasAgent }: DashboardLivePr
       {/* Last updated indicator */}
       <div className="flex items-center justify-end gap-2 text-white/20 text-xs">
         <div className="w-1.5 h-1.5 rounded-full bg-green-500/50 animate-pulse" />
-        Live — updated {lastUpdated.toLocaleTimeString()}
+        Live data {lastUpdated ? `updated ${lastUpdated.toLocaleTimeString()}` : 'ready'}
       </div>
+
+      {dataQualityWarnings.length > 0 && (
+        <div className="rounded-xl border border-amber-500/25 bg-amber-500/10 px-4 py-3 text-xs text-amber-100/80">
+          {dataQualityWarnings[0]}
+        </div>
+      )}
 
       {/* ── Conversation Funnel ─────────────────────────────────────── */}
       <div className="bg-white/5 border border-white/10 rounded-xl p-5">
@@ -196,7 +212,7 @@ export default function DashboardLive({ initialData, hasAgent }: DashboardLivePr
               <div className="flex flex-col items-center min-w-[100px]">
                 <span className="text-white font-bold text-lg">{stage.value.toLocaleString()}</span>
                 <span className="text-white/50 text-xs mt-0.5">{stage.label}</span>
-                {i > 0 && funnelStages[i - 1].value > 0 && (
+                {i > 0 && pct(stage.value, funnelStages[i - 1].value) && (
                   <span className="text-purple-400 text-[10px] mt-1 font-medium">
                     {pct(stage.value, funnelStages[i - 1].value)}
                   </span>

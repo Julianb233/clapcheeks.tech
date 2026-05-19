@@ -6,8 +6,8 @@
  *   cd web && npx tsx scripts/seed-demo-matches.ts <user_id>
  *
  * Requires env vars:
- *   NEXT_PUBLIC_SUPABASE_URL
- *   SUPABASE_SERVICE_ROLE_KEY
+ *   NEXT_PUBLIC_CONVEX_URL
+ *   CONVEX_DEPLOY_KEY
  *
  * All rows are inserted with is_demo=true so they can be nuked later via:
  *   DELETE FROM clapcheeks_matches WHERE is_demo = true;
@@ -16,7 +16,7 @@
  * "relation clapcheeks_matches does not exist", wait for Phase A to land.
  */
 
-import { createClient } from '@supabase/supabase-js'
+import { createClient } from '@/lib/convex/compat-client'
 
 const DEMO_MATCHES = [
   {
@@ -194,13 +194,13 @@ async function main() {
     console.error('Usage: npx tsx scripts/seed-demo-matches.ts <user_id>')
     process.exit(1)
   }
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY
+  const url = process.env.NEXT_PUBLIC_CONVEX_URL
+  const key = process.env.CONVEX_DEPLOY_KEY
   if (!url || !key) {
-    console.error('Missing NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY env var.')
+    console.error('Missing NEXT_PUBLIC_CONVEX_URL or CONVEX_DEPLOY_KEY env var.')
     process.exit(1)
   }
-  const supabase = createClient(url, key)
+  const convex = createClient(url, key)
 
   const rows = DEMO_MATCHES.map((m) => ({
     user_id: userId,
@@ -212,7 +212,7 @@ async function main() {
     updated_at: new Date().toISOString(),
   }))
 
-  const { data, error } = await supabase
+  const { data, error } = await convex
     .from('clapcheeks_matches')
     .upsert(rows, { onConflict: 'user_id,external_id', ignoreDuplicates: false })
     .select('id, name')

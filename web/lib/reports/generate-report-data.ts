@@ -1,8 +1,8 @@
-import { SupabaseClient } from '@supabase/supabase-js'
+import { ConvexCompatClient } from '@/lib/convex/compat-client'
 import type { ReportData } from './generate-pdf'
 
 export async function generateReportData(
-  supabase: SupabaseClient,
+  convex: ConvexCompatClient,
   userId: string,
   weekStart: Date,
   weekEnd: Date
@@ -20,19 +20,19 @@ export async function generateReportData(
 
   // Fetch this week + last week analytics
   const [thisWeekRes, prevWeekRes, coachingRes] = await Promise.all([
-    supabase
+    convex
       .from('clapcheeks_analytics_daily')
       .select('app, swipes_right, swipes_left, matches, conversations_started, dates_booked')
       .eq('user_id', userId)
       .gte('date', weekStartStr)
       .lte('date', weekEndStr),
-    supabase
+    convex
       .from('clapcheeks_analytics_daily')
       .select('app, swipes_right, swipes_left, matches, conversations_started, dates_booked')
       .eq('user_id', userId)
       .gte('date', prevStartStr)
       .lte('date', prevEndStr),
-    supabase
+    convex
       .from('clapcheeks_coaching_sessions')
       .select('tips')
       .eq('user_id', userId)

@@ -1,17 +1,17 @@
 import type Stripe from 'stripe'
 import { NextRequest, NextResponse } from 'next/server'
 import { stripe } from '@/lib/stripe'
-import { createClient } from '@supabase/supabase-js'
+import { createClient } from '@/lib/convex/compat-client'
 
 export const runtime = 'nodejs'
 
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
+const convexAdmin = createClient(
+  process.env.NEXT_PUBLIC_CONVEX_URL!,
+  process.env.CONVEX_DEPLOY_KEY!
 )
 
 async function isEventProcessed(eventId: string): Promise<boolean> {
-  const { data } = await supabaseAdmin
+  const { data } = await convexAdmin
     .from('stripe_events')
     .select('event_id')
     .eq('event_id', eventId)
@@ -20,7 +20,7 @@ async function isEventProcessed(eventId: string): Promise<boolean> {
 }
 
 async function markEventProcessed(eventId: string, eventType: string) {
-  await supabaseAdmin.from('stripe_events').insert({
+  await convexAdmin.from('stripe_events').insert({
     event_id: eventId,
     event_type: eventType,
   })
@@ -54,7 +54,7 @@ export async function POST(request: NextRequest) {
       const userId = session.client_reference_id || session.metadata?.user_id
       if (userId) {
         const tierValue = session.metadata?.plan || 'base'
-        await supabaseAdmin.from('profiles').update({
+        await convexAdmin.from('profiles').update({
           stripe_customer_id: session.customer as string,
           stripe_subscription_id: session.subscription as string,
           subscription_tier: tierValue,
@@ -77,7 +77,7 @@ export async function POST(request: NextRequest) {
       // For trialing subscriptions, grant pro-level access during trial
       const effectiveTier = subscription.status === 'trialing' ? 'pro' : tier
 
-      await supabaseAdmin.from('profiles').update({
+      await convexAdmin.from('profiles').update({
         subscription_status: subscription.status,
         subscription_tier: effectiveTier,
         trial_end: subscription.trial_end
@@ -91,7 +91,7 @@ export async function POST(request: NextRequest) {
       const subscription = event.data.object as Stripe.Subscription
       const customerId = subscription.customer as string
 
-      const { data: trialProfile } = await supabaseAdmin
+      const { data: trialProfile } = await convexAdmin
         .from('profiles')
         .select('email')
         .eq('stripe_customer_id', customerId)
@@ -104,7 +104,7 @@ export async function POST(request: NextRequest) {
     case 'customer.subscription.deleted': {
       const subscription = event.data.object as Stripe.Subscription
       const customerId = subscription.customer as string
-      await supabaseAdmin.from('profiles').update({
+      await convexAdmin.from('profiles').update({
         subscription_status: 'canceled',
         subscription_tier: 'free',
         access_expires_at: null,
@@ -121,14 +121,14 @@ export async function POST(request: NextRequest) {
       const graceExpiry = new Date()
       graceExpiry.setDate(graceExpiry.getDate() + 7)
 
-      const { data: failedProfile } = await supabaseAdmin
+      const { data: failedProfile } = await convexAdmin
         .from('profiles')
         .select('id, email')
         .eq('stripe_customer_id', customerId)
         .single()
 
       if (failedProfile) {
-        await supabaseAdmin.from('profiles').update({
+        await convexAdmin.from('profiles').update({
           subscription_status: 'past_due',
           access_expires_at: graceExpiry.toISOString(),
         }).eq('id', failedProfile.id)
@@ -143,7 +143,7 @@ export async function POST(request: NextRequest) {
       const customerId = invoice.customer as string
 
       // Clear past_due status and grace period on successful payment
-      await supabaseAdmin.from('profiles').update({
+      await convexAdmin.from('profiles').update({
         subscription_status: 'active',
         access_expires_at: null,
       }).eq('stripe_customer_id', customerId)

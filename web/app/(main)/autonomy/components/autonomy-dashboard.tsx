@@ -1,33 +1,31 @@
 'use client'
 
 import { useState, useCallback, useTransition } from 'react'
-import { createClient } from '@/lib/supabase/client'
+import { createClient } from '@/lib/convex/client'
 import {
-  Zap, Shield, Eye, Bot, TrendingUp, AlertCircle,
-  Check, X, ChevronDown, Clock, Activity, Target,
-  ToggleLeft, ToggleRight, Loader2, MessageSquare,
-  RefreshCw, ThumbsUp, ThumbsDown
+  Zap, Shield, Eye, Bot, AlertCircle,
+  Check, Clock, Activity, Target,
+  Loader2, MessageSquare, ThumbsUp, ThumbsDown
 } from 'lucide-react'
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
-type AutonomyLevel = 'supervised' | 'semi_auto' | 'full_auto'
+type AutonomyLevel = 'supervised' | 'semi_auto' | 'full_auto' | 'custom'
 
 interface AutonomyConfig {
   global_level: AutonomyLevel
-  auto_swipe_enabled: boolean
-  auto_swipe_confidence_min: number
+  source: string
+  approve_openers: boolean
+  approve_replies: boolean
+  approve_date_asks: boolean
+  approve_bookings: boolean
   auto_respond_enabled: boolean
-  auto_respond_confidence_min: number
-  auto_reengage_enabled: boolean
-  max_auto_swipes_per_hour: number
-  max_auto_replies_per_hour: number
-  stale_hours_threshold: number
-  stale_recovery_enabled: boolean
-  notify_on_auto_send: boolean
-  notify_on_low_confidence: boolean
-  notify_on_queue_item: boolean
+  require_approval_for_first_message: boolean
+  ai_active: boolean | null
+  ai_paused_until: string | null
+  ai_paused_reason: string | null
+  updated_at: string | null
 }
 
 interface QueueItem {
@@ -77,21 +75,27 @@ interface Props {
 const LEVEL_INFO: Record<AutonomyLevel, { label: string; desc: string; icon: React.ReactNode; color: string }> = {
   supervised: {
     label: 'Supervised',
-    desc: 'Every action needs your approval',
+    desc: 'Openers, replies, date asks, and bookings wait for review',
     icon: <Eye className="w-5 h-5" />,
     color: 'from-blue-500/20 to-blue-600/5 border-blue-500/30',
   },
   semi_auto: {
     label: 'Semi-Auto',
-    desc: 'Auto-replies send, dates need approval',
+    desc: 'Replies can send; openers, dates, and bookings wait',
     icon: <Shield className="w-5 h-5" />,
     color: 'from-yellow-500/20 to-yellow-600/5 border-yellow-500/30',
   },
   full_auto: {
     label: 'Full Auto',
-    desc: 'Only date booking needs approval',
+    desc: 'Only calendar booking still waits for review',
     icon: <Zap className="w-5 h-5" />,
     color: 'from-red-500/20 to-red-600/5 border-red-500/30',
+  },
+  custom: {
+    label: 'Custom',
+    desc: 'Stored approval flags do not match a preset',
+    icon: <Bot className="w-5 h-5" />,
+    color: 'from-white/10 to-white/5 border-white/20',
   },
 }
 
@@ -136,25 +140,31 @@ export default function AutonomyDashboard({
   const [saving, setSaving] = useState(false)
   const [isPending, startTransition] = useTransition()
 
-  const supabase = createClient()
+  const convex = createClient()
 
   // Save config changes
   const saveConfig = useCallback(async (updates: Partial<AutonomyConfig>) => {
     setSaving(true)
-    const newConfig = { ...config, ...updates }
-    setConfig(newConfig)
-
-    await supabase
-      .from('clapcheeks_autonomy_config')
-      .upsert({ user_id: userId, ...newConfig }, { onConflict: 'user_id' })
-
-    setSaving(false)
-  }, [config, userId, supabase])
+    try {
+      const response = await fetch('/api/autonomy-config', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updates),
+      })
+      const result = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(result.error || 'Autonomy save failed')
+      setConfig(result.config)
+    } catch (error) {
+      console.error('autonomy save failed', error)
+    } finally {
+      setSaving(false)
+    }
+  }, [])
 
   // Approve/reject queue item
   const handleQueueAction = useCallback(async (id: string, status: 'approved' | 'rejected') => {
     startTransition(async () => {
-      await supabase
+      await convex
         .from('clapcheeks_approval_queue')
         .update({ status, decided_at: new Date().toISOString(), decided_by: 'user' })
         .eq('id', id)
@@ -162,12 +172,7 @@ export default function AutonomyDashboard({
 
       setQueue(prev => prev.filter(item => item.id !== id))
     })
-  }, [userId, supabase])
-
-  // Average confidence
-  const avgConfidence = actions.length > 0
-    ? Math.round(actions.reduce((sum, a) => sum + (a.confidence || 0), 0) / actions.length)
-    : 0
+  }, [userId, convex])
 
   return (
     <div className="space-y-6">
@@ -205,7 +210,7 @@ export default function AutonomyDashboard({
               Autonomy Level
             </h2>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              {(Object.entries(LEVEL_INFO) as [AutonomyLevel, typeof LEVEL_INFO[AutonomyLevel]][]).map(([level, info]) => (
+              {(Object.entries(LEVEL_INFO).filter(([level]) => level !== 'custom') as [AutonomyLevel, typeof LEVEL_INFO[AutonomyLevel]][]).map(([level, info]) => (
                 <button
                   key={level}
                   onClick={() => saveConfig({ global_level: level })}
@@ -229,6 +234,11 @@ export default function AutonomyDashboard({
                 </button>
               ))}
             </div>
+            {config.global_level === 'custom' && (
+              <div className="mt-3 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-xs text-white/50">
+                Custom gates are active: openers {config.approve_openers ? 'review' : 'auto'}, replies {config.approve_replies ? 'review' : 'auto'}, date asks {config.approve_date_asks ? 'review' : 'auto'}, bookings {config.approve_bookings ? 'review' : 'auto'}.
+              </div>
+            )}
           </div>
 
           {/* Stats Row */}
@@ -240,120 +250,81 @@ export default function AutonomyDashboard({
               color={queue.length > 5 ? 'text-red-400' : 'text-green-400'}
             />
             <StatCard
-              label="Avg Confidence"
-              value={`${avgConfidence}%`}
-              icon={<TrendingUp className="w-4 h-4" />}
-              color={avgConfidence >= 70 ? 'text-green-400' : avgConfidence >= 50 ? 'text-yellow-400' : 'text-red-400'}
+              label="Replies"
+              value={config.approve_replies ? 'Review' : 'Auto'}
+              icon={<MessageSquare className="w-4 h-4" />}
+              color={config.approve_replies ? 'text-yellow-400' : 'text-red-400'}
             />
             <StatCard
-              label="Model Accuracy"
-              value={model.accuracy ? `${model.accuracy}%` : 'N/A'}
+              label="Openers"
+              value={config.approve_openers ? 'Review' : 'Auto'}
               icon={<Target className="w-4 h-4" />}
-              color={model.accuracy && model.accuracy >= 70 ? 'text-green-400' : 'text-white/40'}
+              color={config.approve_openers ? 'text-yellow-400' : 'text-red-400'}
             />
             <StatCard
-              label="Training Samples"
-              value={totalSwipeDecisions}
+              label="Backend"
+              value="Live"
               icon={<Activity className="w-4 h-4" />}
-              color={totalSwipeDecisions >= 200 ? 'text-green-400' : 'text-yellow-400'}
+              color="text-green-400"
             />
           </div>
 
-          {/* Feature Toggles */}
+          {/* Runtime approval gates */}
           <div className="bg-white/[0.03] border border-white/10 rounded-2xl p-6">
             <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
               <Bot className="w-5 h-5 text-yellow-400" />
-              Feature Controls
+              Runtime Approval Gates
               {saving && <Loader2 className="w-4 h-4 animate-spin text-white/40 ml-2" />}
             </h2>
             <div className="space-y-4">
               <Toggle
-                label="Auto-Swipe"
-                desc="Agent swipes based on learned preferences"
-                enabled={config.auto_swipe_enabled}
-                onChange={v => saveConfig({ auto_swipe_enabled: v })}
+                label="Approve openers before sending"
+                desc="Backed by clapcheeks_user_settings.approve_openers"
+                enabled={config.approve_openers}
+                onChange={v => saveConfig({ approve_openers: v } as Partial<AutonomyConfig>)}
               />
-              <div className={`pl-8 ${config.auto_swipe_enabled ? 'opacity-100' : 'opacity-30 pointer-events-none'}`}>
-                <SliderControl
-                  label="Min confidence"
-                  value={config.auto_swipe_confidence_min}
-                  min={30} max={95} step={5}
-                  onChange={v => saveConfig({ auto_swipe_confidence_min: v })}
-                />
-                <SliderControl
-                  label="Max swipes/hour"
-                  value={config.max_auto_swipes_per_hour}
-                  min={5} max={50} step={5}
-                  onChange={v => saveConfig({ max_auto_swipes_per_hour: v })}
-                />
-              </div>
-
               <Toggle
-                label="Auto-Respond"
-                desc="Draft and send replies in your voice"
-                enabled={config.auto_respond_enabled}
-                onChange={v => saveConfig({ auto_respond_enabled: v })}
+                label="Approve replies before sending"
+                desc="When off, the reply worker treats replies as auto-send eligible"
+                enabled={config.approve_replies}
+                onChange={v => saveConfig({ approve_replies: v } as Partial<AutonomyConfig>)}
               />
-              <div className={`pl-8 ${config.auto_respond_enabled ? 'opacity-100' : 'opacity-30 pointer-events-none'}`}>
-                <SliderControl
-                  label="Min confidence to auto-send"
-                  value={config.auto_respond_confidence_min}
-                  min={50} max={95} step={5}
-                  onChange={v => saveConfig({ auto_respond_confidence_min: v })}
-                />
-                <SliderControl
-                  label="Max replies/hour"
-                  value={config.max_auto_replies_per_hour}
-                  min={1} max={30} step={1}
-                  onChange={v => saveConfig({ max_auto_replies_per_hour: v })}
-                />
-              </div>
-
               <Toggle
-                label="Stale Conversation Recovery"
-                desc="Auto-re-engage matches that go silent"
-                enabled={config.stale_recovery_enabled}
-                onChange={v => saveConfig({ stale_recovery_enabled: v })}
+                label="Approve date asks before sending"
+                desc="Backed by clapcheeks_user_settings.approve_date_asks"
+                enabled={config.approve_date_asks}
+                onChange={v => saveConfig({ approve_date_asks: v } as Partial<AutonomyConfig>)}
               />
-              <div className={`pl-8 ${config.stale_recovery_enabled ? 'opacity-100' : 'opacity-30 pointer-events-none'}`}>
-                <SliderControl
-                  label="Hours before 'stale'"
-                  value={config.stale_hours_threshold}
-                  min={12} max={120} step={12}
-                  onChange={v => saveConfig({ stale_hours_threshold: v })}
-                />
-              </div>
+              <Toggle
+                label="Approve calendar bookings"
+                desc="Backed by clapcheeks_user_settings.approve_bookings"
+                enabled={config.approve_bookings}
+                onChange={v => saveConfig({ approve_bookings: v } as Partial<AutonomyConfig>)}
+              />
+              <Toggle
+                label="AI active master switch"
+                desc={config.ai_paused_reason ? String(config.ai_paused_reason) : 'Backed by clapcheeks_user_settings.ai_active'}
+                enabled={config.ai_active !== false}
+                onChange={v => saveConfig({ ai_active: v })}
+              />
+            </div>
+            <div className="mt-5 rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-xs text-white/40">
+              Source: {config.source}. Last updated: {config.updated_at ? new Date(config.updated_at).toLocaleString() : 'unknown'}.
+              {config.ai_paused_until ? ` Paused until: ${new Date(config.ai_paused_until).toLocaleString()}.` : ''}
             </div>
           </div>
 
-          {/* Notification Settings */}
+          {/* Backend coverage */}
           <div className="bg-white/[0.03] border border-white/10 rounded-2xl p-6">
             <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
-              <MessageSquare className="w-5 h-5 text-yellow-400" />
-              Notifications
+              <AlertCircle className="w-5 h-5 text-yellow-400" />
+              Backend Coverage
             </h2>
-            <div className="space-y-3">
-              <Toggle
-                label="Notify on auto-send"
-                desc="Get notified when the AI sends a message automatically"
-                enabled={config.notify_on_auto_send}
-                onChange={v => saveConfig({ notify_on_auto_send: v })}
-                small
-              />
-              <Toggle
-                label="Notify on low confidence"
-                desc="Alert when AI confidence drops below threshold"
-                enabled={config.notify_on_low_confidence}
-                onChange={v => saveConfig({ notify_on_low_confidence: v })}
-                small
-              />
-              <Toggle
-                label="Notify on queue item"
-                desc="Alert when a new item enters the approval queue"
-                enabled={config.notify_on_queue_item}
-                onChange={v => saveConfig({ notify_on_queue_item: v })}
-                small
-              />
+            <div className="grid gap-2 text-sm">
+              <CoverageRow label="Approval gates" status="Live" detail="Supabase settings row read by runtime workers" />
+              <CoverageRow label="Approval queue" status="Live" detail="Convex queues mappings approve/reject items" />
+              <CoverageRow label="Auto-swipe controls" status="Not exposed" detail="No live Convex mapping for autonomy model controls yet" muted />
+              <CoverageRow label="Preference model" status="Not exposed" detail="No live Convex mapping for swipe training/model rows yet" muted />
             </div>
           </div>
         </div>
@@ -434,7 +405,7 @@ export default function AutonomyDashboard({
           {actions.length === 0 ? (
             <div className="text-center py-16 bg-white/[0.03] border border-white/10 rounded-2xl">
               <Clock className="w-10 h-10 text-white/20 mx-auto mb-3" />
-              <p className="text-white/50 text-sm">No autonomous actions yet</p>
+              <p className="text-white/50 text-sm">Auto-action log is not exposed by the live Convex backend yet</p>
             </div>
           ) : (
             <div className="bg-white/[0.03] border border-white/10 rounded-2xl overflow-hidden">
@@ -492,6 +463,13 @@ export default function AutonomyDashboard({
       {/* Preference Model Tab */}
       {tab === 'model' && (
         <div className="space-y-6">
+          {model.version === 0 && totalSwipeDecisions === 0 ? (
+            <div className="text-center py-16 bg-white/[0.03] border border-white/10 rounded-2xl">
+              <Target className="w-10 h-10 text-white/20 mx-auto mb-3" />
+              <p className="text-white/50 text-sm">Preference model data is not exposed by the live Convex backend yet</p>
+            </div>
+          ) : (
+          <>
           {/* Model Stats */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="bg-white/[0.03] border border-white/10 rounded-xl p-5 text-center">
@@ -560,6 +538,8 @@ export default function AutonomyDashboard({
               </div>
             </div>
           )}
+          </>
+          )}
         </div>
       )}
     </div>
@@ -598,6 +578,9 @@ function Toggle({
         <p className={`text-white/40 ${small ? 'text-[11px]' : 'text-xs'}`}>{desc}</p>
       </div>
       <button
+        type="button"
+        aria-label={label}
+        aria-pressed={enabled}
         onClick={() => onChange(!enabled)}
         className={`shrink-0 transition-colors rounded-full ${
           small ? 'w-10 h-5' : 'w-12 h-6'
@@ -613,27 +596,20 @@ function Toggle({
   )
 }
 
-function SliderControl({
-  label, value, min, max, step, onChange,
-}: {
-  label: string
-  value: number
-  min: number
-  max: number
-  step: number
-  onChange: (v: number) => void
-}) {
+function CoverageRow({ label, status, detail, muted }: { label: string; status: string; detail: string; muted?: boolean }) {
   return (
-    <div className="flex items-center gap-4 py-1">
-      <span className="text-xs text-white/50 w-40 shrink-0">{label}</span>
-      <input
-        type="range"
-        min={min} max={max} step={step}
-        value={value}
-        onChange={e => onChange(Number(e.target.value))}
-        className="flex-1 h-1.5 bg-white/10 rounded-full appearance-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-yellow-500 [&::-webkit-slider-thumb]:cursor-pointer"
-      />
-      <span className="text-xs font-mono text-white/70 w-10 text-right">{value}</span>
+    <div className="flex items-center justify-between gap-3 rounded-lg border border-white/10 bg-white/[0.02] px-3 py-2">
+      <div className="min-w-0">
+        <p className="text-white/80">{label}</p>
+        <p className="text-xs text-white/40">{detail}</p>
+      </div>
+      <span className={`shrink-0 rounded-full border px-2 py-0.5 text-xs ${
+        muted
+          ? 'border-white/10 bg-white/5 text-white/40'
+          : 'border-green-500/30 bg-green-500/10 text-green-300'
+      }`}>
+        {status}
+      </span>
     </div>
   )
 }

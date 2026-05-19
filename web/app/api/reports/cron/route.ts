@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createAdminClient } from '@/lib/supabase/admin'
+import { createAdminClient } from '@/lib/convex/admin'
 import { generateReportData } from '@/lib/reports/generate-report-data'
 import { renderReportPdf } from '@/lib/reports/generate-pdf'
 import { sendReportEmail } from '@/lib/reports/send-report-email'
@@ -13,7 +13,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const supabase = createAdminClient()
+  const convex = createAdminClient()
 
   // Calculate last week boundaries
   const now = new Date()
@@ -25,7 +25,7 @@ export async function GET(request: NextRequest) {
   weekEnd.setDate(weekEnd.getDate() + 6)
 
   // Get all users with active subscriptions
-  const { data: subscribers } = await supabase
+  const { data: subscribers } = await convex
     .from('clapcheeks_subscriptions')
     .select('user_id')
     .eq('status', 'active')
@@ -36,7 +36,7 @@ export async function GET(request: NextRequest) {
 
   // Filter by preferences (email_enabled)
   const userIds = subscribers.map((s) => s.user_id)
-  const { data: prefs } = await supabase
+  const { data: prefs } = await convex
     .from('clapcheeks_report_preferences')
     .select('user_id, email_enabled')
     .in('user_id', userIds)
@@ -58,21 +58,21 @@ export async function GET(request: NextRequest) {
     await Promise.allSettled(
       batch.map(async (userId) => {
         try {
-          const reportData = await generateReportData(supabase, userId, weekStart, weekEnd)
+          const reportData = await generateReportData(convex, userId, weekStart, weekEnd)
           const pdfBuffer = await renderReportPdf(reportData)
 
           // Upload PDF
           const filename = `${userId}/${weekStart.toISOString().split('T')[0]}.pdf`
-          await supabase.storage
+          await convex.storage
             .from('weekly-reports')
             .upload(filename, pdfBuffer, { contentType: 'application/pdf', upsert: true })
 
-          const { data: urlData } = supabase.storage
+          const { data: urlData } = convex.storage
             .from('weekly-reports')
             .getPublicUrl(filename)
 
           // Save report
-          await supabase.from('clapcheeks_weekly_reports').upsert({
+          await convex.from('clapcheeks_weekly_reports').upsert({
             user_id: userId,
             week_start: weekStart.toISOString().split('T')[0],
             week_end: weekEnd.toISOString().split('T')[0],
@@ -81,7 +81,7 @@ export async function GET(request: NextRequest) {
           }, { onConflict: 'user_id,week_start' })
 
           // Send email
-          const { data: { user } } = await supabase.auth.admin.getUserById(userId)
+          const { data: { user } } = await convex.auth.admin.getUserById(userId)
           if (user?.email) {
             await sendReportEmail({
               to: user.email,
@@ -91,7 +91,7 @@ export async function GET(request: NextRequest) {
               rizzScore: reportData.rizzScore,
             })
 
-            await supabase
+            await convex
               .from('clapcheeks_weekly_reports')
               .update({ sent_at: new Date().toISOString() })
               .eq('user_id', userId)

@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import { createClient } from '@/lib/convex/server'
 import { getLatestCoaching, generateCoaching } from '@/lib/coaching/generate'
 import {
   calculatePerformanceScore,
@@ -9,8 +9,8 @@ import {
 } from '@/lib/coaching/benchmarks'
 
 export async function GET() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const convex = await createClient()
+  const { data: { user } } = await convex.auth.getUser()
 
   if (!user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -22,13 +22,13 @@ export async function GET() {
   const sinceStr = since.toISOString().split('T')[0]
 
   const [analyticsRes, convoRes] = await Promise.all([
-    supabase
+    convex
       .from('clapcheeks_analytics_daily')
       .select('app, swipes_right, swipes_left, matches, conversations_started, dates_booked, date')
       .eq('user_id', user.id)
       .gte('date', sinceStr)
       .order('date', { ascending: false }),
-    supabase
+    convex
       .from('clapcheeks_conversation_stats')
       .select('conversations_started, conversations_replied, date')
       .eq('user_id', user.id)
@@ -71,10 +71,10 @@ export async function GET() {
   const positives = getPositiveInsights(metrics)
 
   // Get cached coaching tips or generate new ones
-  let coaching = await getLatestCoaching(supabase, user.id)
+  let coaching = await getLatestCoaching(convex, user.id)
   if (!coaching) {
     try {
-      coaching = await generateCoaching(supabase, user.id)
+      coaching = await generateCoaching(convex, user.id)
     } catch (error) {
       console.error('Failed to generate coaching:', error)
     }

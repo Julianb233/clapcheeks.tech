@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
-import { createAdminClient } from '@/lib/supabase/admin'
+import { createClient } from '@/lib/convex/server'
+import { createAdminClient } from '@/lib/convex/admin'
 
 /**
  * Phase L (AI-8340) - fill the user's 7-day posting queue.
@@ -129,17 +129,17 @@ function buildPlan(
 }
 
 export async function POST() {
-  const supabase = await createClient()
+  const convex = await createClient()
   const {
     data: { user },
-  } = await supabase.auth.getUser()
+  } = await convex.auth.getUser()
   if (!user) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
   }
 
   if (
-    !process.env.NEXT_PUBLIC_SUPABASE_URL ||
-    !process.env.SUPABASE_SERVICE_ROLE_KEY
+    !process.env.NEXT_PUBLIC_CONVEX_URL ||
+    !process.env.CONVEX_DEPLOY_KEY
   ) {
     return NextResponse.json({ error: 'server_unconfigured' }, { status: 500 })
   }

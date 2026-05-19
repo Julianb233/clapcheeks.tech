@@ -1,7 +1,7 @@
 import type { Metadata } from 'next'
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
-import { createClient } from '@/lib/supabase/server'
+import { createClient } from '@/lib/convex/server'
 import RosterKanban from '@/components/roster/RosterKanban'
 import RosterStatsBar from '@/components/roster/RosterStatsBar'
 import DailyTopThree from '@/components/roster/DailyTopThree'
@@ -20,15 +20,15 @@ type ConvoLite = {
 }
 
 export default async function RosterPage() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const convex = await createClient()
+  const { data: { user } } = await convex.auth.getUser()
   if (!user) redirect('/login')
 
   let matches: ClapcheeksMatchRow[] = []
   let fetchError: string | null = null
   try {
     // Pull up to 200 rows; the kanban caps each column to 20 client-side.
-    const { data, error } = await (supabase as any)
+    const { data, error } = await (convex as any)
       .from('clapcheeks_matches')
       .select('*')
       .eq('user_id', user.id)
@@ -51,7 +51,7 @@ export default async function RosterPage() {
     try {
       const matchIds = matches.map((m) => m.external_id).filter((x): x is string => !!x)
       if (matchIds.length > 0) {
-        const { data } = await supabase
+        const { data } = await convex
           .from('clapcheeks_conversations')
           .select('match_id, last_message, last_message_at')
           .eq('user_id', user.id)

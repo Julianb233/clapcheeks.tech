@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
-import { createClient } from '@/lib/supabase/client'
+import { createClient } from '@/lib/convex/client'
 import MatchCard from './MatchCard'
 import FilterBar from './FilterBar'
 import {
@@ -10,6 +10,7 @@ import {
 } from '@/lib/matches/types'
 
 type LastMessageMap = Record<string, string | null>
+type ConvexMatchRow = ClapcheeksMatchRow & { _id?: string }
 
 type Props = {
   initialMatches: ClapcheeksMatchRow[]
@@ -55,10 +56,10 @@ export default function MatchGrid({
     if (!hasMore || loading) return
     setLoading(true)
     try {
-      const supabase = createClient()
+      const convex = createClient()
       const from = matches.length
       const to = from + pageSize - 1
-      const { data, error } = await supabase
+      const { data, error } = await convex
         .from('clapcheeks_matches')
         .select('*')
         .order('final_score', { ascending: false, nullsFirst: false })
@@ -164,9 +165,17 @@ export default function MatchGrid({
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-          {filtered.map((m) => (
-            <MatchCard key={m.id} match={m} lastMessage={lastMessages[m.id]} />
-          ))}
+          {filtered.map((m) => {
+            const match = m as ConvexMatchRow
+            const matchId = match.id || match._id || `${match.platform}-${match.external_id || match.name || 'match'}`
+            return (
+              <MatchCard
+                key={matchId}
+                match={m}
+                lastMessage={lastMessages[match.id || match._id || '']}
+              />
+            )
+          })}
         </div>
       )}
       {hasMore && (
@@ -186,4 +195,3 @@ export default function MatchGrid({
     </div>
   )
 }
-

@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import { createClient } from '@/lib/convex/server'
 
 /**
  * GET  /api/memo/[handle]    — fetch the memo content for the current user + handle.
@@ -26,10 +26,10 @@ export async function GET(
   _req: Request,
   ctx: { params: Promise<{ handle: string }> },
 ) {
-  const supabase = await createClient()
+  const convex = await createClient()
   const {
     data: { user },
-  } = await supabase.auth.getUser()
+  } = await convex.auth.getUser()
   if (!user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
@@ -40,7 +40,7 @@ export async function GET(
     return NextResponse.json({ error: 'handle required' }, { status: 400 })
   }
 
-  const { data, error } = await (supabase as any)
+  const { data, error } = await (convex as any)
     .from('clapcheeks_memos')
     .select('content, updated_at')
     .eq('user_id', user.id)
@@ -66,10 +66,10 @@ export async function PUT(
   req: Request,
   ctx: { params: Promise<{ handle: string }> },
 ) {
-  const supabase = await createClient()
+  const convex = await createClient()
   const {
     data: { user },
-  } = await supabase.auth.getUser()
+  } = await convex.auth.getUser()
   if (!user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
@@ -102,7 +102,7 @@ export async function PUT(
 
   const now = new Date().toISOString()
 
-  const { data, error } = await (supabase as any)
+  const { data, error } = await (convex as any)
     .from('clapcheeks_memos')
     .upsert(
       {

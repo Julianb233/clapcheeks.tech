@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import { createClient } from '@/lib/convex/server'
 
 export const runtime = 'nodejs'
 export const maxDuration = 60
@@ -7,8 +7,8 @@ export const maxDuration = 60
 const MAX_AUDIO_BYTES = 25 * 1024 * 1024
 
 export async function POST(req: NextRequest) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const convex = await createClient()
+  const { data: { user } } = await convex.auth.getUser()
   if (!user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }

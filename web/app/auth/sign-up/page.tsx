@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { createClient } from "@/lib/supabase/client"
+import { createClient } from "@/lib/convex/client"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { useState, useRef } from "react"
@@ -36,7 +36,7 @@ export default function SignUpPage() {
 
   const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault()
-    const supabase = createClient()
+    const convex = createClient()
     setIsLoading(true)
     setError(null)
 
@@ -53,11 +53,11 @@ export default function SignUpPage() {
     }
 
     try {
-      const { data, error } = await supabase.auth.signUp({
+      const { data, error } = await convex.auth.signUp({
         email,
         password,
         options: {
-          emailRedirectTo: process.env.NEXT_PUBLIC_DEV_SUPABASE_REDIRECT_URL || `${window.location.origin}/auth/login`,
+          emailRedirectTo: process.env.NEXT_PUBLIC_DEV_CONVEX_REDIRECT_URL || `${window.location.origin}/auth/login`,
           data: {
             full_name: fullName,
             avatar_url: photoPreview || undefined,

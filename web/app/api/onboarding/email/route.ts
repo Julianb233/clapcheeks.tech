@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createAdminClient } from '@/lib/supabase/admin'
+import { createAdminClient } from '@/lib/convex/admin'
 import { SEQUENCE } from '@/lib/emails/onboarding-sequence'
 
 export const maxDuration = 120
@@ -24,13 +24,13 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const supabase = createAdminClient()
+  const convex = createAdminClient()
   const now = new Date()
 
   // ---- Fetch users who haven't finished the sequence ----
   // onboarding_email_step tracks how many emails have been sent (0 = none yet).
   // Users who have completed all 5 steps have step === SEQUENCE.length and are excluded.
-  const { data: users, error: fetchError } = await supabase
+  const { data: users, error: fetchError } = await convex
     .from('profiles')
     .select('id, email, full_name, created_at, onboarding_email_step')
     .lt('onboarding_email_step', SEQUENCE.length)
@@ -92,7 +92,7 @@ export async function POST(request: NextRequest) {
       }
 
       // Advance the user's step
-      const { error: updateError } = await supabase
+      const { error: updateError } = await convex
         .from('profiles')
         .update({ onboarding_email_step: step + 1 })
         .eq('id', user.id)

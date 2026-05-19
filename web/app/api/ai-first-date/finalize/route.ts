@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import { createClient } from '@/lib/convex/server'
 import Anthropic from '@anthropic-ai/sdk'
 
 export const runtime = 'nodejs'
@@ -12,11 +12,11 @@ type Answer = { questionId: string; prompt: string; answer: string; purpose: str
  * a short summary the agent can quote. Marks completed_at.
  */
 export async function POST() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const convex = await createClient()
+  const { data: { user } } = await convex.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { data: row } = await supabase
+  const { data: row } = await convex
     .from('user_voice_context')
     .select('answers')
     .eq('user_id', user.id)
@@ -80,7 +80,7 @@ No preamble, no trailing commentary. Just the JSON.`,
   }
 
   const now = new Date().toISOString()
-  await supabase.from('user_voice_context').upsert(
+  await convex.from('user_voice_context').upsert(
     {
       user_id: user.id,
       answers,

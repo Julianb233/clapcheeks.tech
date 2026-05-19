@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import { createClient } from '@/lib/convex/server'
 import { signFromBirthday, signFromText, getCompatibility, TRAITS, ELEMENTS, MODALITIES, EMOJIS } from '@/lib/match-profile/zodiac'
 import { buildDiscProfile } from '@/lib/match-profile/disc-profiler'
 import { extractInterestsKeyword } from '@/lib/match-profile/interest-extractor'
@@ -20,15 +20,15 @@ import { extractInterestsKeyword } from '@/lib/match-profile/interest-extractor'
  * / enriched_at) — there are no top-level columns for these.
  */
 export async function POST(request: NextRequest) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const convex = await createClient()
+  const { data: { user } } = await convex.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { profile_id } = await request.json()
   if (!profile_id) return NextResponse.json({ error: 'profile_id required' }, { status: 400 })
 
   // Fetch the profile
-  const { data: profile, error: fetchError } = await supabase
+  const { data: profile, error: fetchError } = await convex
     .from('clapcheeks_matches')
     .select('*')
     .eq('id', profile_id)
@@ -49,7 +49,7 @@ export async function POST(request: NextRequest) {
   // Mark as enriching (partial) before we start
   {
     const partialIntel = { ...existingIntel, enrichment_status: 'partial' }
-    await (supabase as any)
+    await (convex as any)
       .from('clapcheeks_matches')
       .update({ match_intel: partialIntel })
       .eq('id', profile_id)
@@ -109,7 +109,7 @@ export async function POST(request: NextRequest) {
     }
 
     // 2. Get user's zodiac for compatibility
-    const { data: userSettings } = await (supabase as any)
+    const { data: userSettings } = await (convex as any)
       .from('clapcheeks_user_settings')
       .select('persona')
       .eq('user_id', user.id)
@@ -175,7 +175,7 @@ export async function POST(request: NextRequest) {
     intel.enrichment_error = err instanceof Error ? err.message : 'Unknown error'
   }
 
-  const { error: updateError } = await (supabase as any)
+  const { error: updateError } = await (convex as any)
     .from('clapcheeks_matches')
     .update({ ...directUpdates, match_intel: intel })
     .eq('id', profile_id)

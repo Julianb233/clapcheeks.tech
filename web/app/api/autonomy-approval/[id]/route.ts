@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import { createClient } from '@/lib/convex/server'
 import * as Sentry from '@sentry/nextjs'
 
 const VALID_STATUSES = new Set(['approved', 'rejected'])
@@ -21,8 +21,8 @@ export async function PATCH(
       return NextResponse.json({ error: 'Missing id' }, { status: 400 })
     }
 
-    const supabase = await createClient()
-    const { data: { user } } = await supabase.auth.getUser()
+    const convex = await createClient()
+    const { data: { user } } = await convex.auth.getUser()
 
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -54,7 +54,7 @@ export async function PATCH(
       updates.proposed_text = edited_text.trim()
     }
 
-    const { data: updated, error: updateError } = await supabase
+    const { data: updated, error: updateError } = await convex
       .from('clapcheeks_approval_queue')
       .update(updates)
       .eq('id', id)
@@ -80,7 +80,7 @@ export async function PATCH(
     // okay is visible in the action history. We don't fail the request if
     // the log insert errors — the approval itself already succeeded.
     if (status === 'approved') {
-      const { error: logError } = await supabase
+      const { error: logError } = await convex
         .from('clapcheeks_auto_actions')
         .insert({
           user_id: user.id,

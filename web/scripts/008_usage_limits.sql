@@ -42,7 +42,7 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- Cleanup old usage records (keep 30 days for analytics)
--- Run via pg_cron or Supabase scheduled function:
+-- Run via pg_cron or Convex scheduled function:
 -- SELECT cron.schedule('cleanup-usage-daily', '0 1 * * *',
 --   $$DELETE FROM clapcheeks_usage_daily WHERE date < CURRENT_DATE - INTERVAL '30 days'$$
 -- );

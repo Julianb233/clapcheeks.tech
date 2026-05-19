@@ -1,5 +1,5 @@
 import type { Metadata } from 'next'
-import { createClient } from '@/lib/supabase/server'
+import { createClient } from '@/lib/convex/server'
 import { redirect } from 'next/navigation'
 import { OnboardingWizard } from './onboarding-wizard'
 import PageOrbs from '@/components/page-orbs'
@@ -10,12 +10,12 @@ export const metadata: Metadata = {
 }
 
 export default async function OnboardingPage() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const convex = await createClient()
+  const { data: { user } } = await convex.auth.getUser()
 
   if (!user) redirect('/login')
 
-  const { data: profile } = await supabase
+  const { data: profile } = await convex
     .from('profiles')
     .select('subscription_tier')
     .eq('id', user.id)

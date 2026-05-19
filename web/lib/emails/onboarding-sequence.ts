@@ -1,6 +1,15 @@
 import { Resend } from 'resend'
 
-const resend = new Resend(process.env.RESEND_API_KEY)
+let resend: Resend | null = null
+
+function getResend(): Resend {
+  const key = process.env.RESEND_API_KEY
+  if (!key) {
+    throw new Error('RESEND_API_KEY is not configured')
+  }
+  resend ??= new Resend(key)
+  return resend
+}
 
 const FROM = 'Clapcheeks <hello@clapcheeks.tech>'
 const UNSUBSCRIBE_URL = 'https://clapcheeks.tech/settings?unsubscribe=onboarding'
@@ -14,10 +23,7 @@ interface EmailParams {
   firstName: string
 }
 
-type SendResult = {
-  data: Awaited<ReturnType<typeof resend.emails.send>>['data']
-  error: Awaited<ReturnType<typeof resend.emails.send>>['error']
-}
+type SendResult = Awaited<ReturnType<Resend['emails']['send']>>
 
 function layout(title: string, body: string): string {
   return `<!DOCTYPE html>
@@ -95,7 +101,7 @@ export async function sendWelcomeEmail({ to, firstName }: EmailParams): Promise<
     `)}
   `)
 
-  return resend.emails.send({
+  return getResend().emails.send({
     from: FROM,
     to: [to],
     subject,
@@ -128,7 +134,7 @@ export async function sendSetupGuideEmail({ to, firstName }: EmailParams): Promi
     `)}
   `)
 
-  return resend.emails.send({
+  return getResend().emails.send({
     from: FROM,
     to: [to],
     subject,
@@ -161,7 +167,7 @@ export async function sendFirstResultsEmail({ to, firstName }: EmailParams): Pro
     `)}
   `)
 
-  return resend.emails.send({
+  return getResend().emails.send({
     from: FROM,
     to: [to],
     subject,
@@ -200,7 +206,7 @@ export async function sendProTipsEmail({ to, firstName }: EmailParams): Promise<
     `)}
   `)
 
-  return resend.emails.send({
+  return getResend().emails.send({
     from: FROM,
     to: [to],
     subject,
@@ -239,7 +245,7 @@ export async function sendUpgradeNudgeEmail({ to, firstName }: EmailParams): Pro
     `)}
   `)
 
-  return resend.emails.send({
+  return getResend().emails.send({
     from: FROM,
     to: [to],
     subject,

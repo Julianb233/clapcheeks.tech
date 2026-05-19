@@ -1,19 +1,32 @@
 import type { Metadata } from 'next'
-import { createClient } from '@/lib/supabase/server'
+import { createClient } from '@/lib/convex/server'
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
+import MatchPhotoImage from '@/components/matches/MatchPhotoImage'
+import { normalizeMatchPhotos } from '@/lib/matches/photos'
 
 export const metadata: Metadata = {
   title: 'Match Intel - Clapcheeks',
   description: 'Enriched profiles for every match — photos, bios, interests, and conversation strategy.',
 }
 
-type PhotoJson = { url: string; supabase_path?: string | null; width?: number; height?: number }
-
-function coverPhoto(photos: unknown): string | null {
-  if (!Array.isArray(photos) || photos.length === 0) return null
-  const p = photos[0] as PhotoJson
-  return (p && typeof p === 'object' && p.url) || null
+type MatchListRow = {
+  id: string
+  match_name?: string | null
+  name?: string | null
+  age?: number | null
+  bio?: string | null
+  platform?: string | null
+  photos_jsonb?: unknown
+  instagram_handle?: string | null
+  zodiac?: string | null
+  job?: string | null
+  school?: string | null
+  stage?: string | null
+  health_score?: number | null
+  julian_rank?: number | null
+  match_intel?: unknown
+  created_at?: string | number | null
 }
 
 function intelInterests(intel: unknown): string[] {
@@ -23,11 +36,11 @@ function intelInterests(intel: unknown): string[] {
 }
 
 export default async function MatchesPage() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const convex = await createClient()
+  const { data: { user } } = await convex.auth.getUser()
   if (!user) redirect('/auth')
 
-  const { data: matches, error } = await supabase
+  const { data: matches, error } = await convex
     .from('clapcheeks_matches')
     .select(
       'id, match_name, name, age, bio, platform, photos_jsonb, instagram_handle, zodiac, job, school, stage, health_score, julian_rank, match_intel, created_at'
@@ -37,7 +50,7 @@ export default async function MatchesPage() {
     .order('created_at', { ascending: false })
     .limit(200)
 
-  const items = matches ?? []
+  const items = (matches ?? []) as MatchListRow[]
 
   return (
     <div className="min-h-screen bg-black text-white p-4 md:p-8">
@@ -89,10 +102,9 @@ export default async function MatchesPage() {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
             {items.map((m) => {
               const displayName = m.name || m.match_name || 'Unknown'
-              const photo = coverPhoto(m.photos_jsonb)
-              const nPhotos = Array.isArray(m.photos_jsonb)
-                ? (m.photos_jsonb as PhotoJson[]).length
-                : 0
+              const photos = normalizeMatchPhotos(m.photos_jsonb)
+              const photo = photos[0]?.url ?? null
+              const nPhotos = photos.length
               const interests = intelInterests(m.match_intel).slice(0, 5)
               return (
                 <Link
@@ -101,20 +113,13 @@ export default async function MatchesPage() {
                   className="group flex flex-col rounded-2xl border border-white/10 bg-white/5 overflow-hidden hover:border-pink-500/40 hover:bg-white/[0.07] transition-all"
                 >
                   <div className="relative aspect-[4/5] bg-gradient-to-br from-pink-900/40 to-purple-900/40">
-                    {photo ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={photo}
-                        alt={displayName}
-                        className="w-full h-full object-cover"
-                        loading="lazy"
-                        referrerPolicy="no-referrer"
-                      />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center text-4xl text-white/30">
-                        {displayName[0]?.toUpperCase() || '?'}
-                      </div>
-                    )}
+                    <MatchPhotoImage
+                      src={photo}
+                      alt={displayName}
+                      initials={displayName}
+                      className="w-full h-full object-cover"
+                      fallbackClassName="w-full h-full flex items-center justify-center text-4xl text-white/30"
+                    />
                     {nPhotos > 1 && (
                       <span className="absolute top-2 right-2 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-black/60 backdrop-blur-sm">
                         {nPhotos} pics

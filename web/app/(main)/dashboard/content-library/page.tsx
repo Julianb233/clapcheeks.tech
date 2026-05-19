@@ -1,6 +1,6 @@
 import type { Metadata } from 'next'
 import { redirect } from 'next/navigation'
-import { createClient } from '@/lib/supabase/server'
+import { createClient } from '@/lib/convex/server'
 import ContentLibraryClient from './content-library-client'
 
 export const metadata: Metadata = {
@@ -34,9 +34,16 @@ export type QueueRow = {
   error: string | null
 }
 
+type SignedUrlResult = string | { signedUrl?: string | null; signed_url?: string | null } | null
+
+function readSignedUrl(data: SignedUrlResult) {
+  if (typeof data === 'string') return data
+  return data?.signedUrl ?? data?.signed_url ?? null
+}
+
 export default async function ContentLibraryPage() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const convex = await createClient()
+  const { data: { user } } = await convex.auth.getUser()
   if (!user) redirect('/login')
 
   let library: LibraryRow[] = []
@@ -44,7 +51,7 @@ export default async function ContentLibraryPage() {
   let fetchError: string | null = null
 
   try {
-    const { data, error } = await (supabase as any)
+    const { data, error } = await (convex as any)
       .from('clapcheeks_content_library')
       .select('*')
       .eq('user_id', user.id)
@@ -60,7 +67,7 @@ export default async function ContentLibraryPage() {
   }
 
   try {
-    const { data } = await (supabase as any)
+    const { data } = await (convex as any)
       .from('clapcheeks_posting_queue')
       .select('id, content_library_id, scheduled_for, status, posted_at, error')
       .eq('user_id', user.id)
@@ -77,11 +84,11 @@ export default async function ContentLibraryPage() {
   const withUrls = await Promise.all(
     library.slice(0, 50).map(async (row) => {
       try {
-        const { data } = await supabase
+        const { data } = await convex
           .storage
           .from('julian-content')
           .createSignedUrl(row.media_path, 3600)
-        return { ...row, signed_url: data?.signedUrl ?? null }
+        return { ...row, signed_url: readSignedUrl(data as SignedUrlResult) }
       } catch {
         return { ...row, signed_url: null }
       }

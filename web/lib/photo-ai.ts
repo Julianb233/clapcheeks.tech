@@ -10,7 +10,7 @@
  */
 
 import Anthropic from '@anthropic-ai/sdk'
-import { createAdminClient } from '@/lib/supabase/admin'
+import { createAdminClient } from '@/lib/convex/admin'
 
 export const PHOTO_CATEGORIES = [
   'drop_in',

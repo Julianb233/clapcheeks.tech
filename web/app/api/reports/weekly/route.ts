@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { createClient } from '@/lib/convex/compat-client'
 import Anthropic from '@anthropic-ai/sdk'
 import { generateReportData } from '@/lib/reports/generate-report-data'
 import { renderWeeklyReportEmail } from '@/lib/email/weekly-report'
@@ -7,12 +7,21 @@ import { Resend } from 'resend'
 
 export const maxDuration = 300
 
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
+const convexAdmin = createClient(
+  process.env.NEXT_PUBLIC_CONVEX_URL!,
+  process.env.CONVEX_DEPLOY_KEY!
 )
 
-const resend = new Resend(process.env.RESEND_API_KEY)
+let resend: Resend | null = null
+
+function getResend(): Resend {
+  const key = process.env.RESEND_API_KEY
+  if (!key) {
+    throw new Error('RESEND_API_KEY is not configured')
+  }
+  resend ??= new Resend(key)
+  return resend
+}
 
 export async function GET(request: NextRequest) {
   // Verify cron secret
@@ -31,7 +40,7 @@ export async function GET(request: NextRequest) {
   weekEnd.setUTCDate(weekEnd.getUTCDate() + 6) // Last Sunday
 
   // Get all users with active subscriptions
-  const { data: subscribers } = await supabaseAdmin
+  const { data: subscribers } = await convexAdmin
     .from('clapcheeks_subscriptions')
     .select('user_id')
     .eq('status', 'active')
@@ -42,7 +51,7 @@ export async function GET(request: NextRequest) {
 
   // Filter by preferences (email_enabled)
   const userIds = subscribers.map((s) => s.user_id)
-  const { data: prefs } = await supabaseAdmin
+  const { data: prefs } = await convexAdmin
     .from('clapcheeks_report_preferences')
     .select('user_id, email_enabled')
     .in('user_id', userIds)
@@ -58,7 +67,7 @@ export async function GET(request: NextRequest) {
   }
 
   // Batch-fetch emails from profiles table (avoid admin.getUserById in loop)
-  const { data: profiles } = await supabaseAdmin
+  const { data: profiles } = await convexAdmin
     .from('profiles')
     .select('id, email')
     .in('id', eligibleUserIds)
@@ -89,7 +98,7 @@ export async function GET(request: NextRequest) {
 
           // Generate report data
           const reportData = await generateReportData(
-            supabaseAdmin,
+            convexAdmin,
             userId,
             weekStart,
             weekEnd
@@ -107,7 +116,7 @@ export async function GET(request: NextRequest) {
           })
 
           // Send via Resend
-          const { error: sendError } = await resend.emails.send({
+          const { error: sendError } = await getResend().emails.send({
             from: 'Clapcheeks <hello@clapcheeks.tech>',
             to: [email],
             subject: 'Your Clapcheeks Week in Review',
@@ -125,7 +134,7 @@ export async function GET(request: NextRequest) {
           const weekStartStr = weekStart.toISOString().split('T')[0]
           const weekEndStr = weekEnd.toISOString().split('T')[0]
 
-          await supabaseAdmin.from('clapcheeks_weekly_reports').upsert(
+          await convexAdmin.from('clapcheeks_weekly_reports').upsert(
             {
               user_id: userId,
               week_start: weekStartStr,
@@ -191,7 +200,7 @@ Stats: ${stats.swipes} swipes (${stats.swipesChange}%), ${stats.matches} matches
 async function getFallbackTip(): Promise<string> {
   // Try to get latest coaching tip from DB
   try {
-    const { data } = await supabaseAdmin
+    const { data } = await convexAdmin
       .from('clapcheeks_coaching_sessions')
       .select('tips')
       .order('created_at', { ascending: false })

@@ -7,6 +7,8 @@ import {
   STATUS_COLORS,
   formatTimeAgo,
 } from '@/lib/matches/types'
+import { getCoverPhoto } from '@/lib/matches/photos'
+import MatchPhotoImage from './MatchPhotoImage'
 
 type Props = {
   match: ClapcheeksMatchRow
@@ -17,7 +19,7 @@ export default function MatchCard({ match, lastMessage }: Props) {
   const matchAny = match as ClapcheeksMatchRow & { _id?: string; match_name?: string | null; photos?: Array<{ url?: string | null }> }
   const matchId = matchAny.id || matchAny._id
   const displayName = matchAny.name || matchAny.match_name || 'Unknown'
-  const primaryPhoto = matchAny.photos_jsonb?.[0]?.url ?? matchAny.photos?.[0]?.url ?? null
+  const primaryPhoto = getCoverPhoto(matchAny.photos_jsonb) ?? getCoverPhoto(matchAny.photos) ?? null
   const initials = displayName.slice(0, 1).toUpperCase()
   const score = typeof match.final_score === 'number' ? Math.round(match.final_score) : null
   const intel = match.match_intel ?? {}
@@ -78,19 +80,13 @@ export default function MatchCard({ match, lastMessage }: Props) {
       className="group block bg-white/[0.03] border border-white/10 rounded-xl overflow-hidden hover:border-yellow-500/40 hover:bg-white/[0.05] transition-all"
     >
       <div className="relative aspect-[3/4] w-full bg-gradient-to-br from-zinc-800 to-zinc-900 overflow-hidden">
-        {primaryPhoto ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={primaryPhoto}
-            alt={displayName}
-            className="w-full h-full object-cover group-hover:scale-[1.02] transition-transform"
-            loading="lazy"
-          />
-        ) : (
-          <div className="w-full h-full flex items-center justify-center text-white/30 text-5xl font-bold">
-            {initials}
-          </div>
-        )}
+        <MatchPhotoImage
+          src={primaryPhoto}
+          alt={displayName}
+          initials={initials}
+          className="w-full h-full object-cover group-hover:scale-[1.02] transition-transform"
+          fallbackClassName="w-full h-full flex items-center justify-center text-white/30 text-5xl font-bold"
+        />
         {score !== null && (
           <div className="absolute top-2 left-2 bg-black/70 backdrop-blur border border-yellow-500/40 rounded-md px-2 py-0.5 text-[11px] font-mono font-bold text-yellow-400">
             {score}

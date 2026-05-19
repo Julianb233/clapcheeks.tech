@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import { createClient } from '@/lib/convex/server'
 import { parseExtractionResult, profileToAnalysisText } from '@/lib/match-profile/instagram-scraper'
 import { extractInterestsKeyword } from '@/lib/match-profile/interest-extractor'
 
@@ -19,15 +19,15 @@ import { extractInterestsKeyword } from '@/lib/match-profile/interest-extractor'
  *   - interests / interest_tags fold into the `match_intel` JSONB blob.
  */
 export async function POST(request: NextRequest) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const convex = await createClient()
+  const { data: { user } } = await convex.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { profile_id, extraction_result } = await request.json()
   if (!profile_id) return NextResponse.json({ error: 'profile_id required' }, { status: 400 })
 
   // Fetch the profile
-  const { data: profile, error: fetchError } = await supabase
+  const { data: profile, error: fetchError } = await convex
     .from('clapcheeks_matches')
     .select('*')
     .eq('id', profile_id)
@@ -76,7 +76,7 @@ export async function POST(request: NextRequest) {
       interest_tags: extracted.tags,
     }
 
-    const { error: updateError } = await (supabase as any)
+    const { error: updateError } = await (convex as any)
       .from('clapcheeks_matches')
       .update({
         instagram_intel: nextIgIntel,

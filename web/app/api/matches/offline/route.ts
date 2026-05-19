@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import { createClient } from '@/lib/convex/server'
 
 /**
  * Phase F (AI-8320): Offline contact ingestion.
@@ -31,8 +31,8 @@ function normalizePhoneE164(raw: string): string | null {
 }
 
 export async function POST(req: Request) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const convex = await createClient()
+  const { data: { user } } = await convex.auth.getUser()
   if (!user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
@@ -90,7 +90,7 @@ export async function POST(req: Request) {
     last_activity_at: nowIso,
   }
 
-  const { data: upserted, error: upsertError } = await (supabase as any)
+  const { data: upserted, error: upsertError } = await (convex as any)
     .from('clapcheeks_matches')
     .upsert(row, { onConflict: 'user_id,platform,external_id' })
     .select('id, external_id')
@@ -132,7 +132,7 @@ export async function POST(req: Request) {
         created_at: nowIso,
       })
     }
-    await (supabase as any).from('clapcheeks_agent_jobs').insert(jobs)
+    await (convex as any).from('clapcheeks_agent_jobs').insert(jobs)
   } catch (err) {
     // Non-fatal — match row exists; daemon can pick these up on next tick
     console.warn('[offline-match] job enqueue failed (non-fatal):', err)

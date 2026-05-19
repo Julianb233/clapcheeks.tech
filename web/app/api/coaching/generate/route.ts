@@ -1,11 +1,11 @@
 import { NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import { createClient } from '@/lib/convex/server'
 import { generateCoaching } from '@/lib/coaching/generate'
 import { checkLimit, incrementUsage } from '@/lib/usage'
 
 export async function POST() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const convex = await createClient()
+  const { data: { user } } = await convex.auth.getUser()
 
   if (!user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -32,7 +32,7 @@ export async function POST() {
   }
 
   try {
-    const session = await generateCoaching(supabase, user.id)
+    const session = await generateCoaching(convex, user.id)
 
     if (!session) {
       return NextResponse.json(

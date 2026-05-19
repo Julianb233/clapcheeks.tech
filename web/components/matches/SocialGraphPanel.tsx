@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { createClient } from '@/lib/supabase/client'
+import { createClient } from '@/lib/convex/client'
 
 type MutualFriend = {
   name?: string
@@ -69,8 +69,8 @@ export default function SocialGraphPanel({
     setSaving(true)
     setSaveError(null)
     try {
-      const supabase = createClient()
-      const { error } = await supabase
+      const convex = createClient()
+      const { error } = await convex
         .from('clapcheeks_matches')
         .update({
           match_intel: {

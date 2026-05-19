@@ -1,16 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import { createClient } from '@/lib/convex/server'
 
 export async function GET() {
   try {
-    const supabase = await createClient()
-    const { data: { user } } = await supabase.auth.getUser()
+    const convex = await createClient()
+    const { data: { user } } = await convex.auth.getUser()
 
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const { data } = await supabase
+    const { data } = await convex
       .from('clapcheeks_report_preferences')
       .select('email_enabled, send_day, send_hour')
       .eq('user_id', user.id)
@@ -25,8 +25,8 @@ export async function GET() {
 
 export async function PUT(request: NextRequest) {
   try {
-    const supabase = await createClient()
-    const { data: { user } } = await supabase.auth.getUser()
+    const convex = await createClient()
+    const { data: { user } } = await convex.auth.getUser()
 
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -35,7 +35,7 @@ export async function PUT(request: NextRequest) {
     const body = await request.json()
     const { email_enabled, send_day, send_hour } = body
 
-    const { error } = await supabase
+    const { error } = await convex
       .from('clapcheeks_report_preferences')
       .upsert(
         {

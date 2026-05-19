@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { createClient } from '@/lib/convex/compat-client'
 
 /**
  * Phase M (AI-8345) - claim the oldest pending agent job for this
@@ -49,17 +49,17 @@ export async function POST(req: Request) {
   }
   const claimedBy = (body.claimed_by || deviceName || 'chrome-ext').slice(0, 120)
 
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY
+  const url = process.env.NEXT_PUBLIC_CONVEX_URL
+  const key = process.env.CONVEX_DEPLOY_KEY
   if (!url || !key) {
     return cors(
       NextResponse.json({ error: 'server_unconfigured' }, { status: 500 }),
     )
   }
-  const supabase = createClient(url, key, { auth: { persistSession: false } })
+  const convex = createClient(url, key, { auth: { persistSession: false } })
 
   // Device-token -> user_id
-  const { data: tokRows, error: lookupErr } = await supabase
+  const { data: tokRows, error: lookupErr } = await convex
     .from('clapcheeks_agent_tokens')
     .select('user_id, device_name')
     .eq('token', deviceToken)
@@ -81,7 +81,7 @@ export async function POST(req: Request) {
   }
 
   // Bump last_seen_at so fleet-health can tell the extension is alive.
-  void supabase
+  void convex
     .from('clapcheeks_agent_tokens')
     .update({
       last_seen_at: new Date().toISOString(),
@@ -91,7 +91,7 @@ export async function POST(req: Request) {
     .then(() => null)
 
   // Find the oldest pending job for this user.
-  const { data: candidates, error: selErr } = await supabase
+  const { data: candidates, error: selErr } = await convex
     .from('clapcheeks_agent_jobs')
     .select('id, user_id, job_type, platform, job_params, created_at')
     .eq('user_id', devRow.user_id)
@@ -116,7 +116,7 @@ export async function POST(req: Request) {
 
   // Atomic-ish claim: only transitions pending -> claimed; if another
   // extension beat us, 0 rows come back and we return 204.
-  const { data: claimed, error: updErr } = await supabase
+  const { data: claimed, error: updErr } = await convex
     .from('clapcheeks_agent_jobs')
     .update({
       status: 'claimed',

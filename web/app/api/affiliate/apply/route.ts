@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { createClient } from '@/lib/convex/compat-client'
 
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
+const convexAdmin = createClient(
+  process.env.NEXT_PUBLIC_CONVEX_URL!,
+  process.env.CONVEX_DEPLOY_KEY!
 )
 
 export async function POST(request: NextRequest) {
@@ -22,7 +22,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Invalid email address' }, { status: 400 })
   }
 
-  const { error } = await supabaseAdmin
+  const { error } = await convexAdmin
     .from('clapcheeks_affiliate_applications')
     .insert({
       name,

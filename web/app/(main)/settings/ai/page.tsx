@@ -1,7 +1,6 @@
 import type { Metadata } from 'next'
-import { createClient } from '@/lib/supabase/server'
-import { redirect } from 'next/navigation'
 import AISettingsForm, { type Persona, type UserSettings } from './settings-form'
+import { getClapCheeksUserSettings } from '@/lib/clapcheeks/user-settings'
 
 export const metadata: Metadata = {
   title: 'AI Settings — Clapcheeks',
@@ -43,17 +42,7 @@ rules:
 `
 
 export default async function AISettingsPage() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/auth')
-
-  const { data: rows } = await supabase
-    .from('clapcheeks_user_settings')
-    .select('*')
-    .eq('user_id', user.id)
-    .limit(1)
-
-  const row = rows?.[0]
+  const { userId, row } = await getClapCheeksUserSettings()
   const persona: Persona = (row?.persona as Persona) ?? {
     first_name: '',
     age: 0,
@@ -76,7 +65,7 @@ export default async function AISettingsPage() {
     persona,
     dripRulesYaml: row?.drip_rules_yaml ?? DEFAULT_DRIP,
     styleText: row?.style_text ?? '',
-    dateCalendarEmail: row?.date_calendar_email ?? 'julian@aiacrobatics.com',
+    dateCalendarEmail: row?.date_calendar_email ?? 'julianb233@gmail.com',
     dateSlots: ((row?.date_slots as string[] | null) ?? ['18:00', '20:00', '21:30']),
     dateSlotDaysAhead: row?.date_slot_days_ahead ?? 14,
     dateSlotDurationHours: Number(row?.date_slot_duration_hours ?? 2),
@@ -94,7 +83,7 @@ export default async function AISettingsPage() {
         <p className="text-sm text-white/60 mb-8">
           This is where the AI learns your voice, your rizz, and when to follow up.
         </p>
-        <AISettingsForm initial={settings} userId={user.id} />
+        <AISettingsForm initial={settings} userId={userId} />
       </div>
     </div>
   )

@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { createClient } from '@/lib/convex/compat-client'
 
 /**
  * Phase M (AI-8345) job-result ingest endpoint.
@@ -86,17 +86,17 @@ export async function POST(req: Request) {
     )
   }
 
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY
+  const url = process.env.NEXT_PUBLIC_CONVEX_URL
+  const key = process.env.CONVEX_DEPLOY_KEY
   if (!url || !key) {
     return cors(
       NextResponse.json({ error: 'server_unconfigured' }, { status: 500 }),
     )
   }
-  const supabase = createClient(url, key, { auth: { persistSession: false } })
+  const convex = createClient(url, key, { auth: { persistSession: false } })
 
   // Device-token -> user_id lookup. Same scheme as /api/ingest/platform-token.
-  const { data: tokRows, error: lookupErr } = await supabase
+  const { data: tokRows, error: lookupErr } = await convex
     .from('clapcheeks_agent_tokens')
     .select('user_id, device_name')
     .eq('token', deviceToken)
@@ -119,7 +119,7 @@ export async function POST(req: Request) {
 
   // Bump device last_seen_at so the fleet-health dashboard can tell
   // the extension is alive. Fire-and-forget.
-  void supabase
+  void convex
     .from('clapcheeks_agent_tokens')
     .update({
       last_seen_at: new Date().toISOString(),
@@ -130,7 +130,7 @@ export async function POST(req: Request) {
 
   // Scope the write to the owning user so one user's extension can't
   // complete another user's job even if someone leaks a device token.
-  const { data: jobRows, error: jobErr } = await supabase
+  const { data: jobRows, error: jobErr } = await convex
     .from('clapcheeks_agent_jobs')
     .select('id, user_id, status')
     .eq('id', jobId)
@@ -180,7 +180,7 @@ export async function POST(req: Request) {
     completed_at: nowIso,
   }
 
-  const { error: updErr } = await supabase
+  const { error: updErr } = await convex
     .from('clapcheeks_agent_jobs')
     .update(updatePayload)
     .eq('id', jobId)

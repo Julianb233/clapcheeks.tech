@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
-import { createClient } from '@/lib/supabase/client'
+import { createClient } from '@/lib/convex/client'
 import {
   ClapcheeksMatchRow,
   ConversationMessage,
@@ -43,8 +43,8 @@ export default function MatchDetail({ match, messages, clusterRisk }: Props) {
   async function updateStatus(next: MatchStatus) {
     setStatusBusy(next)
     try {
-      const supabase = createClient()
-      const { error } = await supabase
+      const convex = createClient()
+      const { error } = await convex
         .from('clapcheeks_matches')
         .update({ status: next, updated_at: new Date().toISOString() })
         .eq('id', current.id)
@@ -62,9 +62,9 @@ export default function MatchDetail({ match, messages, clusterRisk }: Props) {
     setRankSaving(true)
     setRankError(null)
     try {
-      const supabase = createClient()
+      const convex = createClient()
       // julian_rank column may not exist yet — handle gracefully.
-      const { error } = await supabase
+      const { error } = await convex
         .from('clapcheeks_matches')
         .update({ julian_rank: newRank })
         .eq('id', current.id)

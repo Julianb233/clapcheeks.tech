@@ -1,4 +1,4 @@
-import { createClient } from '@/lib/supabase/server'
+import { createClient } from '@/lib/convex/server'
 import { NextResponse } from 'next/server'
 
 /**
@@ -6,27 +6,27 @@ import { NextResponse } from 'next/server'
  * Used by the dogfooding dashboard to show real-time agent health.
  */
 export async function GET() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const convex = await createClient()
+  const { data: { user } } = await convex.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const since = new Date()
   since.setDate(since.getDate() - 14)
 
   const [healthRes, frictionRes, streakRes] = await Promise.all([
-    supabase
+    convex
       .from('clapcheeks_dogfood_health')
       .select('*')
       .eq('user_id', user.id)
       .gte('date', since.toISOString().split('T')[0])
       .order('date', { ascending: false })
       .limit(14),
-    supabase
+    convex
       .from('clapcheeks_friction_points')
       .select('id, severity, resolved')
       .eq('user_id', user.id)
       .eq('resolved', false),
-    supabase
+    convex
       .from('clapcheeks_dogfood_health')
       .select('consecutive_streak')
       .eq('user_id', user.id)

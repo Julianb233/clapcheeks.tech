@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
-import { createAdminClient } from '@/lib/supabase/admin'
+import { createClient } from '@/lib/convex/server'
+import { createAdminClient } from '@/lib/convex/admin'
 import { generateReportData } from '@/lib/reports/generate-report-data'
 import { renderReportPdf } from '@/lib/reports/generate-pdf'
 import { sendReportEmail } from '@/lib/reports/send-report-email'
@@ -9,7 +9,7 @@ export const maxDuration = 60
 
 export async function POST(request: NextRequest) {
   try {
-    const supabase = await createClient()
+    const convex = await createClient()
     const body = await request.json()
     const { userId, weekStart: weekStartParam } = body as { userId?: string; weekStart?: string }
 
@@ -25,14 +25,14 @@ export async function POST(request: NextRequest) {
       if (cronSecret && authHeader === `Bearer ${cronSecret}`) {
         targetUserId = userId
       } else {
-        const { data: { user } } = await supabase.auth.getUser()
+        const { data: { user } } = await convex.auth.getUser()
         if (!user || user.id !== userId) {
           return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
         }
         targetUserId = user.id
       }
     } else {
-      const { data: { user } } = await supabase.auth.getUser()
+      const { data: { user } } = await convex.auth.getUser()
       if (!user) {
         return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
       }
@@ -47,14 +47,14 @@ export async function POST(request: NextRequest) {
     weekEnd.setDate(weekEnd.getDate() + 6)
 
     // Generate report data
-    const reportData = await generateReportData(supabase, targetUserId, weekStart, weekEnd)
+    const reportData = await generateReportData(convex, targetUserId, weekStart, weekEnd)
 
     // Render PDF
     const pdfBuffer = await renderReportPdf(reportData)
 
-    // Upload to Supabase Storage
+    // Upload to Convex Storage
     const filename = `${targetUserId}/${weekStart.toISOString().split('T')[0]}.pdf`
-    const { error: uploadError } = await supabase.storage
+    const { error: uploadError } = await convex.storage
       .from('weekly-reports')
       .upload(filename, pdfBuffer, {
         contentType: 'application/pdf',
@@ -66,14 +66,14 @@ export async function POST(request: NextRequest) {
     }
 
     // Get public URL
-    const { data: urlData } = supabase.storage
+    const { data: urlData } = convex.storage
       .from('weekly-reports')
       .getPublicUrl(filename)
 
     const pdfUrl = urlData?.publicUrl || null
 
     // Save report record
-    const { error: dbError } = await supabase
+    const { error: dbError } = await convex
       .from('clapcheeks_weekly_reports')
       .upsert({
         user_id: targetUserId,
@@ -88,7 +88,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Send email if user has it enabled
-    const { data: prefs } = await supabase
+    const { data: prefs } = await convex
       .from('clapcheeks_report_preferences')
       .select('email_enabled')
       .eq('user_id', targetUserId)
@@ -97,8 +97,8 @@ export async function POST(request: NextRequest) {
     const emailEnabled = prefs?.email_enabled !== false // default true
 
     if (emailEnabled) {
-      const supabaseAdmin = createAdminClient()
-      const { data: { user: targetUser } } = await supabaseAdmin.auth.admin.getUserById(targetUserId)
+      const convexAdmin = createAdminClient()
+      const { data: { user: targetUser } } = await convexAdmin.auth.admin.getUserById(targetUserId)
       if (targetUser?.email) {
         try {
           await sendReportEmail({
@@ -110,7 +110,7 @@ export async function POST(request: NextRequest) {
           })
 
           // Mark as sent
-          await supabase
+          await convex
             .from('clapcheeks_weekly_reports')
             .update({ sent_at: new Date().toISOString() })
             .eq('user_id', targetUserId)

@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import { createClient } from '@/lib/convex/server'
 
 /**
  * Phase L (AI-8340) - Auto-categorize an uploaded library item.
@@ -40,10 +40,10 @@ const KEYWORDS: Array<[string, string]> = [
 ]
 
 export async function POST(req: Request) {
-  const supabase = await createClient()
+  const convex = await createClient()
   const {
     data: { user },
-  } = await supabase.auth.getUser()
+  } = await convex.auth.getUser()
   if (!user) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
   }

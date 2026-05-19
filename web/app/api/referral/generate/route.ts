@@ -1,17 +1,17 @@
 import { NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import { createClient } from '@/lib/convex/server'
 import { nanoid } from 'nanoid'
 
 export async function POST() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const convex = await createClient()
+  const { data: { user } } = await convex.auth.getUser()
 
   if (!user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
   // Check if user already has a ref_code
-  const { data: profile } = await supabase
+  const { data: profile } = await convex
     .from('profiles')
     .select('ref_code')
     .eq('id', user.id)
@@ -24,7 +24,7 @@ export async function POST() {
   // Generate a new unique ref code
   const refCode = nanoid(8).toUpperCase()
 
-  const { error } = await supabase
+  const { error } = await convex
     .from('profiles')
     .update({ ref_code: refCode })
     .eq('id', user.id)

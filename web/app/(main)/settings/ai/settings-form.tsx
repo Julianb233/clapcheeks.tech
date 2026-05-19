@@ -1,7 +1,6 @@
 'use client'
 
 import { useState } from 'react'
-import { createClient } from '@/lib/supabase/client'
 import { VoiceInput, VoiceTextarea } from '@/components/voice'
 
 export type Persona = {
@@ -68,7 +67,6 @@ export default function AISettingsForm({
   async function save() {
     setSaving(true)
     setMessage('')
-    const supabase = createClient()
     const payload = {
       user_id: userId,
       persona: settings.persona,
@@ -84,9 +82,13 @@ export default function AISettingsForm({
       approve_date_asks: settings.approveDateAsks,
       approve_bookings: settings.approveBookings,
     }
-    const { error } = await supabase
-      .from('clapcheeks_user_settings')
-      .upsert(payload, { onConflict: 'user_id' })
+    const response = await fetch('/api/ai-settings', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+    const result = await response.json().catch(() => ({}))
+    const error = response.ok ? null : { message: result.error || 'Settings save failed' }
     setSaving(false)
     setMessage(error ? `Error: ${error.message}` : 'Saved.')
     if (!error) setTimeout(() => setMessage(''), 3000)

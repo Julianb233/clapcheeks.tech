@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import { createClient } from '@/lib/convex/server'
 import Anthropic from '@anthropic-ai/sdk'
 import {
   SEED_QUESTIONS,
@@ -31,8 +31,8 @@ interface TurnResponse {
  * - Flags done when enough has been gathered
  */
 export async function POST(req: NextRequest) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const convex = await createClient()
+  const { data: { user } } = await convex.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   let body: TurnRequest = {}
@@ -42,7 +42,7 @@ export async function POST(req: NextRequest) {
     // empty body on the very first turn is fine
   }
 
-  const { data: existing } = await supabase
+  const { data: existing } = await convex
     .from('user_voice_context')
     .select('answers')
     .eq('user_id', user.id)
@@ -59,7 +59,7 @@ export async function POST(req: NextRequest) {
       purpose: q?.purpose ?? 'adaptive',
     }
 
-    await supabase.from('user_voice_context').upsert(
+    await convex.from('user_voice_context').upsert(
       {
         user_id: user.id,
         answers,

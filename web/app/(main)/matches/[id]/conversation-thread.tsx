@@ -75,10 +75,17 @@ export default function ConversationThread({ messages, emptyHint }: Props) {
     if (sorted.length === 0) return null
     const first = sorted.find((m) => m.sent_at)
     const last = [...sorted].reverse().find((m) => m.sent_at)
+    const inbound = sorted.filter((m) => !m.is_from_me).length
+    const outbound = sorted.filter((m) => m.is_from_me).length
+    const automated = sorted.filter((m) => m.is_auto_sent).length
     return {
       count: sorted.length,
+      inbound,
+      outbound,
+      automated,
       first: first?.sent_at ? new Date(first.sent_at) : null,
       last: last?.sent_at ? new Date(last.sent_at) : null,
+      lastSpeaker: last ? (last.is_from_me ? 'You' : 'Them') : null,
     }
   }, [sorted])
 
@@ -122,6 +129,20 @@ export default function ConversationThread({ messages, emptyHint }: Props) {
             <strong className="text-white/90">{summary.count}</strong>{' '}
             message{summary.count === 1 ? '' : 's'}
           </span>
+          <span>
+            Them:{' '}
+            <span className="text-white/80">{summary.inbound}</span>
+          </span>
+          <span>
+            You:{' '}
+            <span className="text-white/80">{summary.outbound}</span>
+          </span>
+          {summary.automated > 0 && (
+            <span>
+              Auto:{' '}
+              <span className="text-pink-200">{summary.automated}</span>
+            </span>
+          )}
           {summary.first && (
             <span>
               First:{' '}
@@ -134,6 +155,7 @@ export default function ConversationThread({ messages, emptyHint }: Props) {
             <span>
               Latest:{' '}
               <span className="text-white/80">
+                {summary.lastSpeaker ? `${summary.lastSpeaker} - ` : ''}
                 {formatTimeStamp(summary.last)}
               </span>
             </span>

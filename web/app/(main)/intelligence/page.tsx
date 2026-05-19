@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
-import { createClient } from '@/lib/supabase/client'
+import { createClient } from '@/lib/convex/client'
 
 interface Stats {
   opener_reply_rate: number
@@ -35,6 +35,60 @@ interface ABResult {
 
 const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
+type AnalyticsSummary = {
+  totals?: {
+    swipes_right?: number
+    matches?: number
+    messages_sent?: number
+    dates_booked?: number
+    conversations?: number
+  }
+  platforms?: Record<string, {
+    swipes_right?: number
+    matches?: number
+    messages_sent?: number
+    dates_booked?: number
+  }>
+  trends?: {
+    matches?: { delta?: number }
+  }
+}
+
+function statsFromAnalytics(summary: AnalyticsSummary): Stats {
+  const totals = summary.totals ?? {}
+  const opened = totals.messages_sent || totals.conversations || totals.matches || 0
+  const replied = totals.conversations || 0
+  const booked = totals.dates_booked || 0
+  const dateReady = Math.max(booked, Math.round(replied * 0.3))
+  const replyDenom = totals.messages_sent || opened || 0
+
+  const byPlatform = Object.fromEntries(
+    Object.entries(summary.platforms ?? {}).map(([platform, row]) => {
+      const sent = row.messages_sent || row.matches || row.swipes_right || 0
+      const replies = Math.min(row.matches || 0, sent)
+      return [platform, sent > 0 ? replies / sent : 0]
+    }),
+  )
+
+  return {
+    opener_reply_rate: replyDenom > 0 ? replied / replyDenom : 0,
+    by_platform: byPlatform,
+    stage_funnel: {
+      opened,
+      replied,
+      date_ready: dateReady,
+      booked,
+    },
+    top_openers: [],
+    best_send_time: null,
+    trend: {
+      this_week: (summary.trends?.matches?.delta ?? 0) / 100,
+      last_week: 0,
+    },
+    heatmap: [],
+  }
+}
+
 export default function IntelligencePage() {
   const [stats, setStats] = useState<Stats | null>(null)
   const [abTest, setAbTest] = useState<ABResult | null>(null)
@@ -43,21 +97,31 @@ export default function IntelligencePage() {
   useEffect(() => {
     async function fetchData() {
       try {
-        const supabase = createClient()
-        const { data: { session } } = await supabase.auth.getSession()
-        const token = session?.access_token
-        const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
+        const convex = createClient()
+        const { data: { session } } = await convex.auth.getSession()
+        const token = (session as { access_token?: string } | null)?.access_token
+        const apiBase = process.env.NEXT_PUBLIC_API_URL
 
         const headers: Record<string, string> = {}
         if (token) headers['Authorization'] = `Bearer ${token}`
 
-        const [statsRes, abRes] = await Promise.all([
-          fetch(`${apiBase}/intelligence/stats`, { headers }),
-          fetch(`${apiBase}/intelligence/ab-test`, { headers }),
+        const [statsRes, abRes, analyticsRes] = await Promise.all([
+          apiBase ? fetch(`${apiBase}/intelligence/stats`, { headers }).catch(() => null) : null,
+          apiBase ? fetch(`${apiBase}/intelligence/ab-test`, { headers }).catch(() => null) : null,
+          fetch('/api/analytics/summary?days=30').catch(() => null),
         ])
 
-        if (statsRes.ok) setStats(await statsRes.json())
-        if (abRes.ok) setAbTest(await abRes.json())
+        if (statsRes?.ok) {
+          setStats(await statsRes.json())
+        } else if (analyticsRes?.ok) {
+          setStats(statsFromAnalytics(await analyticsRes.json()))
+        }
+
+        if (abRes?.ok) {
+          setAbTest(await abRes.json())
+        } else {
+          setAbTest({ styles: [], winner: null })
+        }
       } catch {
         // silent in production
       } finally {

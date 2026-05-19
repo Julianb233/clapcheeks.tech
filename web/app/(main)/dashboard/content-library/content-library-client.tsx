@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useMemo, useRef, useState } from 'react'
-import { createClient } from '@/lib/supabase/client'
+import { createClient } from '@/lib/convex/client'
 import type { LibraryRow, QueueRow } from './page'
 
 const CATEGORY_LABELS: Record<string, string> = {
@@ -29,6 +29,12 @@ type Props = {
 }
 
 type View = 'grid' | 'calendar'
+type SignedUrlResult = string | { signedUrl?: string | null; signed_url?: string | null } | null
+
+function readSignedUrl(data: SignedUrlResult) {
+  if (typeof data === 'string') return data
+  return data?.signedUrl ?? data?.signed_url ?? null
+}
 
 export default function ContentLibraryClient({
   initialLibrary,
@@ -61,14 +67,14 @@ export default function ContentLibraryClient({
       setError(null)
       setUploading(true)
 
-      const supabase = createClient()
+      const convex = createClient()
       const list = Array.from(files)
       try {
         for (const file of list) {
           const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '-')
           const mediaPath = `${userId}/${Date.now()}-${safeName}`
 
-          const { error: upErr } = await supabase
+          const { error: upErr } = await convex
             .storage
             .from('julian-content')
             .upload(mediaPath, file, {
@@ -98,7 +104,7 @@ export default function ContentLibraryClient({
             // non-fatal; just use default category.
           }
 
-          const { data: insertData, error: insErr } = await supabase
+          const { data: insertData, error: insErr } = await convex
             .from('clapcheeks_content_library' as any)
             .insert({
               user_id: userId,
@@ -115,13 +121,13 @@ export default function ContentLibraryClient({
             throw new Error(`insert failed: ${insErr.message}`)
           }
 
-          const { data: signed } = await supabase
+          const { data: signed } = await convex
             .storage
             .from('julian-content')
             .createSignedUrl(mediaPath, 3600)
 
           setLibrary((prev) => [
-            { ...(insertData as LibraryRow), signed_url: signed?.signedUrl ?? null },
+            { ...(insertData as LibraryRow), signed_url: readSignedUrl(signed as SignedUrlResult) },
             ...prev,
           ])
         }
@@ -146,9 +152,9 @@ export default function ContentLibraryClient({
 
   async function updateCategory(id: string, category: string) {
     setBusyId(id)
-    const supabase = createClient()
+    const convex = createClient()
     try {
-      const { error: updErr } = await supabase
+      const { error: updErr } = await convex
         .from('clapcheeks_content_library' as any)
         .update({ category } as any)
         .eq('id', id)

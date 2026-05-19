@@ -1,17 +1,17 @@
-import { createClient } from '@/lib/supabase/server'
+import { createClient } from '@/lib/convex/server'
 import { type PlanLevel, type PlanInfo, getPlanLimits } from '@/lib/plan'
 
 export async function getPlanInfo(userId?: string): Promise<PlanInfo | null> {
-  const supabase = await createClient()
+  const convex = await createClient()
 
   let uid = userId
   if (!uid) {
-    const { data: { user } } = await supabase.auth.getUser()
+    const { data: { user } } = await convex.auth.getUser()
     if (!user) return null
     uid = user.id
   }
 
-  const { data: profile } = await supabase
+  const { data: profile } = await convex
     .from('profiles')
     .select('subscription_tier, subscription_status')
     .eq('id', uid)

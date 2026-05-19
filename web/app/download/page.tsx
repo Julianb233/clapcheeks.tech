@@ -229,7 +229,7 @@ export default function DownloadPage() {
             <p className="text-white/30 text-sm">
               Already have an account?{' '}
               <Link
-                href="/auth/sign-in"
+                href="/login"
                 className="text-[#C9A427]/70 hover:text-[#C9A427] transition-colors underline underline-offset-2"
               >
                 Sign in

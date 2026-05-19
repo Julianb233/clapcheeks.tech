@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import { createClient } from '@/lib/convex/server'
 import { DEFAULT_FOLLOWUP_CONFIG } from '@/lib/followup/types'
 import { pickOptimalSendTimeISO } from '@/lib/followup/optimal-timing'
 import { generateFollowupMessage } from '@/lib/followup/generate-content'
@@ -20,8 +20,8 @@ import { generateFollowupMessage } from '@/lib/followup/generate-content'
  *   - override_message (optional — skip AI and use this text)
  */
 export async function POST(request: NextRequest) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const convex = await createClient()
+  const { data: { user } } = await convex.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = await request.json()
@@ -41,14 +41,14 @@ export async function POST(request: NextRequest) {
   }
 
   // Load config (create default if missing).
-  let { data: config } = await supabase
+  let { data: config } = await convex
     .from('clapcheeks_followup_sequences')
     .select('*')
     .eq('user_id', user.id)
     .maybeSingle()
 
   if (!config) {
-    const { data: created } = await supabase
+    const { data: created } = await convex
       .from('clapcheeks_followup_sequences')
       .insert({ user_id: user.id, ...DEFAULT_FOLLOWUP_CONFIG })
       .select()
@@ -70,7 +70,7 @@ export async function POST(request: NextRequest) {
   // Determine sequence step.
   let step = typeof sequence_step === 'number' ? sequence_step : 0
   if (typeof sequence_step !== 'number' && match_id) {
-    const { count } = await supabase
+    const { count } = await convex
       .from('clapcheeks_scheduled_messages')
       .select('id', { count: 'exact', head: true })
       .eq('user_id', user.id)
@@ -110,7 +110,7 @@ export async function POST(request: NextRequest) {
       sequenceStep: step,
     }))
 
-  const { data: inserted, error } = await supabase
+  const { data: inserted, error } = await convex
     .from('clapcheeks_scheduled_messages')
     .insert({
       user_id: user.id,

@@ -1,5 +1,5 @@
 import type { Metadata } from 'next'
-import { createClient } from '@/lib/supabase/server'
+import { createClient } from '@/lib/convex/server'
 import { redirect } from 'next/navigation'
 import DogfoodDashboard from './dogfood-dashboard'
 
@@ -9,8 +9,8 @@ export const metadata: Metadata = {
 }
 
 export default async function DogfoodPage() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const convex = await createClient()
+  const { data: { user } } = await convex.auth.getUser()
   if (!user) redirect('/auth/login')
 
   // Fetch dogfood health data (last 14 days)
@@ -18,25 +18,25 @@ export default async function DogfoodPage() {
   since.setDate(since.getDate() - 14)
 
   const [healthRes, frictionRes, reportsRes, subscriptionRes] = await Promise.all([
-    supabase
+    convex
       .from('clapcheeks_dogfood_health')
       .select('*')
       .eq('user_id', user.id)
       .gte('date', since.toISOString().split('T')[0])
       .order('date', { ascending: false }),
-    supabase
+    convex
       .from('clapcheeks_friction_points')
       .select('*')
       .eq('user_id', user.id)
       .order('created_at', { ascending: false })
       .limit(50),
-    supabase
+    convex
       .from('clapcheeks_weekly_reports')
       .select('id, week_start, week_end, metrics_snapshot, created_at')
       .eq('user_id', user.id)
       .order('week_start', { ascending: false })
       .limit(4),
-    supabase
+    convex
       .from('clapcheeks_subscriptions')
       .select('status, plan_id')
       .eq('user_id', user.id)

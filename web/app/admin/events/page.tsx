@@ -1,5 +1,5 @@
 import type { Metadata } from "next"
-import { createAdminClient } from "@/lib/supabase/admin"
+import { createAdminClient } from "@/lib/convex/admin"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Radio } from "lucide-react"
@@ -38,10 +38,10 @@ export default async function AdminEventsPage({
   const params = await searchParams
   const filterType = params.type ?? "all"
 
-  const supabase = createAdminClient()
+  const convex = createAdminClient()
 
   // Query events
-  let query = supabase
+  let query = convex
     .from("clapcheeks_agent_events")
     .select("id, created_at, event_type, platform, data, user_id")
     .order("created_at", { ascending: false })
@@ -56,7 +56,7 @@ export default async function AdminEventsPage({
   // Get user emails for display
   const userIds = [...new Set((events ?? []).map((e) => e.user_id).filter(Boolean))]
   const { data: userProfiles } = userIds.length > 0
-    ? await supabase.from("profiles").select("id, email").in("id", userIds)
+    ? await convex.from("profiles").select("id, email").in("id", userIds)
     : { data: [] }
 
   const emailByUser: Record<string, string> = {}

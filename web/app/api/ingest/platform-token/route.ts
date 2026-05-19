@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { createClient } from '@/lib/convex/compat-client'
 
 /**
  * Token ingest endpoint used by the Chrome extension.
@@ -58,16 +58,16 @@ export async function POST(req: Request) {
 
   // Service-role client — we look up the device token and scope the write
   // to its owning user_id. The extension itself holds only the opaque
-  // device token, never a Supabase key.
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY
+  // device token, never a Convex key.
+  const url = process.env.NEXT_PUBLIC_CONVEX_URL
+  const key = process.env.CONVEX_DEPLOY_KEY
   if (!url || !key) {
     return cors(NextResponse.json(
       { error: 'server_unconfigured' }, { status: 500 }))
   }
-  const supabase = createClient(url, key, { auth: { persistSession: false } })
+  const convex = createClient(url, key, { auth: { persistSession: false } })
 
-  const { data: rows, error: lookupErr } = await supabase
+  const { data: rows, error: lookupErr } = await convex
     .from('clapcheeks_agent_tokens')
     .select('user_id, device_name')
     .eq('token', deviceToken)
@@ -84,7 +84,7 @@ export async function POST(req: Request) {
   }
 
   // Bump last_seen_at + optionally update device_name if caller set one
-  void supabase
+  void convex
     .from('clapcheeks_agent_tokens')
     .update({
       last_seen_at: new Date().toISOString(),
@@ -105,7 +105,7 @@ export async function POST(req: Request) {
     [sourceField]: 'chrome-extension',
   }
 
-  const { error: upsertErr } = await supabase
+  const { error: upsertErr } = await convex
     .from('clapcheeks_user_settings')
     .upsert(upsertRow, { onConflict: 'user_id' })
 

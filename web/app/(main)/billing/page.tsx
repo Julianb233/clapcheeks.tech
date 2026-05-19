@@ -1,5 +1,5 @@
 import type { Metadata } from 'next'
-import { createClient } from '@/lib/supabase/server'
+import { createClient } from '@/lib/convex/server'
 import { redirect } from 'next/navigation'
 import BillingClient from './billing-client'
 
@@ -9,12 +9,12 @@ export const metadata: Metadata = {
 }
 
 export default async function BillingPage() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const convex = await createClient()
+  const { data: { user } } = await convex.auth.getUser()
 
   if (!user) redirect('/auth/login')
 
-  const { data: profile } = await supabase
+  const { data: profile } = await convex
     .from('profiles')
     .select('subscription_tier, subscription_status, stripe_customer_id, stripe_subscription_id')
     .eq('id', user.id)

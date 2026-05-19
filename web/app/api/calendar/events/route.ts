@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import { createClient } from '@/lib/convex/server'
 import { getValidAccessToken, createCalendarEvent, type CalendarEventInput } from '@/lib/google/calendar'
 
 export const runtime = 'nodejs'
@@ -18,8 +18,8 @@ interface CreateEventRequest {
 }
 
 export async function POST(req: NextRequest) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const convex = await createClient()
+  const { data: { user } } = await convex.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   let body: CreateEventRequest
@@ -36,7 +36,7 @@ export async function POST(req: NextRequest) {
     )
   }
 
-  const token = await getValidAccessToken(supabase, user.id)
+  const token = await getValidAccessToken(convex, user.id)
   if (!token) {
     return NextResponse.json(
       { error: 'Calendar not connected', code: 'NOT_CONNECTED' },
@@ -76,11 +76,11 @@ export async function POST(req: NextRequest) {
 }
 
 export async function GET() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const convex = await createClient()
+  const { data: { user } } = await convex.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { data } = await supabase
+  const { data } = await convex
     .from('google_calendar_tokens')
     .select('google_email, calendar_id, scopes, created_at, updated_at')
     .eq('user_id', user.id)

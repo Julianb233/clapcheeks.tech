@@ -1,24 +1,24 @@
 import type { Metadata } from "next"
 import { redirect } from "next/navigation"
-import { createClient } from "@/lib/supabase/server"
+import { createClient } from "@/lib/convex/server"
 import { ArrowLeft, MessageSquare, Heart } from "lucide-react"
 import Link from "next/link"
 
 export const metadata: Metadata = { title: 'Groups | Clapcheeks' }
 
 export default async function ConversationsPage() {
-  const supabase = await createClient()
+  const convex = await createClient()
 
   const {
     data: { user },
-  } = await supabase.auth.getUser()
+  } = await convex.auth.getUser()
 
   if (!user) {
     redirect("/auth/login")
   }
 
   // Fetch active conversations synced from the local agent
-  const { data: conversations } = await supabase
+  const { data: conversations } = await convex
     .from("clapcheeks_conversations")
     .select("*")
     .eq("user_id", user.id)

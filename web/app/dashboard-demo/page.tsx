@@ -2,7 +2,7 @@ import { notFound } from 'next/navigation'
 import MatchGrid from '@/components/matches/MatchGrid'
 import MatchDetail from '@/components/matches/MatchDetail'
 import { ClapcheeksMatchRow, ConversationMessage } from '@/lib/matches/types'
-import { createClient } from '@/lib/supabase/server'
+import { createClient } from '@/lib/convex/server'
 
 /**
  * Admin-only demo preview for Phase D screenshots. Server-side role gate:
@@ -213,11 +213,11 @@ const DEMO_MESSAGES: ConversationMessage[] = [
 
 export default async function DashboardDemo({ searchParams }: { searchParams: Promise<{ view?: string; id?: string }> }) {
   // Server-side admin gate — only admin or super_admin roles can view the demo.
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const convex = await createClient()
+  const { data: { user } } = await convex.auth.getUser()
   if (!user) notFound()
 
-  const { data: profile } = await supabase
+  const { data: profile } = await convex
     .from('profiles')
     .select('role')
     .eq('id', user.id)

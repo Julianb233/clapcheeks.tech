@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import { createClient } from '@/lib/convex/server'
 import { exchangeCodeForTokens, fetchUserInfo } from '@/lib/google/calendar'
 
 export const runtime = 'nodejs'
@@ -10,8 +10,8 @@ export const runtime = 'nodejs'
  * google_calendar_tokens, then redirects back to `next`.
  */
 export async function GET(req: NextRequest) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const convex = await createClient()
+  const { data: { user } } = await convex.auth.getUser()
   if (!user) {
     return NextResponse.redirect(new URL('/login', req.url))
   }
@@ -64,7 +64,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.redirect(url)
     }
 
-    await supabase.from('google_calendar_tokens').upsert(
+    await convex.from('google_calendar_tokens').upsert(
       {
         user_id: user.id,
         google_email: userInfo.email,

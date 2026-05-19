@@ -1,4 +1,4 @@
-import type { SupabaseClient } from '@supabase/supabase-js'
+import type { ConvexCompatClient } from '@/lib/convex/compat-client'
 
 export const CALENDAR_SCOPES = [
   'https://www.googleapis.com/auth/calendar.events',
@@ -115,10 +115,10 @@ interface StoredTokens {
  * Returns null if the user has not connected their calendar.
  */
 export async function getValidAccessToken(
-  supabase: SupabaseClient,
+  convex: ConvexCompatClient,
   userId: string,
 ): Promise<{ accessToken: string; tokens: StoredTokens } | null> {
-  const { data, error } = await supabase
+  const { data, error } = await convex
     .from('google_calendar_tokens')
     .select('*')
     .eq('user_id', userId)
@@ -136,7 +136,7 @@ export async function getValidAccessToken(
   // Refresh
   const refreshed = await refreshAccessToken(tokens.refresh_token)
   const newExpiresAt = new Date(Date.now() + refreshed.expires_in * 1000).toISOString()
-  await supabase
+  await convex
     .from('google_calendar_tokens')
     .update({
       access_token: refreshed.access_token,

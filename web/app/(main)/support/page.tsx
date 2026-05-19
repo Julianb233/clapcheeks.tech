@@ -1,6 +1,6 @@
 'use client'
 import { useState } from 'react'
-import { createBrowserClient } from '@supabase/ssr'
+import { createBrowserClient } from '@/lib/convex/compat-client'
 import { MessageSquare, Mail, FileText, ChevronDown } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { VoiceInput, VoiceTextarea } from '@/components/voice'
@@ -10,14 +10,14 @@ export default function SupportPage() {
   const [message, setMessage] = useState('')
   const [sending, setSending] = useState(false)
   const [sent, setSent] = useState(false)
-  const supabase = createBrowserClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!)
+  const convex = createBrowserClient()
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setSending(true)
-    const { data: { user } } = await supabase.auth.getUser()
+    const { data: { user } } = await convex.auth.getUser()
     if (!user) return
-    await supabase.from('support_tickets').insert({ user_id: user.id, email: user.email, subject, message, status: 'open' })
+    await convex.from('support_tickets').insert({ user_id: user.id, email: user.email, subject, message, status: 'open' })
     setSent(true)
     setSending(false)
   }

@@ -4,7 +4,7 @@ import type React from "react"
 
 import { useState, useRef } from "react"
 import { useRouter } from "next/navigation"
-import { createClient } from "@/lib/supabase/client"
+import { createClient } from "@/lib/convex/client"
 import { Camera, Upload, Shield, AlertCircle } from "lucide-react"
 
 export default function CompleteProfilePage() {
@@ -91,17 +91,17 @@ export default function CompleteProfilePage() {
     }
 
     try {
-      const supabase = createClient()
+      const convex = createClient()
       const {
         data: { user },
-      } = await supabase.auth.getUser()
+      } = await convex.auth.getUser()
 
       if (!user) throw new Error("No user found")
 
-      // Upload photo to Supabase Storage (private `knowledge` bucket)
+      // Upload photo to Convex Storage (private `knowledge` bucket)
       const ext = photoFile.name.split(".").pop()?.toLowerCase() || "jpg"
       const fileName = `${user.id}/avatar.${ext}`
-      const { error: uploadError } = await supabase.storage
+      const { error: uploadError } = await convex.storage
         .from("knowledge")
         .upload(fileName, photoFile, {
           upsert: true,
@@ -111,7 +111,7 @@ export default function CompleteProfilePage() {
 
       // Bucket is private — use a long-lived signed URL (1 year)
       const ONE_YEAR_SECONDS = 60 * 60 * 24 * 365
-      const { data: signed, error: signedErr } = await supabase.storage
+      const { data: signed, error: signedErr } = await convex.storage
         .from("knowledge")
         .createSignedUrl(fileName, ONE_YEAR_SECONDS)
       if (signedErr || !signed?.signedUrl) {
@@ -120,7 +120,7 @@ export default function CompleteProfilePage() {
       const photoUrl = signed.signedUrl
 
       // Update profile
-      const { error: updateError } = await supabase
+      const { error: updateError } = await convex
         .from("profiles")
         .update({
           phone: formData.phone,

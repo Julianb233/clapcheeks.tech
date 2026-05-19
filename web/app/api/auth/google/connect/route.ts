@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import crypto from 'crypto'
-import { createClient } from '@/lib/supabase/server'
+import { createClient } from '@/lib/convex/server'
 import { buildConsentUrl } from '@/lib/google/calendar'
 
 export const runtime = 'nodejs'
@@ -10,8 +10,8 @@ export const runtime = 'nodejs'
  * Kicks off the Google OAuth consent flow for Calendar.
  */
 export async function GET(req: NextRequest) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const convex = await createClient()
+  const { data: { user } } = await convex.auth.getUser()
   if (!user) {
     return NextResponse.redirect(new URL('/login?next=/api/auth/google/connect', req.url))
   }

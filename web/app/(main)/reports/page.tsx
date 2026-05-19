@@ -1,5 +1,5 @@
 import type { Metadata } from 'next'
-import { createClient } from '@/lib/supabase/server'
+import { createClient } from '@/lib/convex/server'
 import { redirect } from 'next/navigation'
 import ReportsList from './reports-list'
 import ReportPreferences from './report-preferences'
@@ -10,19 +10,19 @@ export const metadata: Metadata = {
 }
 
 export default async function ReportsPage() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const convex = await createClient()
+  const { data: { user } } = await convex.auth.getUser()
 
   if (!user) redirect('/auth/login')
 
   const [reportsRes, prefsRes] = await Promise.all([
-    supabase
+    convex
       .from('clapcheeks_weekly_reports')
       .select('id, week_start, week_end, pdf_url, metrics_snapshot, sent_at, created_at')
       .eq('user_id', user.id)
       .order('week_start', { ascending: false })
       .limit(12),
-    supabase
+    convex
       .from('clapcheeks_report_preferences')
       .select('*')
       .eq('user_id', user.id)

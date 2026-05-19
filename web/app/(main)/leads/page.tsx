@@ -1,5 +1,5 @@
 import type { Metadata } from 'next'
-import { createClient } from '@/lib/supabase/server'
+import { createClient } from '@/lib/convex/server'
 import { redirect } from 'next/navigation'
 import LeadsBoard, { type Lead } from './leads-board'
 
@@ -20,11 +20,11 @@ const STAGES = [
 ] as const
 
 export default async function LeadsPage() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const convex = await createClient()
+  const { data: { user } } = await convex.auth.getUser()
   if (!user) redirect('/auth')
 
-  const { data, error } = await supabase
+  const { data, error } = await convex
     .from('clapcheeks_leads')
     .select(`
       id, platform, match_id, name, age, stage, stage_entered_at,

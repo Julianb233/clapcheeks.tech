@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { createBrowserClient } from '@supabase/ssr'
+import { createBrowserClient } from '@/lib/convex/compat-client'
 import { Copy, Share2, Users, Gift, CheckCircle2, Clock, MessageSquare } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 
@@ -21,18 +21,18 @@ export default function ReferralsPage() {
   const [loading, setLoading] = useState(true)
   const [copied, setCopied] = useState(false)
 
-  const supabase = createBrowserClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  const convex = createBrowserClient(
+    process.env.NEXT_PUBLIC_CONVEX_URL!,
+    process.env.NEXT_PUBLIC_CONVEX_URL!
   )
 
   useEffect(() => {
     async function load() {
-      const { data: { user } } = await supabase.auth.getUser()
+      const { data: { user } } = await convex.auth.getUser()
       if (!user) return
 
       // Get profile with referral_code (try both column names for back-compat)
-      const { data: profile } = await supabase
+      const { data: profile } = await convex
         .from('profiles')
         .select('referral_code, ref_code, free_months_earned')
         .eq('id', user.id)
@@ -61,7 +61,7 @@ export default function ReferralsPage() {
 
       // Get referrals — swallow errors so the page still renders
       try {
-        const { data: refs } = await supabase
+        const { data: refs } = await convex
           .from('clapcheeks_referrals')
           .select('id, referred_id, status, converted_at, rewarded_at, created_at')
           .eq('referrer_id', user.id)
@@ -73,7 +73,7 @@ export default function ReferralsPage() {
       setLoading(false)
     }
     load()
-  }, [supabase])
+  }, [convex])
 
   const referralLink = refCode ? `https://clapcheeks.tech?ref=${refCode}` : ''
 

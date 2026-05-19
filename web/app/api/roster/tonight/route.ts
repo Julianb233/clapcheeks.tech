@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import { createClient } from '@/lib/convex/server'
 
 // Phase J (AI-8338) bonus factor: calendar_overlap.
 // When Julian is free tonight, surface the top-3 matches most worth
@@ -18,13 +18,13 @@ const LIVE_STAGES = new Set([
 ])
 
 export async function GET() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const convex = await createClient()
+  const { data: { user } } = await convex.auth.getUser()
   if (!user) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
   }
 
-  const { data, error } = await (supabase as any)
+  const { data, error } = await (convex as any)
     .from('clapcheeks_matches')
     .select('id, name, age, photos_jsonb, close_probability, health_score, stage, last_activity_at, final_score')
     .eq('user_id', user.id)

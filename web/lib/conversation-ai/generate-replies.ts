@@ -1,5 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk'
-import { SupabaseClient } from '@supabase/supabase-js'
+import { ConvexCompatClient } from '@/lib/convex/compat-client'
 
 interface ReplySuggestion {
   text: string
@@ -8,7 +8,7 @@ interface ReplySuggestion {
   confidence: number
 }
 
-// PHASE-E (AI-8319) — platform tones rewritten to avoid em-dashes (banned glyph).
+// PHASE-E (AI-8319) and Julian voice gate.
 const PLATFORM_TONE: Record<string, string> = {
   Tinder: 'Keep it playful and fun. Tinder conversations are lighter, humor works best.',
   Bumble: 'Be slightly more direct and confident. Bumble users appreciate straightforwardness.',
@@ -16,20 +16,23 @@ const PLATFORM_TONE: Record<string, string> = {
   iMessage: 'Match their energy. iMessage is personal, mirror their texting style closely.',
 }
 
-// PHASE-E (AI-8319) — unicode -> ASCII sanitizer to mirror agent/clapcheeks/ai/sanitizer.py.
+// PHASE-E (AI-8319) mirrors local agent clapcheeks/ai/sanitizer.py.
 const BANNED_CHARS: Record<string, string> = {
-  '\u2014': '-',      // em-dash
-  '\u2013': '-',      // en-dash
-  '\u2026': '...',    // ellipsis
-  '\u201c': '"',      // left curly double quote
-  '\u201d': '"',      // right curly double quote
+  '\u2014': ' ',      // em dash
+  '\u2013': ' ',      // en dash
+  '\u2212': ' ',      // minus sign
+  '-': ' ',           // ASCII hyphen
+  '\u2026': '',       // ellipsis
+  '\u201c': '',       // left curly double quote
+  '\u201d': '',       // right curly double quote
   '\u2018': "'",      // left curly single quote
   '\u2019': "'",      // right curly single quote
   '\u00a0': ' ',      // non-breaking space
-  '\u2022': '*',      // bullet
-  '\u00b7': '*',      // middle dot
-  '\u2192': '->',     // rightward arrow
+  '\u2022': '',       // bullet
+  '\u00b7': '',       // middle dot
+  '\u2192': ' ',      // rightward arrow
 }
+const HARD_REJECT_CHARS = [';', ':', '(', ')', '/', '"', '*', '_', '[', ']', '{', '}', '-']
 
 const CORNY_CLOSERS = [
   'looking forward to hearing from you',
@@ -47,8 +50,7 @@ function sanitizeDraft(text: string): string {
   for (const [bad, good] of Object.entries(BANNED_CHARS)) {
     out = out.split(bad).join(good)
   }
-  // Collapse runs of 3+ dashes (from em-dash replacements).
-  out = out.replace(/-{3,}/g, '-')
+  out = out.replace(/[ \t]{2,}/g, ' ')
   return out.trim()
 }
 
@@ -64,6 +66,9 @@ function validateDraft(
   }
   for (const bad of Object.keys(BANNED_CHARS)) {
     if (text.includes(bad)) errors.push(`banned unicode punctuation: ${bad}`)
+  }
+  for (const bad of HARD_REJECT_CHARS) {
+    if (text.includes(bad)) errors.push(`banned punctuation: ${bad}`)
   }
   if (text.includes(';')) errors.push('semicolon (banned)')
   const low = text.toLowerCase()
@@ -110,7 +115,7 @@ function renderPersonaBlock(persona: Record<string, unknown> | null): string {
   lines.push('')
   lines.push('CRITICAL VOICE RULES (hard constraints):')
   lines.push('- Short, sweet, to the point. Lowercase-first is natural and good.')
-  lines.push('- No em-dashes, en-dashes, semicolons, ellipsis, curly quotes ever.')
+  lines.push('- No hyphens, dashes, em dashes, en dashes, semicolons, ellipsis, curly quotes ever.')
   lines.push('- If you have 2+ thoughts, write separate sentences so they can be split.')
   lines.push('- Zero to one emoji max. Zero in the first 1-2 messages.')
   lines.push('- Reference something specific from HER profile in every draft.')
@@ -119,7 +124,7 @@ function renderPersonaBlock(persona: Record<string, unknown> | null): string {
 }
 
 export async function generateReplies(
-  supabase: SupabaseClient,
+  convex: ConvexCompatClient,
   userId: string,
   conversationContext: string,
   matchName: string,
@@ -127,7 +132,7 @@ export async function generateReplies(
   profileContext?: string
 ): Promise<ReplySuggestion[]> {
   // Fetch voice profile
-  const { data: voiceProfile } = await supabase
+  const { data: voiceProfile } = await convex
     .from('clapcheeks_voice_profiles')
     .select('style_summary, sample_phrases, tone, profile_data')
     .eq('user_id', userId)
@@ -136,7 +141,7 @@ export async function generateReplies(
   // PHASE-E (AI-8319) — also load persona from clapcheeks_user_settings so the
   // persona.message_formatting_rules / banned_words / signature_phrases get
   // injected verbatim into the system prompt.
-  const { data: settingsRow } = await supabase
+  const { data: settingsRow } = await convex
     .from('clapcheeks_user_settings')
     .select('persona')
     .eq('user_id', userId)
@@ -190,7 +195,7 @@ Style details: ${JSON.stringify(voiceProfile.profile_data || {})}`
     '- Consider conversation context and momentum',
     '- If the other person asked a question, answer it',
     '- Each reply max 160 characters',
-    '- ABSOLUTELY no em-dashes, en-dashes, semicolons, ellipsis, curly quotes',
+    '- ABSOLUTELY no hyphens, dashes, em dashes, en dashes, semicolons, ellipsis, curly quotes',
     '',
     'Return ONLY a JSON array of 3 suggestions, no other text.',
   ]
@@ -235,7 +240,7 @@ Return JSON: [{ "text": "reply", "tone": "witty|warm|direct", "reasoning": "why 
     if (ok) {
       cleaned.push({ ...s, text: sanitized })
     }
-    // Bad drafts are dropped silently here; agent/drafter.py logs discards to Supabase.
+    // Bad drafts are dropped silently here; agent/drafter.py logs discards to Convex.
   }
 
   // If everything got dropped, keep the originals with sanitize applied as a
@@ -245,7 +250,7 @@ Return JSON: [{ "text": "reply", "tone": "witty|warm|direct", "reasoning": "why 
     : suggestions.map((s) => ({ ...s, text: sanitizeDraft(s.text).slice(0, 160) }))
 
   // Store suggestions
-  await supabase.from('clapcheeks_reply_suggestions').insert({
+  await convex.from('clapcheeks_reply_suggestions').insert({
     user_id: userId,
     conversation_context: conversationContext,
     suggestions: finalList,

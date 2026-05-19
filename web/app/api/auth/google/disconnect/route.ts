@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import { createClient } from '@/lib/convex/server'
 
 export const runtime = 'nodejs'
 
@@ -9,11 +9,11 @@ export const runtime = 'nodejs'
  * Attempts to revoke the token upstream so Google also forgets us.
  */
 export async function POST() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const convex = await createClient()
+  const { data: { user } } = await convex.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { data: existing } = await supabase
+  const { data: existing } = await convex
     .from('google_calendar_tokens')
     .select('refresh_token, access_token')
     .eq('user_id', user.id)
@@ -31,6 +31,6 @@ export async function POST() {
     }
   }
 
-  await supabase.from('google_calendar_tokens').delete().eq('user_id', user.id)
+  await convex.from('google_calendar_tokens').delete().eq('user_id', user.id)
   return NextResponse.json({ ok: true })
 }

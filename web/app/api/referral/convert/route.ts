@@ -1,16 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { createClient } from '@/lib/convex/compat-client'
 import { stripe } from '@/lib/stripe'
 
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
+const convexAdmin = createClient(
+  process.env.NEXT_PUBLIC_CONVEX_URL!,
+  process.env.CONVEX_DEPLOY_KEY!
 )
 
 export async function POST(request: NextRequest) {
   // Verify this is called internally (from webhook)
   const authHeader = request.headers.get('authorization')
-  if (authHeader !== `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`) {
+  if (authHeader !== `Bearer ${process.env.CONVEX_DEPLOY_KEY}`) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
@@ -21,7 +21,7 @@ export async function POST(request: NextRequest) {
   }
 
   // Find the user by stripe customer ID
-  const { data: profile } = await supabaseAdmin
+  const { data: profile } = await convexAdmin
     .from('profiles')
     .select('id, referred_by')
     .eq('stripe_customer_id', customer_id)
@@ -32,7 +32,7 @@ export async function POST(request: NextRequest) {
   }
 
   // Find the referral record
-  const { data: referral } = await supabaseAdmin
+  const { data: referral } = await convexAdmin
     .from('clapcheeks_referrals')
     .select('id, referrer_id, status')
     .eq('referred_id', profile.id)
@@ -44,7 +44,7 @@ export async function POST(request: NextRequest) {
   }
 
   // Get referrer's stripe customer ID
-  const { data: referrerProfile } = await supabaseAdmin
+  const { data: referrerProfile } = await convexAdmin
     .from('profiles')
     .select('stripe_customer_id')
     .eq('id', referral.referrer_id)
@@ -69,7 +69,7 @@ export async function POST(request: NextRequest) {
   }
 
   // Update referral status
-  await supabaseAdmin
+  await convexAdmin
     .from('clapcheeks_referrals')
     .update({
       status: 'credited',
@@ -78,7 +78,7 @@ export async function POST(request: NextRequest) {
     .eq('id', referral.id)
 
   // Increment referrer's credit count
-  await supabaseAdmin.rpc('increment_referral_credits', {
+  await convexAdmin.rpc('increment_referral_credits', {
     p_user_id: referral.referrer_id,
   })
 

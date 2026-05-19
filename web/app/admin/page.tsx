@@ -1,5 +1,5 @@
 import type { Metadata } from "next"
-import { createAdminClient } from "@/lib/supabase/admin"
+import { createAdminClient } from "@/lib/convex/admin"
 
 export const metadata: Metadata = { title: 'Overview | Admin' }
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -16,7 +16,7 @@ const TIER_PRICES: Record<string, number> = {
 export const dynamic = "force-dynamic"
 
 export default async function AdminOverviewPage() {
-  const supabase = createAdminClient()
+  const convex = createAdminClient()
 
   // Fetch all stats in parallel
   const [
@@ -27,22 +27,22 @@ export default async function AdminOverviewPage() {
     { data: recentSignups },
     { data: todayAnalytics },
   ] = await Promise.all([
-    supabase.from("profiles").select("*", { count: "exact", head: true }),
-    supabase
+    convex.from("profiles").select("*", { count: "exact", head: true }),
+    convex
       .from("clapcheeks_agent_tokens")
       .select("id, last_seen_at")
       .gte("last_seen_at", new Date(Date.now() - 5 * 60 * 1000).toISOString()),
-    supabase.from("profiles").select("subscription_tier"),
-    supabase
+    convex.from("profiles").select("subscription_tier"),
+    convex
       .from("clapcheeks_analytics_daily")
       .select("matches")
       .gte("date", new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split("T")[0]),
-    supabase
+    convex
       .from("profiles")
       .select("email, created_at, subscription_tier, id")
       .order("created_at", { ascending: false })
       .limit(10),
-    supabase
+    convex
       .from("clapcheeks_analytics_daily")
       .select("platform, swipes_right, swipes_left, matches")
       .eq("date", new Date().toISOString().split("T")[0]),
@@ -71,13 +71,13 @@ export default async function AdminOverviewPage() {
   // Get agent tokens for recent signups
   const signupIds = (recentSignups ?? []).map((s) => s.id)
   const { data: signupAgents } = signupIds.length > 0
-    ? await supabase.from("clapcheeks_agent_tokens").select("user_id").in("user_id", signupIds)
+    ? await convex.from("clapcheeks_agent_tokens").select("user_id").in("user_id", signupIds)
     : { data: [] }
   const agentUserIds = new Set((signupAgents ?? []).map((a) => a.user_id))
 
   // Get today's matches for recent signups
   const { data: signupAnalytics } = signupIds.length > 0
-    ? await supabase
+    ? await convex
         .from("clapcheeks_analytics_daily")
         .select("user_id, matches")
         .in("user_id", signupIds)
@@ -189,7 +189,7 @@ export default async function AdminOverviewPage() {
           <CardContent className="space-y-3">
             <HealthRow icon={Server} label="Web App" status="operational" />
             <HealthRow icon={Activity} label="AI Service" status="operational" />
-            <HealthRow icon={Database} label="Supabase" status={(totalUsers ?? 0) >= 0 ? "operational" : "error"} />
+            <HealthRow icon={Database} label="Convex" status={(totalUsers ?? 0) >= 0 ? "operational" : "error"} />
           </CardContent>
         </Card>
       </div>

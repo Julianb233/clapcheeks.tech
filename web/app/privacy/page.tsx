@@ -85,7 +85,7 @@ export default function PrivacyPage() {
             <section className="animate-fade-in delay-1000">
               <h2 className="text-xl font-semibold text-white mb-3">Third-Party Services</h2>
               <ul className="space-y-2.5">
-                <li className="flex items-start gap-2.5"><BulletIcon /><span><strong className="text-brand-300">Supabase:</strong> Authentication and database hosting</span></li>
+                <li className="flex items-start gap-2.5"><BulletIcon /><span><strong className="text-brand-300">Convex:</strong> Authentication and database hosting</span></li>
                 <li className="flex items-start gap-2.5"><BulletIcon /><span><strong className="text-brand-300">Stripe:</strong> Payment processing</span></li>
                 <li className="flex items-start gap-2.5"><BulletIcon /><span><strong className="text-brand-300">Vercel:</strong> Web application hosting and analytics</span></li>
               </ul>

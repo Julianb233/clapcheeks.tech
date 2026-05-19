@@ -3,6 +3,8 @@
 import { useMemo } from 'react'
 import Link from 'next/link'
 import { ClapcheeksMatchRow, formatTimeAgo } from '@/lib/matches/types'
+import { getCoverPhoto } from '@/lib/matches/photos'
+import MatchPhotoImage from '@/components/matches/MatchPhotoImage'
 
 type Props = {
   matches: ClapcheeksMatchRow[]
@@ -58,6 +60,7 @@ export default function DailyTopThree({ matches }: Props) {
             typeof m.close_probability === 'number'
               ? Math.round(m.close_probability * 100)
               : null
+          const photo = getCoverPhoto(m.photos_jsonb)
           return (
             <li key={m.id}>
               <Link
@@ -65,18 +68,13 @@ export default function DailyTopThree({ matches }: Props) {
                 className="flex items-center gap-3 bg-black/30 hover:bg-black/50 border border-white/5 rounded-lg p-2 transition-colors"
               >
                 <span className="text-yellow-400 font-mono font-bold text-sm w-5">#{i + 1}</span>
-                {m.photos_jsonb?.[0]?.url ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={m.photos_jsonb[0].url}
-                    alt={m.name ?? 'match'}
-                    className="w-8 h-8 rounded-full object-cover"
-                  />
-                ) : (
-                  <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center text-xs text-white/50">
-                    {(m.name ?? '?').slice(0, 1).toUpperCase()}
-                  </div>
-                )}
+                <MatchPhotoImage
+                  src={photo}
+                  alt={m.name ?? 'match'}
+                  initials={m.name ?? '?'}
+                  className="w-8 h-8 rounded-full object-cover"
+                  fallbackClassName="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center text-xs text-white/50"
+                />
                 <div className="flex-1 min-w-0">
                   <div className="flex items-baseline gap-1.5">
                     <span className="text-white text-sm font-semibold truncate">{m.name ?? 'Unknown'}</span>

@@ -1,24 +1,24 @@
 import type { Metadata } from "next"
 import { redirect } from "next/navigation"
-import { createClient } from "@/lib/supabase/server"
+import { createClient } from "@/lib/convex/server"
 import { ArrowLeft, Bell, Calendar, Users, AlertTriangle } from "lucide-react"
 import Link from "next/link"
 
 export const metadata: Metadata = { title: 'Notifications | Clapcheeks' }
 
 export default async function NotificationsPage() {
-  const supabase = await createClient()
+  const convex = await createClient()
 
   const {
     data: { user },
-  } = await supabase.auth.getUser()
+  } = await convex.auth.getUser()
 
   if (!user) {
     redirect("/auth/login")
   }
 
   // Fetch notifications
-  const { data: notifications } = await supabase
+  const { data: notifications } = await convex
     .from("notifications")
     .select("*")
     .eq("user_id", user.id)

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import { nanoid } from 'nanoid'
-import { createClient } from '@/lib/supabase/server'
+import { createClient } from '@/lib/convex/server'
 
 type ScrapedPost = {
   shortcode: string
@@ -13,10 +13,10 @@ type ScrapedPost = {
 type ScrapeFile = { posts: ScrapedPost[] }
 
 export async function POST(req: NextRequest) {
-  const supabase = await createClient()
+  const convex = await createClient()
   const {
     data: { user },
-  } = await supabase.auth.getUser()
+  } = await convex.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = await req.json().catch(() => ({}))
@@ -76,7 +76,7 @@ export async function POST(req: NextRequest) {
     const buf = Buffer.from(await res.arrayBuffer())
     const key = `${user.id}/ig-${sc}-${nanoid(6)}.${ext}`
 
-    const { error: uploadErr } = await supabase.storage
+    const { error: uploadErr } = await convex.storage
       .from('profile-photos')
       .upload(key, buf, { contentType, upsert: false })
     if (uploadErr) {
@@ -84,7 +84,7 @@ export async function POST(req: NextRequest) {
       continue
     }
 
-    const { data: row, error: insertErr } = await supabase
+    const { data: row, error: insertErr } = await convex
       .from('profile_photos')
       .insert({
         user_id: user.id,
@@ -100,7 +100,7 @@ export async function POST(req: NextRequest) {
       .single()
 
     if (insertErr || !row) {
-      await supabase.storage.from('profile-photos').remove([key])
+      await convex.storage.from('profile-photos').remove([key])
       failed.push({ shortcode: sc, reason: insertErr?.message || 'insert failed' })
       continue
     }

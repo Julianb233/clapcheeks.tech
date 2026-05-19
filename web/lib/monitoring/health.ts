@@ -1,8 +1,6 @@
-import { createClient } from '@supabase/supabase-js'
-
-// ---------------------------------------------------------------------------
-// Health Check & Monitoring System
-// ---------------------------------------------------------------------------
+import { createClient } from '@/lib/convex/compat-client'
+import { convexHealth } from '@/lib/convex/http'
+import { getRuntimeHealth } from '@/lib/clapcheeks/runtime-health'
 
 interface HealthCheckResult {
   service: string
@@ -21,52 +19,34 @@ interface SystemHealth {
 
 const APP_VERSION = process.env.npm_package_version || '0.9.0'
 
-/** Check Supabase connectivity */
-async function checkSupabase(): Promise<HealthCheckResult> {
+async function checkConvex(): Promise<HealthCheckResult> {
   const start = Date.now()
-  try {
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!
-    )
-    const { error } = await supabase.from('profiles').select('id').limit(1)
-    const latency = Date.now() - start
-
-    if (error) {
-      return {
-        service: 'supabase',
-        status: latency > 5000 ? 'down' : 'degraded',
-        latencyMs: latency,
-        message: error.message,
-        checkedAt: new Date().toISOString(),
-      }
-    }
-
-    return {
-      service: 'supabase',
-      status: latency > 2000 ? 'degraded' : 'healthy',
-      latencyMs: latency,
-      checkedAt: new Date().toISOString(),
-    }
-  } catch (err) {
-    return {
-      service: 'supabase',
-      status: 'down',
-      latencyMs: Date.now() - start,
-      message: err instanceof Error ? err.message : 'Connection failed',
-      checkedAt: new Date().toISOString(),
-    }
+  const result = await convexHealth()
+  const latency = Date.now() - start
+  return {
+    service: 'convex',
+    status: result.ok ? (latency > 2000 ? 'degraded' : 'healthy') : 'down',
+    latencyMs: latency,
+    message: result.ok ? undefined : result.error,
+    checkedAt: new Date().toISOString(),
   }
 }
 
-/** Check Stripe API connectivity */
 async function checkStripe(): Promise<HealthCheckResult> {
   const start = Date.now()
+  if (!process.env.STRIPE_SECRET_KEY) {
+    return {
+      service: 'stripe',
+      status: 'healthy',
+      latencyMs: Date.now() - start,
+      message: 'skipped: STRIPE_SECRET_KEY not configured in this environment',
+      checkedAt: new Date().toISOString(),
+    }
+  }
   try {
     const { stripe } = await import('@/lib/stripe')
     await stripe.balance.retrieve()
     const latency = Date.now() - start
-
     return {
       service: 'stripe',
       status: latency > 3000 ? 'degraded' : 'healthy',
@@ -84,28 +64,33 @@ async function checkStripe(): Promise<HealthCheckResult> {
   }
 }
 
-/** Check Express API backend */
 async function checkApiBackend(): Promise<HealthCheckResult> {
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL
   const start = Date.now()
-  try {
-    const res = await fetch(`${apiUrl}/health`, {
-      signal: AbortSignal.timeout(5000),
-    })
-    const latency = Date.now() - start
-    const data = await res.json()
-
+  if (!apiUrl) {
     return {
       service: 'api-backend',
-      status: data.status === 'ok' ? (latency > 2000 ? 'degraded' : 'healthy') : 'degraded',
+      status: 'healthy',
+      latencyMs: Date.now() - start,
+      message: 'skipped: Convex is the runtime source; NEXT_PUBLIC_API_URL is optional',
+      checkedAt: new Date().toISOString(),
+    }
+  }
+  try {
+    const res = await fetch(`${apiUrl}/health`, { signal: AbortSignal.timeout(5000) })
+    const latency = Date.now() - start
+    const data = await res.json().catch(() => ({}))
+    return {
+      service: 'api-backend',
+      status: res.ok && data.status === 'ok' ? (latency > 2000 ? 'degraded' : 'healthy') : 'degraded',
       latencyMs: latency,
-      message: data.status !== 'ok' ? `API reports: ${data.status}` : undefined,
+      message: res.ok ? undefined : `API HTTP ${res.status}`,
       checkedAt: new Date().toISOString(),
     }
   } catch (err) {
     return {
       service: 'api-backend',
-      status: 'down',
+      status: 'degraded',
       latencyMs: Date.now() - start,
       message: err instanceof Error ? err.message : 'Connection failed',
       checkedAt: new Date().toISOString(),
@@ -113,35 +98,37 @@ async function checkApiBackend(): Promise<HealthCheckResult> {
   }
 }
 
-/** Run all health checks */
-export async function runHealthChecks(): Promise<SystemHealth> {
-  const checks = await Promise.all([
-    checkSupabase(),
-    checkStripe(),
-    checkApiBackend(),
-  ])
-
-  const hasDown = checks.some(c => c.status === 'down')
-  const hasDegraded = checks.some(c => c.status === 'degraded')
-
+async function checkInboundWatcher(): Promise<HealthCheckResult> {
+  const start = Date.now()
+  const runtime = getRuntimeHealth()
   return {
-    overall: hasDown ? 'down' : hasDegraded ? 'degraded' : 'healthy',
+    service: 'inbound-watcher',
+    status: runtime.ok ? 'healthy' : 'degraded',
+    latencyMs: Date.now() - start,
+    message: runtime.ok
+      ? 'chat.db tailer can read Messages and no FDA alert send is enabled'
+      : runtime.blockers.map((item) => `${item.name}: ${item.reason}`).join('; '),
+    checkedAt: new Date().toISOString(),
+  }
+}
+
+export async function runHealthChecks(): Promise<SystemHealth> {
+  const checks = await Promise.all([checkConvex(), checkStripe(), checkApiBackend(), checkInboundWatcher()])
+  const convex = checks.find((c) => c.service === 'convex')
+  const hasDegraded = checks.some((c) => c.status === 'degraded')
+  return {
+    overall: convex?.status === 'down' ? 'down' : hasDegraded ? 'degraded' : 'healthy',
     services: checks,
     timestamp: new Date().toISOString(),
     version: APP_VERSION,
   }
 }
 
-/** Log health check to Supabase for historical tracking */
 export async function logHealthCheck(health: SystemHealth): Promise<void> {
   try {
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!
-    )
-
+    const convex = createClient()
     for (const check of health.services) {
-      await supabase.from('api_health_checks').insert({
+      await convex.from('api_health_checks').insert({
         endpoint: check.service,
         status_code: check.status === 'healthy' ? 200 : check.status === 'degraded' ? 503 : 500,
         response_time_ms: check.latencyMs,

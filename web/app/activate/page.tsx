@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { createClient } from '@/lib/supabase/client'
+import { createClient } from '@/lib/convex/client'
 import Link from 'next/link'
 
 export default function ActivatePage() {
@@ -14,8 +14,8 @@ export default function ActivatePage() {
     setStatus('loading')
     setErrorMsg('')
 
-    const supabase = createClient()
-    const { data: { session } } = await supabase.auth.getSession()
+    const convex = createClient()
+    const { data: { session } } = await convex.auth.getSession()
 
     if (!session) {
       setStatus('error')

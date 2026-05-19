@@ -1,7 +1,7 @@
 import type Stripe from 'stripe'
 import { NextRequest, NextResponse } from 'next/server'
 import { stripe } from '@/lib/stripe'
-import { createClient } from '@/lib/supabase/server'
+import { createClient } from '@/lib/convex/server'
 import { randomUUID } from 'crypto'
 
 const ADDON_PRICES: Record<string, { name: string; amount: number }> = {
@@ -18,8 +18,8 @@ const ADDON_PRICES: Record<string, { name: string; amount: number }> = {
 
 export async function POST(request: NextRequest) {
   try {
-    const supabase = await createClient()
-    const { data: { user } } = await supabase.auth.getUser()
+    const convex = await createClient()
+    const { data: { user } } = await convex.auth.getUser()
 
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -38,7 +38,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Check for existing Stripe customer
-    const { data: profile } = await supabase
+    const { data: profile } = await convex
       .from('profiles')
       .select('stripe_customer_id')
       .eq('id', user.id)

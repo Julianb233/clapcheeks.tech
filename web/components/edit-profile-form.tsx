@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { createClient } from "@/lib/supabase/client"
+import { createClient } from "@/lib/convex/client"
 import { useRouter } from "next/navigation"
 import { useState } from "react"
 import { VoiceInput, VoiceTextarea } from "@/components/voice"
@@ -32,10 +32,10 @@ export function EditProfileForm({ profile, userId }: { profile: Profile | null; 
     e.preventDefault()
     setLoading(true)
 
-    const supabase = createClient()
+    const convex = createClient()
 
     try {
-      const { error } = await supabase
+      const { error } = await convex
         .from("profiles")
         .update({
           full_name: formData.full_name || null,

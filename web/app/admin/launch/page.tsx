@@ -1,5 +1,5 @@
 import type { Metadata } from "next"
-import { createAdminClient } from "@/lib/supabase/admin"
+import { createAdminClient } from "@/lib/convex/admin"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Users, TrendingUp, Gift, AlertTriangle, Target, UserMinus } from "lucide-react"
@@ -11,7 +11,7 @@ const SOFT_LAUNCH_CAP = 50
 const LAUNCH_DATE = '2026-04-20'
 
 export default async function SoftLaunchPage() {
-  const supabase = createAdminClient()
+  const convex = createAdminClient()
   const [
     { count: totalUsers },
     { data: paidProfiles },
@@ -21,13 +21,13 @@ export default async function SoftLaunchPage() {
     { data: weeklySignups },
     { data: dailyActive },
   ] = await Promise.all([
-    supabase.from("profiles").select("*", { count: "exact", head: true }),
-    supabase.from("profiles").select("id, subscription_tier, created_at").neq("subscription_tier", "free"),
-    supabase.from("profiles").select("id, email, subscription_tier, updated_at").eq("subscription_tier", "free").not("stripe_customer_id", "is", null),
-    supabase.from("profiles").select("id, created_at").not("referred_by", "is", null),
-    supabase.from("clapcheeks_referrals").select("id, status, created_at"),
-    supabase.from("profiles").select("id, created_at").gte("created_at", new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()),
-    supabase.from("clapcheeks_analytics_daily").select("user_id, date").gte("date", new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().split("T")[0]),
+    convex.from("profiles").select("*", { count: "exact", head: true }),
+    convex.from("profiles").select("id, subscription_tier, created_at").neq("subscription_tier", "free"),
+    convex.from("profiles").select("id, email, subscription_tier, updated_at").eq("subscription_tier", "free").not("stripe_customer_id", "is", null),
+    convex.from("profiles").select("id, created_at").not("referred_by", "is", null),
+    convex.from("clapcheeks_referrals").select("id, status, created_at"),
+    convex.from("profiles").select("id, created_at").gte("created_at", new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()),
+    convex.from("clapcheeks_analytics_daily").select("user_id, date").gte("date", new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().split("T")[0]),
   ])
   const paidCount = paidProfiles?.length ?? 0
   const total = totalUsers ?? 0

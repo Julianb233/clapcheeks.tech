@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import fs from 'node:fs/promises'
 import path from 'node:path'
-import { createClient } from '@/lib/supabase/server'
+import { createClient } from '@/lib/convex/server'
 
 type ScrapedPost = {
   shortcode: string
@@ -19,10 +19,10 @@ type ScrapeFile = {
 }
 
 export async function GET() {
-  const supabase = await createClient()
+  const convex = await createClient()
   const {
     data: { user },
-  } = await supabase.auth.getUser()
+  } = await convex.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   try {
@@ -34,7 +34,7 @@ export async function GET() {
     const raw = await fs.readFile(file, 'utf-8')
     const parsed = JSON.parse(raw) as ScrapeFile
 
-    const { data: existing } = await supabase
+    const { data: existing } = await convex
       .from('profile_photos')
       .select('source_ref')
       .eq('user_id', user.id)

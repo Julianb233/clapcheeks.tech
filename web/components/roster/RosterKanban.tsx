@@ -1,7 +1,7 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { createClient } from '@/lib/supabase/client'
+import { createClient } from '@/lib/convex/client'
 import {
   ClapcheeksMatchRow,
   ROSTER_STAGES,
@@ -68,10 +68,10 @@ export default function RosterKanban({ initialMatches, lastMessages }: Props) {
       prev.map((m) => (m.id === matchId ? { ...m, stage: nextStage } : m)),
     )
     try {
-      const supabase = createClient()
+      const convex = createClient()
       // stage column may not exist if migration hasn't shipped — catch and
       // revert in that case.
-      const { error } = await (supabase as any)
+      const { error } = await (convex as any)
         .from('clapcheeks_matches')
         .update({ stage: nextStage, updated_at: new Date().toISOString() })
         .eq('id', matchId)

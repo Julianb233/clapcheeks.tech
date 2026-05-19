@@ -6,6 +6,8 @@ import {
   PLATFORM_COLORS,
   formatTimeAgo,
 } from '@/lib/matches/types'
+import { getCoverPhoto } from '@/lib/matches/photos'
+import MatchPhotoImage from '@/components/matches/MatchPhotoImage'
 
 type Props = {
   match: ClapcheeksMatchRow
@@ -19,7 +21,7 @@ type Props = {
  * photo, name+age, health bar, Julian rank stars, close-prob %, last-msg.
  */
 export default function RosterCard({ match, lastMessage, onDragStart, draggable = true }: Props) {
-  const primaryPhoto = match.photos_jsonb?.[0]?.url ?? null
+  const primaryPhoto = getCoverPhoto(match.photos_jsonb)
   const initials = (match.name ?? '?').slice(0, 1).toUpperCase()
   const health = typeof match.health_score === 'number' ? match.health_score : null
   const rank = typeof match.julian_rank === 'number' ? match.julian_rank : null
@@ -49,19 +51,13 @@ export default function RosterCard({ match, lastMessage, onDragStart, draggable 
     >
       <Link href={`/dashboard/matches/${match.id}`} className="block">
         <div className="relative aspect-[4/3] w-full bg-gradient-to-br from-zinc-800 to-zinc-900 overflow-hidden">
-          {primaryPhoto ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={primaryPhoto}
-              alt={match.name ?? 'Match'}
-              className="w-full h-full object-cover"
-              loading="lazy"
-            />
-          ) : (
-            <div className="w-full h-full flex items-center justify-center text-white/30 text-3xl font-bold">
-              {initials}
-            </div>
-          )}
+          <MatchPhotoImage
+            src={primaryPhoto}
+            alt={match.name ?? 'Match'}
+            initials={initials}
+            className="w-full h-full object-cover"
+            fallbackClassName="w-full h-full flex items-center justify-center text-white/30 text-3xl font-bold"
+          />
           <div className="absolute top-1.5 right-1.5 flex flex-col items-end gap-1">
             <span
               className={`text-[9px] uppercase tracking-wider font-mono font-bold px-1.5 py-0.5 rounded border ${PLATFORM_COLORS[match.platform]}`}

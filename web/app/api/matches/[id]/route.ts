@@ -1,12 +1,12 @@
 import { NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import { createClient } from '@/lib/convex/server'
 
 /**
  * PATCH /api/matches/[id] — update stage/status/rank and/or merge into
  *                          match_intel JSONB.
  * DELETE /api/matches/[id] — soft-archive (sets status = 'archived').
  *
- * Both require an authenticated Supabase session and enforce ownership
+ * Both require an authenticated Convex session and enforce ownership
  * via the `user_id` column on clapcheeks_matches.
  */
 
@@ -15,6 +15,17 @@ type PatchBody = {
   status?: unknown
   julian_rank?: unknown
   opener_sent_at?: unknown
+  name?: unknown
+  age?: unknown
+  bio?: unknown
+  job?: unknown
+  school?: unknown
+  instagram_handle?: unknown
+  zodiac?: unknown
+  birth_date?: unknown
+  met_at?: unknown
+  first_impression?: unknown
+  vision_summary?: unknown
   match_intel_patch?: unknown
 }
 
@@ -31,14 +42,59 @@ function isPlainObject(v: unknown): v is Record<string, unknown> {
   return !!v && typeof v === 'object' && !Array.isArray(v)
 }
 
+const STRING_FIELD_LIMITS: Record<string, number> = {
+  name: 160,
+  bio: 4000,
+  job: 240,
+  school: 240,
+  instagram_handle: 120,
+  zodiac: 60,
+  birth_date: 20,
+  vision_summary: 4000,
+}
+
+const INTEL_STRING_FIELD_LIMITS: Record<string, number> = {
+  met_at: 240,
+  first_impression: 2000,
+}
+
+function normalizeStringField(
+  body: Record<string, unknown>,
+  key: string,
+  maxLength: number,
+): { ok: true; value?: string } | { ok: false; error: string } {
+  const value = body[key]
+  if (value === undefined) return { ok: true }
+  if (typeof value !== 'string') {
+    return { ok: false, error: `${key} must be a string` }
+  }
+  const trimmed = value.trim()
+  if (trimmed.length > maxLength) {
+    return {
+      ok: false,
+      error: `${key} must be ${maxLength} characters or less`,
+    }
+  }
+  if (key === 'birth_date' && trimmed) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+      return { ok: false, error: 'birth_date must be YYYY-MM-DD' }
+    }
+    const parsed = new Date(`${trimmed}T00:00:00.000Z`)
+    if (Number.isNaN(parsed.getTime())) {
+      return { ok: false, error: 'birth_date must be a valid date' }
+    }
+  }
+  return { ok: true, value: trimmed }
+}
+
 export async function PATCH(
   req: Request,
   ctx: { params: Promise<{ id: string }> },
 ) {
-  const supabase = await createClient()
+  const convex = await createClient()
   const {
     data: { user },
-  } = await supabase.auth.getUser()
+  } = await convex.auth.getUser()
   if (!user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
@@ -57,7 +113,7 @@ export async function PATCH(
 
   // Load the row first so we can verify ownership and read-modify-write the
   // match_intel JSONB.
-  const { data: existing, error: fetchErr } = await (supabase as any)
+  const { data: existing, error: fetchErr } = await (convex as any)
     .from('clapcheeks_matches')
     .select('id, user_id, match_intel')
     .eq('id', id)
@@ -112,6 +168,25 @@ export async function PATCH(
     update.julian_rank = n
   }
 
+  if (body.age !== undefined && body.age !== null && body.age !== '') {
+    const n = typeof body.age === 'number' ? body.age : Number(body.age)
+    if (!Number.isFinite(n) || !Number.isInteger(n) || n < 18 || n > 100) {
+      return NextResponse.json(
+        { error: 'age must be an integer 18-100' },
+        { status: 400 },
+      )
+    }
+    update.age = n
+  }
+
+  for (const key of Object.keys(STRING_FIELD_LIMITS) as Array<keyof typeof STRING_FIELD_LIMITS>) {
+    const normalized = normalizeStringField(body as Record<string, unknown>, key, STRING_FIELD_LIMITS[key])
+    if (!normalized.ok) {
+      return NextResponse.json({ error: normalized.error }, { status: 400 })
+    }
+    if (normalized.value !== undefined) update[key] = normalized.value
+  }
+
   if (typeof body.opener_sent_at === 'string') {
     const parsed = new Date(body.opener_sent_at)
     if (Number.isNaN(parsed.getTime())) {
@@ -130,10 +205,25 @@ export async function PATCH(
         { status: 400 },
       )
     }
+  }
+
+  const intelPatch: Record<string, unknown> = isPlainObject(body.match_intel_patch)
+    ? { ...body.match_intel_patch }
+    : {}
+
+  for (const key of Object.keys(INTEL_STRING_FIELD_LIMITS) as Array<keyof typeof INTEL_STRING_FIELD_LIMITS>) {
+    const normalized = normalizeStringField(body as Record<string, unknown>, key, INTEL_STRING_FIELD_LIMITS[key])
+    if (!normalized.ok) {
+      return NextResponse.json({ error: normalized.error }, { status: 400 })
+    }
+    if (normalized.value !== undefined) intelPatch[key] = normalized.value
+  }
+
+  if (Object.keys(intelPatch).length > 0) {
     const current: Record<string, unknown> = isPlainObject(existing.match_intel)
       ? (existing.match_intel as Record<string, unknown>)
       : {}
-    update.match_intel = { ...current, ...body.match_intel_patch }
+    update.match_intel = { ...current, ...intelPatch }
   }
 
   if (Object.keys(update).length === 0) {
@@ -143,7 +233,7 @@ export async function PATCH(
     )
   }
 
-  const { data: updated, error: updateErr } = await (supabase as any)
+  const { data: updated, error: updateErr } = await (convex as any)
     .from('clapcheeks_matches')
     .update(update)
     .eq('id', id)
@@ -157,6 +247,12 @@ export async function PATCH(
       { status: 500 },
     )
   }
+  if (isPlainObject(updated) && updated.status === 'error') {
+    return NextResponse.json(
+      { error: String(updated.errorMessage ?? 'update failed') },
+      { status: 500 },
+    )
+  }
 
   return NextResponse.json({ ok: true, match: updated })
 }
@@ -165,10 +261,10 @@ export async function DELETE(
   _req: Request,
   ctx: { params: Promise<{ id: string }> },
 ) {
-  const supabase = await createClient()
+  const convex = await createClient()
   const {
     data: { user },
-  } = await supabase.auth.getUser()
+  } = await convex.auth.getUser()
   if (!user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
@@ -179,7 +275,7 @@ export async function DELETE(
   }
 
   // Ownership check.
-  const { data: existing, error: fetchErr } = await (supabase as any)
+  const { data: existing, error: fetchErr } = await (convex as any)
     .from('clapcheeks_matches')
     .select('id, user_id')
     .eq('id', id)
@@ -198,7 +294,7 @@ export async function DELETE(
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
-  const { data: updated, error: updateErr } = await (supabase as any)
+  const { data: updated, error: updateErr } = await (convex as any)
     .from('clapcheeks_matches')
     .update({ status: 'archived' })
     .eq('id', id)

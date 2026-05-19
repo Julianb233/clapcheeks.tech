@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
-import { createClient } from '@/lib/supabase/client'
+import { createClient } from '@/lib/convex/client'
 import { PLAN_LIMITS, type PlanLevel } from '@/lib/plan'
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
@@ -114,8 +114,8 @@ export function OnboardingWizard({ userId, plan }: OnboardingWizardProps) {
 
   async function completeOnboarding() {
     setSaving(true)
-    const supabase = createClient()
-    await supabase
+    const convex = createClient()
+    await convex
       .from('profiles')
       .update({
         onboarding_completed: true,

@@ -1,6 +1,6 @@
 import type { Metadata } from "next"
 import { redirect } from "next/navigation"
-import { createClient } from "@/lib/supabase/server"
+import { createClient } from "@/lib/convex/server"
 import { ArrowLeft, Lock, Shield, CheckCircle, Database, Eye, Trash2 } from "lucide-react"
 import Link from "next/link"
 
@@ -10,11 +10,11 @@ export const metadata: Metadata = {
 }
 
 export default async function PrivacyPage() {
-  const supabase = await createClient()
+  const convex = await createClient()
 
   const {
     data: { user },
-  } = await supabase.auth.getUser()
+  } = await convex.auth.getUser()
 
   if (!user) {
     redirect("/auth/login")

@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useEffect, useState } from 'react'
-import { createClient } from '@/lib/supabase/client'
+import { createClient } from '@/lib/convex/client'
 import { logout } from '@/app/auth/actions'
 
 type NavItem = {
@@ -28,6 +28,7 @@ const PRIMARY: NavItem[] = [
   { href: '/leads', label: 'Leads', icon: <PipelineIcon /> },
   { href: '/matches', label: 'Match Brief', icon: <ProfileIcon />, badge: 'new' },
   { href: '/conversation', label: 'Conversations', icon: <ChatIcon /> },
+  { href: '/scheduled', label: 'Scheduled', icon: <ClockIcon /> },
   { href: '/intelligence', label: 'Intelligence', icon: <SparkIcon /> },
   { href: '/analytics', label: 'Analytics', icon: <ChartIcon /> },
   { href: '/photos', label: 'Photos', icon: <CameraIcon /> },
@@ -53,17 +54,17 @@ export default function AppSidebar() {
   })
 
   useEffect(() => {
-    const supabase = createClient()
-    supabase.auth.getUser().then(({ data }) => {
+    const convex = createClient()
+    convex.auth.getUser().then(({ data }) => {
       setEmail(data.user?.email ?? '')
     })
   }, [])
 
   // Live approval-queue badge: count of pending items for the current user.
-  // Subscribes to Supabase Realtime postgres_changes; falls back to 30s polling
+  // Subscribes to Convex Realtime postgres_changes; falls back to 30s polling
   // if the realtime channel never reaches SUBSCRIBED.
   useEffect(() => {
-    const supabase = createClient()
+    const convex = createClient()
     let cancelled = false
     let userId: string | null = null
     let pollHandle: ReturnType<typeof setInterval> | null = null
@@ -71,7 +72,7 @@ export default function AppSidebar() {
 
     async function refreshApprovals() {
       if (!userId || cancelled) return
-      const { count, error } = await supabase
+      const { count, error } = await convex
         .from('clapcheeks_approval_queue')
         .select('id', { count: 'exact', head: true })
         .eq('user_id', userId)
@@ -85,10 +86,10 @@ export default function AppSidebar() {
       setCounts((c) => ({ ...c, approvals: count ?? 0 }))
     }
 
-    const channel = supabase.channel('sidebar-approval-queue')
+    const channel = convex.channel('sidebar-approval-queue')
 
     ;(async () => {
-      const { data } = await supabase.auth.getUser()
+      const { data } = await convex.auth.getUser()
       userId = data.user?.id ?? null
       if (!userId) return
 
@@ -129,7 +130,7 @@ export default function AppSidebar() {
     return () => {
       cancelled = true
       if (pollHandle) clearInterval(pollHandle)
-      supabase.removeChannel(channel)
+      convex.removeChannel(channel)
     }
   }, [])
 
@@ -332,6 +333,7 @@ function HeartIcon()    { return IconBase('M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5
 function RosterIcon()   { return IconBase('M3 5h4v4H3zM10 5h11M3 12h4v4H3zM10 13h11M3 19h4v4H3zM10 20h11') }
 function PipelineIcon() { return IconBase('M3 6h6v4H3zM9 12h6v4H9zM15 18h6v-4h-6z M9 10v2 M15 16v-2') }
 function ChatIcon()     { return IconBase('M21 11.5a8.38 8.38 0 0 1-8.5 8.5 8.5 8.5 0 0 1-3.6-.8L3 21l1.9-5.6A8.5 8.5 0 1 1 21 11.5z') }
+function ClockIcon()    { return IconBase('M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 6v6l4 2') }
 function SparkIcon()    { return IconBase('M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83') }
 function ChartIcon()    { return IconBase('M3 3v18h18M7 15l3-3 4 4 5-5') }
 function CameraIcon()   { return IconBase('M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z M12 16a4 4 0 1 0 0-8 4 4 0 0 0 0 8z') }

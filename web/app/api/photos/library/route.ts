@@ -1,7 +1,7 @@
 /**
  * /api/photos/library
  *
- * POST  — upload a photo (multipart/form-data) into Supabase Storage, insert
+ * POST  — upload a photo (multipart/form-data) into Convex Storage, insert
  *         a profile_photos row, fire-and-forget Claude Vision categorization.
  *
  * GET   — list the caller's photos including AI score / suggestion fields.
@@ -11,8 +11,8 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
-import { createAdminClient } from '@/lib/supabase/admin'
+import { createClient } from '@/lib/convex/server'
+import { createAdminClient } from '@/lib/convex/admin'
 import {
   PHOTO_BUCKET,
   PHOTO_CATEGORIES,
@@ -121,16 +121,16 @@ async function buildPhotoResponse(
 }
 
 export async function GET(_req: NextRequest) {
-  const supabase = await createClient()
+  const convex = await createClient()
   const {
     data: { user },
-  } = await supabase.auth.getUser()
+  } = await convex.auth.getUser()
 
   if (!user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const { data, error } = await supabase
+  const { data, error } = await convex
     .from('profile_photos')
     .select(
       'id, user_id, storage_path, category, source, source_ref, caption, width, height, bytes, mime_type, created_at, updated_at, ai_score, ai_score_reason, ai_category_suggested, ai_categorized_at'
@@ -151,10 +151,10 @@ export async function GET(_req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const supabase = await createClient()
+  const convex = await createClient()
   const {
     data: { user },
-  } = await supabase.auth.getUser()
+  } = await convex.auth.getUser()
 
   if (!user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })

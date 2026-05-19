@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { createClient } from '@/lib/convex/compat-client'
 
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
+const convexAdmin = createClient(
+  process.env.NEXT_PUBLIC_CONVEX_URL!,
+  process.env.CONVEX_DEPLOY_KEY!
 )
 
 export async function POST(request: NextRequest) {
@@ -14,7 +14,7 @@ export async function POST(request: NextRequest) {
   }
 
   // Verify the ref_code exists
-  const { data: referrer } = await supabaseAdmin
+  const { data: referrer } = await convexAdmin
     .from('profiles')
     .select('id')
     .eq('ref_code', ref_code)

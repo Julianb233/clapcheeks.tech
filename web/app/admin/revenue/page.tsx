@@ -1,5 +1,5 @@
 import type { Metadata } from "next"
-import { createAdminClient } from "@/lib/supabase/admin"
+import { createAdminClient } from "@/lib/convex/admin"
 
 export const metadata: Metadata = { title: 'Revenue | Admin' }
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -17,7 +17,7 @@ const TIER_PRICES: Record<string, number> = {
 const TIER_ORDER = ["free", "starter", "pro", "elite"] as const
 
 export default async function AdminRevenuePage() {
-  const supabase = createAdminClient()
+  const convex = createAdminClient()
 
   const now = new Date()
   const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
@@ -25,7 +25,7 @@ export default async function AdminRevenuePage() {
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
 
   // Get all profiles for tier breakdown
-  const { data: profiles } = await supabase
+  const { data: profiles } = await convex
     .from("profiles")
     .select("subscription_tier, created_at, updated_at")
 
@@ -67,7 +67,7 @@ export default async function AdminRevenuePage() {
   ).length
 
   // Referral conversions this month
-  const { count: referralConversions } = await supabase
+  const { count: referralConversions } = await convex
     .from("profiles")
     .select("*", { count: "exact", head: true })
     .not("referred_by", "is", null)

@@ -1,14 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import { createClient } from '@/lib/convex/server'
 import { DEFAULT_FOLLOWUP_CONFIG } from '@/lib/followup/types'
 
 // GET /api/followup-sequences — load the user's config, creating a default row if missing.
 export async function GET() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const convex = await createClient()
+  const { data: { user } } = await convex.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { data: existing, error } = await supabase
+  const { data: existing, error } = await convex
     .from('clapcheeks_followup_sequences')
     .select('*')
     .eq('user_id', user.id)
@@ -18,7 +18,7 @@ export async function GET() {
 
   if (existing) return NextResponse.json({ config: existing })
 
-  const { data: created, error: createErr } = await supabase
+  const { data: created, error: createErr } = await convex
     .from('clapcheeks_followup_sequences')
     .insert({ user_id: user.id, ...DEFAULT_FOLLOWUP_CONFIG })
     .select()
@@ -30,8 +30,8 @@ export async function GET() {
 
 // PATCH /api/followup-sequences — update the user's config.
 export async function PATCH(request: NextRequest) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const convex = await createClient()
+  const { data: { user } } = await convex.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = await request.json()
@@ -65,14 +65,14 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ error: 'No valid fields to update' }, { status: 400 })
   }
 
-  const { data: existing } = await supabase
+  const { data: existing } = await convex
     .from('clapcheeks_followup_sequences')
     .select('id')
     .eq('user_id', user.id)
     .maybeSingle()
 
   if (!existing) {
-    const { data: created, error: createErr } = await supabase
+    const { data: created, error: createErr } = await convex
       .from('clapcheeks_followup_sequences')
       .insert({ user_id: user.id, ...DEFAULT_FOLLOWUP_CONFIG, ...updates })
       .select()
@@ -81,7 +81,7 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ config: created })
   }
 
-  const { data, error } = await supabase
+  const { data, error } = await convex
     .from('clapcheeks_followup_sequences')
     .update(updates)
     .eq('user_id', user.id)

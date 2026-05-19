@@ -1,5 +1,9 @@
 import Link from 'next/link'
-import { Check, ChevronRight, Smartphone, Zap, Mail, Terminal, Shield } from 'lucide-react'
+import { Activity, AlertTriangle, Check, ChevronRight, Smartphone, Zap, Mail, Terminal, Shield } from 'lucide-react'
+import { createClient } from '@/lib/convex/server'
+import { getTokenHealth, type TokenHealthSummary } from '@/lib/clapcheeks/token-health'
+import { convexQuery } from '@/lib/convex/http'
+import { DeviceControlPanel } from './device-control-panel'
 
 export const metadata = {
   title: 'Dedicated Device Add-On — Clapcheeks',
@@ -665,14 +669,125 @@ function FinalCTA() {
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
-export default function DevicePage() {
+type RuntimeStatus = {
+  tokenHealth: TokenHealthSummary | null
+  heartbeat: Record<string, unknown> | null
+  error: string | null
+  userId: string | null
+}
+
+async function loadRuntimeStatus(): Promise<RuntimeStatus> {
+  try {
+    const convex = await createClient()
+    const { data: { user } } = await convex.auth.getUser()
+    if (!user) {
+      return { tokenHealth: null, heartbeat: null, error: 'Not signed in', userId: null }
+    }
+
+    const [tokenHealth, heartbeat] = await Promise.all([
+      getTokenHealth(user.id).catch(() => null),
+      convexQuery<Record<string, unknown> | null>('telemetry:getLatestHeartbeat', { user_id: user.id }).catch(() => null),
+    ])
+
+    return { tokenHealth, heartbeat, error: null, userId: user.id }
+  } catch (error) {
+    return {
+      tokenHealth: null,
+      heartbeat: null,
+      error: error instanceof Error ? error.message : String(error),
+      userId: null,
+    }
+  }
+}
+
+function RuntimeStatusPanel({ status }: { status: RuntimeStatus }) {
+  const lastHeartbeat = status.heartbeat?.last_heartbeat_at
+  const lastHeartbeatIso =
+    typeof lastHeartbeat === 'number'
+      ? new Date(lastHeartbeat).toISOString()
+      : typeof lastHeartbeat === 'string'
+        ? lastHeartbeat
+        : null
+  const missingTokens = status.tokenHealth?.missing_required ?? null
+  const requiredPlatforms = status.tokenHealth?.platforms.filter((p) => p.required) ?? []
+  const blocked = Boolean(status.error || missingTokens || !lastHeartbeatIso)
+
+  return (
+    <section className="max-w-5xl mx-auto px-6 pt-24">
+      <div className={`rounded-xl border p-5 ${blocked ? 'border-amber-500/30 bg-amber-500/5' : 'border-emerald-500/30 bg-emerald-500/5'}`}>
+        <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+          <div>
+            <div className="flex items-center gap-2 text-sm font-semibold text-white">
+              {blocked ? <AlertTriangle className="h-4 w-4 text-amber-300" /> : <Activity className="h-4 w-4 text-emerald-300" />}
+              Runtime readiness
+            </div>
+            <p className="mt-1 max-w-2xl text-sm text-white/55">
+              MacBook Pro is the primary local host. Convex is the source of truth; Supabase is not used.
+            </p>
+          </div>
+          <div className={`rounded-full px-3 py-1 text-xs font-semibold ${blocked ? 'bg-amber-400/15 text-amber-200' : 'bg-emerald-400/15 text-emerald-200'}`}>
+            {blocked ? 'Blocked for full production' : 'Runtime healthy'}
+          </div>
+        </div>
+
+        <div className="mt-5 grid gap-3 md:grid-cols-3">
+          <StatusTile
+            label="Convex heartbeat"
+            value={lastHeartbeatIso ? 'online' : 'missing'}
+            detail={lastHeartbeatIso ? new Date(lastHeartbeatIso).toLocaleString() : 'No latest telemetry row'}
+            ok={Boolean(lastHeartbeatIso)}
+          />
+          <StatusTile
+            label="Required app tokens"
+            value={missingTokens === null ? 'unknown' : `${missingTokens} missing`}
+            detail={requiredPlatforms.map((p) => `${p.platform}: ${p.status}`).join(' · ') || 'No token metadata'}
+            ok={missingTokens === 0}
+          />
+          <StatusTile
+            label="SendBird"
+            value={status.tokenHealth?.sendbird.status ?? 'unknown'}
+            detail={status.tokenHealth?.sendbird.missing.join(', ') || 'Configured'}
+            ok={status.tokenHealth?.sendbird.present === true}
+          />
+        </div>
+
+        {status.error && (
+          <div className="mt-4 rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-2 text-sm text-red-200">
+            {status.error}
+          </div>
+        )}
+      </div>
+    </section>
+  )
+}
+
+function StatusTile({
+  label,
+  value,
+  detail,
+  ok,
+}: {
+  label: string
+  value: string
+  detail: string
+  ok: boolean
+}) {
+  return (
+    <div className="rounded-lg border border-white/10 bg-black/25 p-4">
+      <div className="text-[10px] uppercase tracking-widest text-white/35">{label}</div>
+      <div className={`mt-2 text-lg font-semibold ${ok ? 'text-emerald-200' : 'text-amber-200'}`}>{value}</div>
+      <div className="mt-1 text-xs leading-relaxed text-white/45">{detail}</div>
+    </div>
+  )
+}
+
+export default async function DevicePage() {
+  const status = await loadRuntimeStatus()
+
   return (
     <>
-      <div className="max-w-4xl mx-auto px-6 pt-24">
-        <div className="border border-amber-500/30 bg-amber-500/5 rounded-lg p-4 mb-6 text-sm text-white/80">
-          <strong>Coming soon</strong> &mdash; device integration launches Q3.
-        </div>
-      </div>
+      <RuntimeStatusPanel status={status} />
+      <DeviceControlPanel />
       <Hero />
       <HowItWorks />
       <WhatYouGet />

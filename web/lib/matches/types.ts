@@ -16,6 +16,22 @@ export type MatchStatus =
 
 export type MatchPhoto = {
   url: string
+  public_url?: string | null
+  publicUrl?: string | null
+  signed_url?: string | null
+  signedUrl?: string | null
+  supabase_url?: string | null
+  supabaseUrl?: string | null
+  convex_url?: string | null
+  convexUrl?: string | null
+  image_url?: string | null
+  imageUrl?: string | null
+  cdn_url?: string | null
+  cdnUrl?: string | null
+  raw_url?: string | null
+  rawUrl?: string | null
+  src?: string | null
+  convex_path?: string | null
   supabase_path?: string | null
   width?: number | null
   height?: number | null

@@ -1,6 +1,6 @@
 import type { Metadata } from "next"
 import { redirect } from "next/navigation"
-import { createClient } from "@/lib/supabase/server"
+import { createClient } from "@/lib/convex/server"
 import { Shield, Heart, MessageSquare, Calendar, ArrowLeft, Edit } from "lucide-react"
 import Link from "next/link"
 
@@ -10,21 +10,21 @@ export const metadata: Metadata = {
 }
 
 export default async function ProfilePage() {
-  const supabase = await createClient()
+  const convex = await createClient()
 
   const {
     data: { user },
-  } = await supabase.auth.getUser()
+  } = await convex.auth.getUser()
 
   if (!user) {
     redirect("/auth/login")
   }
 
   // Get user profile
-  const { data: profile } = await supabase.from("profiles").select("*").eq("id", user.id).single()
+  const { data: profile } = await convex.from("profiles").select("*").eq("id", user.id).single()
 
   // Get subscription info
-  const { data: subscription } = await supabase
+  const { data: subscription } = await convex
     .from("subscriptions")
     .select("plan, status")
     .eq("user_id", user.id)
@@ -35,7 +35,7 @@ export default async function ProfilePage() {
   since.setDate(since.getDate() - 30)
   const sinceStr = since.toISOString().split("T")[0]
 
-  const { data: analytics } = await supabase
+  const { data: analytics } = await convex
     .from("clapcheeks_analytics_daily")
     .select("matches, conversations_started, dates_booked")
     .eq("user_id", user.id)

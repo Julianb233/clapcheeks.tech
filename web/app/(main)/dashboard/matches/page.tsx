@@ -1,7 +1,7 @@
 import type { Metadata } from 'next'
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
-import { createClient } from '@/lib/supabase/server'
+import { createClient } from '@/lib/convex/server'
 import OfflineContactForm from '@/components/matches/OfflineContactForm'
 import MatchesGrid, { MatchGridRow } from './matches-grid'
 
@@ -21,8 +21,8 @@ type ConvoLite = {
 }
 
 export default async function MatchesPage() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const convex = await createClient()
+  const { data: { user } } = await convex.auth.getUser()
   if (!user) redirect('/login')
 
   // Fetch matches. If the table doesn't exist yet, swallow the error and
@@ -30,7 +30,7 @@ export default async function MatchesPage() {
   let matches: MatchGridRow[] = []
   let fetchError: string | null = null
   try {
-    const { data, error } = await (supabase as any)
+    const { data, error } = await (convex as any)
       .from('clapcheeks_matches')
       .select('*')
       .eq('user_id', user.id)
@@ -55,7 +55,7 @@ export default async function MatchesPage() {
         .map((m) => m.external_id)
         .filter((x): x is string => !!x)
       if (matchIds.length > 0) {
-        const { data } = await supabase
+        const { data } = await convex
           .from('clapcheeks_conversations')
           .select('match_id, last_message, last_message_at')
           .eq('user_id', user.id)

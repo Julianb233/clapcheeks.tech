@@ -1,17 +1,17 @@
 import type { Metadata } from "next"
 import { redirect } from "next/navigation"
-import { createClient } from "@/lib/supabase/server"
+import { createClient } from "@/lib/convex/server"
 import { ArrowLeft, Activity, Wifi, WifiOff, CheckCircle, XCircle } from "lucide-react"
 import Link from "next/link"
 
 export const metadata: Metadata = { title: 'Diagnostics | Clapcheeks' }
 
 export default async function DiagnosticsPage() {
-  const supabase = await createClient()
+  const convex = await createClient()
 
   const {
     data: { user },
-  } = await supabase.auth.getUser()
+  } = await convex.auth.getUser()
 
   if (!user) {
     redirect("/auth/login")
@@ -20,12 +20,12 @@ export default async function DiagnosticsPage() {
   let dbStatus = "Unknown"
   let dbError = ""
   const envStatus = {
-    supabaseUrl: !!process.env.NEXT_PUBLIC_SUPABASE_URL,
-    supabaseKey: !!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+    convexUrl: !!process.env.NEXT_PUBLIC_CONVEX_URL,
+    convexKey: !!process.env.NEXT_PUBLIC_CONVEX_URL,
   }
 
   try {
-    const { error } = await supabase.from("profiles").select("count").limit(1)
+    const { error } = await convex.from("profiles").select("count").limit(1)
     if (error) {
       dbStatus = "Error"
       dbError = error.message
@@ -80,15 +80,15 @@ export default async function DiagnosticsPage() {
             </div>
             {dbError && <p className="text-sm text-red-400 bg-red-900/20 border border-red-500/30 rounded-lg px-3 py-2">{dbError}</p>}
             <div className="flex items-center justify-between">
-              <span className="text-white/60">Supabase URL</span>
-              <span className={`font-medium text-sm ${envStatus.supabaseUrl ? "text-green-400" : "text-red-400"}`}>
-                {envStatus.supabaseUrl ? "Set" : "Missing"}
+              <span className="text-white/60">Convex URL</span>
+              <span className={`font-medium text-sm ${envStatus.convexUrl ? "text-green-400" : "text-red-400"}`}>
+                {envStatus.convexUrl ? "Set" : "Missing"}
               </span>
             </div>
             <div className="flex items-center justify-between">
-              <span className="text-white/60">Supabase Key</span>
-              <span className={`font-medium text-sm ${envStatus.supabaseKey ? "text-green-400" : "text-red-400"}`}>
-                {envStatus.supabaseKey ? "Set" : "Missing"}
+              <span className="text-white/60">Convex Key</span>
+              <span className={`font-medium text-sm ${envStatus.convexKey ? "text-green-400" : "text-red-400"}`}>
+                {envStatus.convexKey ? "Set" : "Missing"}
               </span>
             </div>
           </div>

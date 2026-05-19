@@ -1,6 +1,15 @@
 import { Resend } from 'resend'
 
-const resend = new Resend(process.env.RESEND_API_KEY)
+let resend: Resend | null = null
+
+function getResend(): Resend {
+  const key = process.env.RESEND_API_KEY
+  if (!key) {
+    throw new Error('RESEND_API_KEY is not configured')
+  }
+  resend ??= new Resend(key)
+  return resend
+}
 
 interface SendReportEmailParams {
   to: string
@@ -17,7 +26,7 @@ export async function sendReportEmail({
   weekEnd,
   rizzScore,
 }: SendReportEmailParams) {
-  const { data, error } = await resend.emails.send({
+  const { data, error } = await getResend().emails.send({
     from: 'Clap Cheeks <hello@clapcheeks.tech>',
     to: [to],
     subject: `Your Week in Review - Clapcheeks (${weekStart} to ${weekEnd})`,

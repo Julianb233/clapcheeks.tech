@@ -1,7 +1,7 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { createClient } from '@/lib/supabase/client'
+import { createClient } from '@/lib/convex/client'
 import { VoiceInput, VoiceTextarea } from '@/components/voice'
 
 export type Lead = {
@@ -57,8 +57,8 @@ export default function LeadsBoard({
           : l,
       ),
     )
-    const supabase = createClient()
-    const { error } = await supabase
+    const convex = createClient()
+    const { error } = await convex
       .from('clapcheeks_leads')
       .update({ stage: toStage, stage_entered_at: new Date().toISOString() })
       .eq('id', leadId)
@@ -197,8 +197,8 @@ function LeadDrawer({
 
   async function save() {
     setSaving(true)
-    const supabase = createClient()
-    const { error } = await supabase
+    const convex = createClient()
+    const { error } = await convex
       .from('clapcheeks_leads')
       .update({ tag: tag || null, notes: notes || null, outcome: outcome || null })
       .eq('id', lead.id)

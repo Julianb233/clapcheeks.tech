@@ -1,6 +1,6 @@
 import type { Metadata } from "next"
 import { redirect } from "next/navigation"
-import { createClient } from "@/lib/supabase/server"
+import { createClient } from "@/lib/convex/server"
 import { EditProfileForm } from "@/components/edit-profile-form"
 import { ArrowLeft } from "lucide-react"
 import Link from "next/link"
@@ -8,18 +8,18 @@ import Link from "next/link"
 export const metadata: Metadata = { title: 'Edit Profile | Clapcheeks' }
 
 export default async function EditProfilePage() {
-  const supabase = await createClient()
+  const convex = await createClient()
 
   const {
     data: { user },
-  } = await supabase.auth.getUser()
+  } = await convex.auth.getUser()
 
   if (!user) {
     redirect("/auth/login")
   }
 
   // Get user profile
-  const { data: profile } = await supabase.from("profiles").select("*").eq("id", user.id).single()
+  const { data: profile } = await convex.from("profiles").select("*").eq("id", user.id).single()
 
   return (
     <div className="min-h-screen bg-black">

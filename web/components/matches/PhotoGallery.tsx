@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState } from 'react'
 import useEmblaCarousel from 'embla-carousel-react'
 import { MatchPhoto } from '@/lib/matches/types'
+import { normalizeMatchPhotos } from '@/lib/matches/photos'
+import MatchPhotoImage from './MatchPhotoImage'
 
 type Props = {
   photos: MatchPhoto[]
@@ -10,7 +12,8 @@ type Props = {
 }
 
 export default function PhotoGallery({ photos, name }: Props) {
-  const [emblaRef, emblaApi] = useEmblaCarousel({ loop: photos.length > 1, dragFree: false })
+  const normalizedPhotos = normalizeMatchPhotos(photos)
+  const [emblaRef, emblaApi] = useEmblaCarousel({ loop: normalizedPhotos.length > 1, dragFree: false })
   const [index, setIndex] = useState(0)
   const touch = useRef({ x: 0 })
 
@@ -23,7 +26,7 @@ export default function PhotoGallery({ photos, name }: Props) {
     }
   }, [emblaApi])
 
-  if (!photos || photos.length === 0) {
+  if (normalizedPhotos.length === 0) {
     return (
       <div className="relative w-full aspect-[3/4] bg-gradient-to-br from-zinc-800 to-zinc-900 rounded-xl border border-white/10 flex items-center justify-center">
         <div className="text-white/30 text-6xl font-bold">
@@ -43,13 +46,12 @@ export default function PhotoGallery({ photos, name }: Props) {
         }}
       >
         <div className="flex">
-          {photos.map((p, i) => (
+          {normalizedPhotos.map((p, i) => (
             <div
               key={i}
               className="relative flex-[0_0_100%] aspect-[3/4] bg-zinc-900"
             >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
+              <MatchPhotoImage
                 src={p.url}
                 alt={name ? `${name} photo ${i + 1}` : `Photo ${i + 1}`}
                 className="w-full h-full object-cover"
@@ -59,10 +61,10 @@ export default function PhotoGallery({ photos, name }: Props) {
           ))}
         </div>
       </div>
-      {photos.length > 1 && (
+      {normalizedPhotos.length > 1 && (
         <>
           <div className="absolute top-2 left-0 right-0 flex gap-1 px-2">
-            {photos.map((_, i) => (
+            {normalizedPhotos.map((_, i) => (
               <div
                 key={i}
                 className={`h-1 flex-1 rounded-full transition-all ${
@@ -92,7 +94,7 @@ export default function PhotoGallery({ photos, name }: Props) {
             </svg>
           </button>
           <div className="absolute bottom-2 right-2 bg-black/60 backdrop-blur border border-white/10 text-white/80 text-[10px] font-mono px-2 py-0.5 rounded">
-            {index + 1} / {photos.length}
+            {index + 1} / {normalizedPhotos.length}
           </div>
         </>
       )}

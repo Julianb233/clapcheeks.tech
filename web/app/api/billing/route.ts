@@ -1,18 +1,18 @@
 import { NextResponse } from 'next/server'
 import Stripe from 'stripe'
 import { stripe } from '@/lib/stripe'
-import { createClient } from '@/lib/supabase/server'
+import { createClient } from '@/lib/convex/server'
 
 export async function GET() {
   try {
-    const supabase = await createClient()
-    const { data: { user } } = await supabase.auth.getUser()
+    const convex = await createClient()
+    const { data: { user } } = await convex.auth.getUser()
 
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const { data: profile } = await supabase
+    const { data: profile } = await convex
       .from('profiles')
       .select('subscription_tier, subscription_status, stripe_customer_id, stripe_subscription_id')
       .eq('id', user.id)

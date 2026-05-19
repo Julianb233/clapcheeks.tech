@@ -17,10 +17,13 @@ export default function PWAProvider() {
 
   useEffect(() => {
     if (typeof window === 'undefined') return
-    // Register SW
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker
-        .register('/sw.js', { scope: '/' })
+    // Register SW only when a production service worker exists.
+    if ('serviceWorker' in navigator && process.env.NODE_ENV === 'production') {
+      fetch('/sw.js', { method: 'HEAD', cache: 'no-store' })
+        .then((res) => {
+          if (res.ok) return navigator.serviceWorker.register('/sw.js', { scope: '/' })
+          return null
+        })
         .catch((err) => console.warn('SW register failed:', err))
     }
 

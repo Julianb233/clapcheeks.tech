@@ -15,6 +15,16 @@ interface AgentTokenStatus {
   status: string | null
   degraded_platform: string | null
   degraded_reason: string | null
+  updated_at?: string | null
+  last_seen_at?: string | null
+}
+
+interface AgentStatusPayload {
+  device: DeviceStatus | null
+  agentToken: AgentTokenStatus | null
+  status?: 'online' | 'stale' | 'no_convex_heartbeat'
+  lastSeen?: string | null
+  message?: string
 }
 
 interface AgentStatusBadgeProps {
@@ -35,14 +45,22 @@ function timeAgo(dateStr: string): string {
 export default function AgentStatusBadge({ initialDevice }: AgentStatusBadgeProps) {
   const [device, setDevice] = useState<DeviceStatus | null>(initialDevice)
   const [agentToken, setAgentToken] = useState<AgentTokenStatus | null>(null)
+  const [lastSeen, setLastSeen] = useState<string | null>(initialDevice?.last_seen_at || null)
+  const [status, setStatus] = useState<AgentStatusPayload['status']>(
+    initialDevice ? 'stale' : 'no_convex_heartbeat',
+  )
+  const [statusMessage, setStatusMessage] = useState<string | null>(null)
 
   const fetchStatus = useCallback(async () => {
     try {
       const res = await fetch('/api/agent/status')
       if (!res.ok) return
-      const json = await res.json()
+      const json = await res.json() as AgentStatusPayload
       setDevice(json.device)
       setAgentToken(json.agentToken)
+      setLastSeen(json.lastSeen || json.device?.last_seen_at || json.agentToken?.last_seen_at || json.agentToken?.updated_at || null)
+      setStatus(json.status || 'no_convex_heartbeat')
+      setStatusMessage(json.message || null)
     } catch {
       // silently ignore -- keep stale data
     }
@@ -54,26 +72,32 @@ export default function AgentStatusBadge({ initialDevice }: AgentStatusBadgeProp
     return () => clearInterval(interval)
   }, [fetchStatus])
 
-  const isOnline = device
-    ? Date.now() - new Date(device.last_seen_at).getTime() < ONLINE_THRESHOLD
-    : false
+  const isOnline = status === 'online' || Boolean(
+    lastSeen && Date.now() - new Date(lastSeen).getTime() < ONLINE_THRESHOLD,
+  )
 
   const isDegraded = agentToken?.status === 'degraded'
   const degradedPlatform = agentToken?.degraded_platform
   const degradedReason = agentToken?.degraded_reason
+  const heartbeatKind = device ? 'device' : agentToken ? 'agent token' : 'none'
 
-  // No device found
-  if (!device) {
+  // No heartbeat found
+  if (!lastSeen) {
     return (
-      <div className="inline-flex items-center gap-2 border border-white/10 bg-white/5 rounded-full px-4 py-1.5">
-        <div className="w-1.5 h-1.5 rounded-full bg-white/30" />
-        <span className="text-xs font-medium text-white/40">No agent connected</span>
-        <Link
-          href="/device"
-          className="text-xs text-purple-400 hover:text-purple-300 ml-1 underline underline-offset-2"
-        >
-          Set up
-        </Link>
+      <div className="space-y-1">
+        <div className="inline-flex items-center gap-2 border border-white/10 bg-white/5 rounded-full px-4 py-1.5">
+          <div className="w-1.5 h-1.5 rounded-full bg-white/30" />
+          <span className="text-xs font-medium text-white/40">No Convex heartbeat</span>
+          <Link
+            href="/device"
+            className="text-xs text-purple-400 hover:text-purple-300 ml-1 underline underline-offset-2"
+          >
+            Runtime
+          </Link>
+        </div>
+        {statusMessage && (
+          <p className="text-[11px] text-white/30 ml-1 max-w-xl">{statusMessage}</p>
+        )}
       </div>
     )
   }
@@ -85,12 +109,15 @@ export default function AgentStatusBadge({ initialDevice }: AgentStatusBadgeProp
         <div className="inline-flex items-center gap-2 border border-green-700/40 bg-green-900/30 rounded-full px-4 py-1.5">
           <div className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
           <span className="text-xs font-medium text-green-300">Agent online</span>
+          {heartbeatKind !== 'none' && (
+            <span className="text-xs text-green-200/50 ml-1">{heartbeatKind}</span>
+          )}
         </div>
       ) : (
         <div className="inline-flex items-center gap-2 border border-white/10 bg-white/5 rounded-full px-4 py-1.5">
           <div className="w-1.5 h-1.5 rounded-full bg-gray-400" />
           <span className="text-xs font-medium text-white/40">Agent offline</span>
-          <span className="text-xs text-white/25 ml-1">Last seen {timeAgo(device.last_seen_at)}</span>
+          <span className="text-xs text-white/25 ml-1">Last seen {timeAgo(lastSeen)}</span>
         </div>
       )}
 

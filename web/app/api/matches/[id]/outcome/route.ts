@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import { createClient } from '@/lib/convex/server'
 
 /**
  * Phase G (AI-8321): Capture post-date outcome.
@@ -40,10 +40,10 @@ export async function POST(
   req: Request,
   ctx: { params: Promise<{ id: string }> },
 ) {
-  const supabase = await createClient()
+  const convex = await createClient()
   const {
     data: { user },
-  } = await supabase.auth.getUser()
+  } = await convex.auth.getUser()
   if (!user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
@@ -71,7 +71,7 @@ export async function POST(
   }
 
   // Make sure the match belongs to this user before we patch anything.
-  const { data: matchRow, error: fetchErr } = await supabase
+  const { data: matchRow, error: fetchErr } = await convex
     .from('clapcheeks_matches')
     .select('id, user_id, outcome, status')
     .eq('id', id)
@@ -84,7 +84,7 @@ export async function POST(
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
-  const { error: updateErr } = await supabase
+  const { error: updateErr } = await convex
     .from('clapcheeks_matches')
     .update({
       outcome,

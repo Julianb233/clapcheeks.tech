@@ -1,4 +1,4 @@
-import { createClient } from '@supabase/supabase-js'
+import { createClient } from '@/lib/convex/compat-client'
 import { stripe, stripeLog } from '@/lib/stripe'
 
 // ---------------------------------------------------------------------------
@@ -12,12 +12,9 @@ import { stripe, stripeLog } from '@/lib/stripe'
 const GRACE_PERIOD_DAYS = 3
 const HARD_GRACE_PERIOD_DAYS = 7
 
-/** Supabase admin client (service role) */
+/** Convex admin client (service role) */
 function getAdminClient() {
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  )
+  return createClient()
 }
 
 export interface DunningState {
@@ -37,9 +34,9 @@ export async function handlePaymentFailed(
   invoiceId: string,
   attemptCount: number
 ): Promise<DunningState | null> {
-  const supabase = getAdminClient()
+  const convex = getAdminClient()
 
-  const { data: profile } = await supabase
+  const { data: profile } = await convex
     .from('profiles')
     .select('id, email, subscription_status, access_expires_at, failed_payment_count')
     .eq('stripe_customer_id', customerId)
@@ -58,7 +55,7 @@ export async function handlePaymentFailed(
   const graceExpiry = new Date()
   graceExpiry.setDate(graceExpiry.getDate() + graceDays)
 
-  await supabase.from('profiles').update({
+  await convex.from('profiles').update({
     subscription_status: 'past_due',
     access_expires_at: graceExpiry.toISOString(),
     failed_payment_count: currentFailCount,
@@ -66,7 +63,7 @@ export async function handlePaymentFailed(
   }).eq('id', profile.id)
 
   // Log to dunning_events for audit trail
-  await supabase.from('dunning_events').insert({
+  await convex.from('dunning_events').insert({
     user_id: profile.id,
     stripe_customer_id: customerId,
     stripe_invoice_id: invoiceId,
@@ -100,9 +97,9 @@ export async function handlePaymentFailed(
  * Handle a successful payment — clear dunning state
  */
 export async function handlePaymentSucceeded(customerId: string): Promise<void> {
-  const supabase = getAdminClient()
+  const convex = getAdminClient()
 
-  await supabase.from('profiles').update({
+  await convex.from('profiles').update({
     subscription_status: 'active',
     access_expires_at: null,
     failed_payment_count: 0,
@@ -110,7 +107,7 @@ export async function handlePaymentSucceeded(customerId: string): Promise<void> 
   }).eq('stripe_customer_id', customerId)
 
   // Log recovery
-  await supabase.from('dunning_events').insert({
+  await convex.from('dunning_events').insert({
     stripe_customer_id: customerId,
     event_type: 'payment_recovered',
     metadata: { recovered_at: new Date().toISOString() },
@@ -130,10 +127,10 @@ export async function processExpiredGracePeriods(): Promise<{
   canceled: number
   errors: string[]
 }> {
-  const supabase = getAdminClient()
+  const convex = getAdminClient()
   const now = new Date().toISOString()
 
-  const { data: expiredUsers, error } = await supabase
+  const { data: expiredUsers, error } = await convex
     .from('profiles')
     .select('id, email, stripe_customer_id, stripe_subscription_id, access_expires_at')
     .eq('subscription_status', 'past_due')
@@ -157,7 +154,7 @@ export async function processExpiredGracePeriods(): Promise<{
       }
 
       // Reset profile
-      await supabase.from('profiles').update({
+      await convex.from('profiles').update({
         subscription_status: 'canceled',
         subscription_tier: 'free',
         access_expires_at: null,
@@ -165,7 +162,7 @@ export async function processExpiredGracePeriods(): Promise<{
       }).eq('id', user.id)
 
       // Log cancellation
-      await supabase.from('dunning_events').insert({
+      await convex.from('dunning_events').insert({
         user_id: user.id,
         stripe_customer_id: user.stripe_customer_id,
         event_type: 'grace_period_expired',
@@ -196,9 +193,9 @@ export async function checkAccessStatus(userId: string): Promise<{
   gracePeriodEnd: string | null
   daysRemaining: number | null
 }> {
-  const supabase = getAdminClient()
+  const convex = getAdminClient()
 
-  const { data: profile } = await supabase
+  const { data: profile } = await convex
     .from('profiles')
     .select('subscription_status, subscription_tier, access_expires_at')
     .eq('id', userId)

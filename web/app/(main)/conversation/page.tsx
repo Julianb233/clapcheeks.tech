@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { Copy, Check, Loader2, MessageSquare, User, Mic, ChevronRight, Send } from 'lucide-react'
+import { useState, useEffect, useMemo } from 'react'
+import { Copy, Check, Loader2, MessageSquare, Mic, ChevronRight, ShieldCheck, Target, AlertTriangle } from 'lucide-react'
 import VoiceProfileSetup from './components/voice-profile-setup'
 import { VoiceInput, VoiceTextarea } from '@/components/voice'
 
@@ -26,16 +26,36 @@ const toneColors: Record<string, string> = {
 }
 
 const platforms = ['Tinder', 'Bumble', 'Hinge', 'iMessage']
+const replyGoals = [
+  { value: 'keep_momentum', label: 'Keep momentum' },
+  { value: 'ask_date', label: 'Ask for date' },
+  { value: 'recover_thread', label: 'Recover thread' },
+  { value: 'confirm_plan', label: 'Confirm plan' },
+] as const
+
+function countTurns(text: string) {
+  return text
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => /^(them|her|you|me|julian):/i.test(line)).length
+}
+
+function normalizePlatform(value: string | null) {
+  if (!value) return null
+  return platforms.find((platform) => platform.toLowerCase() === value.toLowerCase()) ?? value
+}
 
 export default function ConversationPage() {
   const [conversationContext, setConversationContext] = useState('')
   const [matchName, setMatchName] = useState('')
   const [platform, setPlatform] = useState('Tinder')
+  const [replyGoal, setReplyGoal] = useState<(typeof replyGoals)[number]['value']>('keep_momentum')
   const [suggestions, setSuggestions] = useState<Suggestion[]>([])
   const [loading, setLoading] = useState(false)
   const [copied, setCopied] = useState<number | null>(null)
   const [sending, setSending] = useState<number | null>(null)
   const [sent, setSent] = useState<Set<number>>(new Set())
+  const [error, setError] = useState<string | null>(null)
 
   const [voiceProfile, setVoiceProfile] = useState<VoiceProfile | null>(null)
   const [showVoiceSetup, setShowVoiceSetup] = useState(false)
@@ -52,6 +72,37 @@ export default function ConversationPage() {
       .finally(() => setProfileLoading(false))
   }, [])
 
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const nextName = params.get('matchName')
+    const nextPlatform = params.get('platform')
+    const nextContext = params.get('context')
+    const nextGoal = params.get('goal')
+    if (nextName) setMatchName(nextName)
+    if (nextPlatform) setPlatform(normalizePlatform(nextPlatform) ?? nextPlatform)
+    if (nextContext) setConversationContext(nextContext)
+    if (replyGoals.some((goal) => goal.value === nextGoal)) {
+      setReplyGoal(nextGoal as (typeof replyGoals)[number]['value'])
+    }
+  }, [])
+
+  const contextHealth = useMemo(() => {
+    const trimmed = conversationContext.trim()
+    const turnCount = countTurns(trimmed)
+    const hasRecentInbound = /^(them|her):/im.test(trimmed)
+    const hasUserMessage = /^(you|me|julian):/im.test(trimmed)
+    return {
+      chars: trimmed.length,
+      turnCount,
+      ready: trimmed.length >= 40 && hasRecentInbound,
+      checks: [
+        { label: 'Recent inbound', ok: hasRecentInbound },
+        { label: 'Your prior tone', ok: hasUserMessage || !!voiceProfile },
+        { label: 'Enough context', ok: trimmed.length >= 40 || turnCount >= 2 },
+      ],
+    }
+  }, [conversationContext, voiceProfile])
+
   function handleProfileComplete(profile: VoiceProfile) {
     setVoiceProfile(profile)
     setShowVoiceSetup(false)
@@ -62,20 +113,29 @@ export default function ConversationPage() {
     setLoading(true)
     setSuggestions([])
     setSent(new Set())
+    setError(null)
     try {
       const res = await fetch('/api/conversation/suggest', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ conversationContext, matchName, platform }),
+        body: JSON.stringify({
+          conversationContext,
+          matchName,
+          platform,
+          profile_context: {
+            reply_goal: replyGoal,
+            context_turns: contextHealth.turnCount,
+          },
+        }),
       })
       const data = await res.json()
       if (!res.ok) {
-        alert(data.error || 'Failed to generate replies')
+        setError(data.error || 'Failed to generate replies')
         return
       }
       setSuggestions(data.suggestions || [])
     } catch {
-      alert('Failed to generate reply suggestions')
+      setError('Failed to generate reply suggestions')
     } finally {
       setLoading(false)
     }
@@ -97,12 +157,12 @@ export default function ConversationPage() {
       })
       if (!res.ok) {
         const data = await res.json()
-        alert(data.error || 'Failed to queue reply')
+        setError(data.error || 'Failed to queue reply')
         return
       }
       setSent(prev => new Set(prev).add(index))
     } catch {
-      alert('Failed to send reply')
+      setError('Failed to queue reply')
     } finally {
       setSending(null)
     }
@@ -127,6 +187,18 @@ export default function ConversationPage() {
             <h1 className="text-2xl font-bold gradient-text">Conversation AI</h1>
           </div>
           <p className="text-white/30 text-sm animate-fade-in delay-150">AI-powered reply suggestions in your voice</p>
+        </div>
+
+        <div className="mb-6 rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-4">
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="flex items-center gap-2 text-emerald-300">
+              <ShieldCheck className="h-4 w-4" />
+              <span className="text-sm font-semibold">Approval queue mode</span>
+            </div>
+            <div className="text-xs text-white/50">
+              Suggestions can be copied or queued. Live delivery still requires the send gate.
+            </div>
+          </div>
         </div>
 
         {/* Voice Profile Card */}
@@ -236,6 +308,30 @@ export default function ConversationPage() {
             </div>
           </div>
 
+          <div className="mb-4">
+            <label className="text-white/60 text-xs block mb-1.5">Goal</label>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+              {replyGoals.map((goal) => {
+                const active = replyGoal === goal.value
+                return (
+                  <button
+                    key={goal.value}
+                    type="button"
+                    onClick={() => setReplyGoal(goal.value)}
+                    className={`rounded-lg border px-3 py-2 text-left text-xs transition-colors ${
+                      active
+                        ? 'border-brand-500/60 bg-brand-600/20 text-white'
+                        : 'border-white/10 bg-white/[0.03] text-white/50 hover:border-white/20 hover:text-white/80'
+                    }`}
+                  >
+                    <Target className="mb-1 h-3.5 w-3.5" />
+                    {goal.label}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+
           <label className="text-white/60 text-xs block mb-1.5">Paste the conversation so far</label>
           <VoiceTextarea
             value={conversationContext}
@@ -244,6 +340,34 @@ export default function ConversationPage() {
             rows={6}
             className="w-full bg-white/5 border border-white/10 rounded-lg p-3 text-white text-sm placeholder:text-white/20 focus:outline-none focus:border-brand-500/50 resize-none mb-4"
           />
+
+          <div className="mb-4 grid grid-cols-1 md:grid-cols-3 gap-2">
+            {contextHealth.checks.map((check) => (
+              <div
+                key={check.label}
+                className={`rounded-lg border px-3 py-2 text-xs ${
+                  check.ok
+                    ? 'border-emerald-500/20 bg-emerald-500/5 text-emerald-300'
+                    : 'border-white/10 bg-white/[0.03] text-white/40'
+                }`}
+              >
+                {check.ok ? 'ok' : 'missing'} {check.label}
+              </div>
+            ))}
+          </div>
+
+          {!contextHealth.ready && conversationContext.trim() && (
+            <div className="mb-4 flex gap-2 rounded-lg border border-yellow-500/20 bg-yellow-500/5 p-3 text-xs text-yellow-200/80">
+              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              Add the latest inbound line before generating. The drafts get safer when the model sees what she just said.
+            </div>
+          )}
+
+          {error && (
+            <div className="mb-4 rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-2 text-sm text-red-300">
+              {error}
+            </div>
+          )}
 
           <button
             onClick={handleGenerate}
@@ -281,20 +405,20 @@ export default function ConversationPage() {
                     {sent.has(index) ? (
                       <span className="text-green-400 text-xs flex items-center gap-1 pr-1">
                         <Check className="w-3.5 h-3.5" />
-                        Sent to queue
+                        Queued for approval
                       </span>
                     ) : (
                       <button
                         onClick={() => handleSend(s.text, index)}
                         disabled={sending === index}
                         className="text-white/30 hover:text-brand-400 transition-colors p-1"
-                        title="Send reply"
-                        aria-label="Send reply"
+                        title="Queue for approval"
+                        aria-label="Queue for approval"
                       >
                         {sending === index ? (
                           <Loader2 className="w-4 h-4 animate-spin" />
                         ) : (
-                          <Send className="w-4 h-4" />
+                          <ShieldCheck className="w-4 h-4" />
                         )}
                       </button>
                     )}
@@ -315,6 +439,13 @@ export default function ConversationPage() {
                 {s.reasoning && (
                   <p className="text-white/30 text-xs mt-1.5">{s.reasoning}</p>
                 )}
+                <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-white/35">
+                  <span>{s.text.length} chars</span>
+                  <span>approval gated</span>
+                  {s.text.length > 160 && (
+                    <span className="text-yellow-300">long draft</span>
+                  )}
+                </div>
                 <div className="mt-2 h-1 bg-white/5 rounded-full overflow-hidden">
                   <div
                     className="h-full bg-brand-500/50 rounded-full"

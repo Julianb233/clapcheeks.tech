@@ -1,18 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import { createClient } from '@/lib/convex/server'
 
 /**
  * POST /api/match-profile/add — create a manually-added match profile.
  * GET  /api/match-profile/add — list the current user's match profiles.
  *
  * This route writes/reads the real `clapcheeks_matches` table (see
- * supabase/migrations/20260420000002_matches_intel_fields.sql). Everything
+ * convex/migrations/20260420000002_matches_intel_fields.sql). Everything
  * that doesn't have a dedicated column folds into the `match_intel` JSONB
  * blob so enrichment / UI can round-trip arbitrary fields.
  */
 export async function POST(request: NextRequest) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const convex = await createClient()
+  const { data: { user } } = await convex.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = await request.json()
@@ -62,7 +62,7 @@ export async function POST(request: NextRequest) {
     updated_at: nowIso,
   }
 
-  const { data, error } = await (supabase as any)
+  const { data, error } = await (convex as any)
     .from('clapcheeks_matches')
     .insert(insertRow)
     .select('*')
@@ -98,11 +98,11 @@ export async function POST(request: NextRequest) {
 }
 
 export async function GET() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const convex = await createClient()
+  const { data: { user } } = await convex.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { data, error } = await supabase
+  const { data, error } = await convex
     .from('clapcheeks_matches')
     .select('*')
     .eq('user_id', user.id)

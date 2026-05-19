@@ -1,5 +1,5 @@
 import type { Metadata } from 'next'
-import { createClient } from '@/lib/supabase/server'
+import { createClient } from '@/lib/convex/server'
 import { redirect, notFound } from 'next/navigation'
 import MatchProfileView from './match-profile-view'
 import type { ChatMessage } from './conversation-thread'
@@ -65,14 +65,14 @@ function entryToMessage(
 }
 
 async function loadConversationMessages(
-  supabase: Awaited<ReturnType<typeof createClient>>,
+  convex: Awaited<ReturnType<typeof createClient>>,
   userId: string,
   externalId: string | null | undefined,
 ): Promise<ChatMessage[]> {
   if (!externalId) return []
   // Pull every conversation row for this match — there may be one per
   // platform/channel (tinder + imessage etc).
-  const { data, error } = await (supabase as any)
+  const { data, error } = await (convex as any)
     .from('clapcheeks_conversations')
     .select('*')
     .eq('user_id', userId)
@@ -124,13 +124,13 @@ export default async function MatchDetailPage({
   params: Promise<{ id: string }>
 }) {
   const { id } = await params
-  const supabase = await createClient()
+  const convex = await createClient()
   const {
     data: { user },
-  } = await supabase.auth.getUser()
+  } = await convex.auth.getUser()
   if (!user) redirect('/login')
 
-  const { data: match, error } = await (supabase as any)
+  const { data: match, error } = await (convex as any)
     .from('clapcheeks_matches')
     .select('*')
     .eq('id', id)
@@ -150,7 +150,7 @@ export default async function MatchDetailPage({
   else if (externalId) memoHandle = platform ? `${platform}:${externalId}` : externalId
 
   const conversation = await loadConversationMessages(
-    supabase,
+    convex,
     user.id,
     externalId,
   )
@@ -159,7 +159,7 @@ export default async function MatchDetailPage({
   let memoInitial: { content: string; updated_at: string | null } | null = null
   if (memoHandle) {
     try {
-      const { data: memoRow } = await (supabase as any)
+      const { data: memoRow } = await (convex as any)
         .from('clapcheeks_memos')
         .select('content, updated_at')
         .eq('user_id', user.id)

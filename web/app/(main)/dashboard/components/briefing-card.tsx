@@ -1,6 +1,8 @@
 import Link from 'next/link'
 import { ArrowRight } from 'lucide-react'
-import { createClient } from '@/lib/supabase/server'
+import { createClient } from '@/lib/convex/server'
+import { getTokenHealth } from '@/lib/clapcheeks/token-health'
+import { getRuntimeHealth } from '@/lib/clapcheeks/runtime-health'
 
 /**
  * Operator briefing card — top-of-dashboard glanceable counts that point to
@@ -11,14 +13,14 @@ import { createClient } from '@/lib/supabase/server'
  *   - Drafts to Approve  (clapcheeks_approval_queue, status='pending')
  *   - Stale Convos       (clapcheeks_conversations, last_message_at < now-48h
  *                         AND stage IN active stages, capped at 50)
- *   - Tokens Expiring    (skipped — schema has *_updated_at, not *_expires_at)
+ *   - Tokens Missing     (required app tokens missing for the dashboard user)
  *   - Dates This Week    (clapcheeks_dates, scheduled_at within next 7d)
  *
  * Each metric degrades gracefully: a query error becomes 0, never a crash.
  */
 export default async function BriefingCard() {
-  const supabase = await createClient()
-  const { data: userRes } = await supabase.auth.getUser()
+  const convex = await createClient()
+  const { data: userRes } = await convex.auth.getUser()
   const userId = userRes.user?.id
   if (!userId) return null
 
@@ -26,61 +28,49 @@ export default async function BriefingCard() {
   const nowIso = new Date().toISOString()
   const sevenDaysFromNow = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
 
-  // The roster pipeline uses these "still warm" stages. Anything else (ghosted,
-  // archived, hooked_up, recurring, etc.) is intentionally excluded — we only
-  // want stale convos the operator can still salvage.
-  //
-  // Note: clapcheeks_conversations.stage default is 'opened' (legacy); the
-  // newer clapcheeks_matches.stage uses 'chatting' / 'chatting_phone' /
-  // 'date_proposed'. We query the conversations table because that's where
-  // last_message_at lives, and we union both vocabularies.
-  const ACTIVE_STAGES = [
-    'opened',
-    'replying',
-    'chatting',
-    'chatting_phone',
-    'date_proposed',
-  ]
-
-  const [approvalsRes, staleRes, datesRes] = await Promise.all([
-    supabase
+  const [approvalsRes, staleRes, datesRes, tokenHealth, runtimeHealth] = await Promise.all([
+    convex
       .from('clapcheeks_approval_queue')
       .select('id', { count: 'exact', head: true })
       .eq('user_id', userId)
       .eq('status', 'pending'),
-    supabase
+    convex
       .from('clapcheeks_conversations')
       .select('id', { count: 'exact', head: true })
       .eq('user_id', userId)
       .lt('last_message_at', fortyEightHoursAgo)
-      .in('stage', ACTIVE_STAGES)
       .limit(50),
-    supabase
+    convex
       .from('clapcheeks_dates')
       .select('id', { count: 'exact', head: true })
       .eq('user_id', userId)
       .gte('scheduled_at', nowIso)
       .lte('scheduled_at', sevenDaysFromNow),
+    getTokenHealth(userId).catch(() => null),
+    Promise.resolve(getRuntimeHealth()).catch(() => null),
   ])
 
   const approvals = approvalsRes.count ?? 0
   const stale = staleRes.count ?? 0
   const dates = datesRes.count ?? 0
 
-  // TODO(token-expiry): clapcheeks_user_settings has tinder_auth_token /
-  // hinge_auth_token plus *_updated_at, but no *_expires_at column. When the
-  // schema gains an explicit expiry timestamp, add a 4th metric here that
-  // counts tokens expiring within the next 7 days and links to /device.
+  const missingTokens = tokenHealth?.missing_required ?? 0
+  const tokenBlockers = tokenHealth?.missing_required_services?.map((item) => item.name).join(', ') || 'All required tokens configured'
+  const runtimeBlockers = runtimeHealth?.blockers?.length ?? 1
+  const runtimeDetail = runtimeHealth?.blockers?.map((item) => item.reason).join(', ') || 'Runtime status unavailable'
 
   const cards: Array<{
     label: string
     count: number
     href: string
+    detail?: string
     /** "alert" tone if exceeded — matches the urgency model from the sidebar */
     redAt?: number
   }> = [
     { label: 'Drafts to Approve', count: approvals, href: '/autonomy', redAt: 5 },
     { label: 'Stale Convos', count: stale, href: '/matches?filter=stale', redAt: 5 },
+    { label: 'Tokens Missing', count: missingTokens, href: '/device', detail: tokenBlockers, redAt: 0 },
+    { label: 'Runtime Blockers', count: runtimeHealth?.ok === true ? 0 : runtimeBlockers, href: '/device', detail: runtimeHealth?.ok === true ? 'Inbound watcher healthy' : runtimeDetail, redAt: 0 },
     { label: 'Dates This Week', count: dates, href: '/scheduled' },
   ]
 
@@ -94,13 +84,14 @@ export default async function BriefingCard() {
           live · server-rendered
         </span>
       </div>
-      <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
         {cards.map((c) => (
           <BriefingTile
             key={c.label}
             label={c.label}
             count={c.count}
             href={c.href}
+            detail={c.detail}
             redAt={c.redAt}
           />
         ))}
@@ -113,11 +104,13 @@ function BriefingTile({
   label,
   count,
   href,
+  detail,
   redAt,
 }: {
   label: string
   count: number
   href: string
+  detail?: string
   redAt?: number
 }) {
   // Tone matches sidebar badge urgency model so visual language is consistent.
@@ -143,6 +136,11 @@ function BriefingTile({
         <ArrowRight className="w-4 h-4 text-white/30 group-hover:text-white/70 transition-colors" />
       </div>
       <div className="text-white/60 text-xs leading-tight">{label}</div>
+      {detail && (
+        <div className="min-h-[1rem] break-words text-[10px] leading-snug text-white/35">
+          {detail}
+        </div>
+      )}
     </Link>
   )
 }

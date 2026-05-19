@@ -1,4 +1,4 @@
-import { updateSession } from "@/lib/supabase/middleware"
+import { updateSession } from "@/lib/convex/middleware"
 import { NextResponse } from "next/server"
 import type { NextRequest } from "next/server"
 

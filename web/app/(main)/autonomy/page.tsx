@@ -1,7 +1,8 @@
 import type { Metadata } from 'next'
-import { createClient } from '@/lib/supabase/server'
+import { createClient } from '@/lib/convex/server'
 import { redirect } from 'next/navigation'
 import AutonomyDashboard from './components/autonomy-dashboard'
+import { getClapCheeksUserSettings } from '@/lib/clapcheeks/user-settings'
 
 export const metadata: Metadata = {
   title: 'Autonomy Engine — Clapcheeks',
@@ -9,58 +10,43 @@ export const metadata: Metadata = {
 }
 
 export default async function AutonomyPage() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const convex = await createClient()
+  const { data: { user } } = await convex.auth.getUser()
   if (!user) redirect('/auth')
 
-  // Fetch initial data in parallel
-  const [configRes, queueRes, actionsRes, modelRes, swipesCountRes] = await Promise.all([
-    supabase
-      .from('clapcheeks_autonomy_config')
-      .select('*')
-      .eq('user_id', user.id)
-      .single(),
-    supabase
+  const [{ row: settingsRow }, queueRes] = await Promise.all([
+    getClapCheeksUserSettings(),
+    convex
       .from('clapcheeks_approval_queue')
       .select('*')
       .eq('user_id', user.id)
       .eq('status', 'pending')
       .order('created_at', { ascending: false })
       .limit(20),
-    supabase
-      .from('clapcheeks_auto_actions')
-      .select('*')
-      .eq('user_id', user.id)
-      .order('created_at', { ascending: false })
-      .limit(30),
-    supabase
-      .from('clapcheeks_preference_model')
-      .select('*')
-      .eq('user_id', user.id)
-      .eq('is_active', true)
-      .order('version', { ascending: false })
-      .limit(1)
-      .single(),
-    supabase
-      .from('clapcheeks_swipe_decisions')
-      .select('id', { count: 'exact', head: true })
-      .eq('user_id', user.id),
   ])
 
-  const config = configRes.data ?? {
-    global_level: 'supervised',
-    auto_swipe_enabled: false,
-    auto_swipe_confidence_min: 70,
-    auto_respond_enabled: false,
-    auto_respond_confidence_min: 80,
-    auto_reengage_enabled: false,
-    max_auto_swipes_per_hour: 20,
-    max_auto_replies_per_hour: 10,
-    stale_hours_threshold: 48,
-    stale_recovery_enabled: false,
-    notify_on_auto_send: true,
-    notify_on_low_confidence: true,
-    notify_on_queue_item: true,
+  const approveOpeners = Boolean(settingsRow?.approve_openers)
+  const approveReplies = settingsRow?.approve_replies !== undefined ? Boolean(settingsRow.approve_replies) : true
+  const approveDateAsks = settingsRow?.approve_date_asks !== undefined ? Boolean(settingsRow.approve_date_asks) : true
+  const approveBookings = settingsRow?.approve_bookings !== undefined ? Boolean(settingsRow.approve_bookings) : true
+  let globalLevel: 'supervised' | 'semi_auto' | 'full_auto' | 'custom' = 'custom'
+  if (approveOpeners && approveReplies && approveDateAsks && approveBookings) globalLevel = 'supervised'
+  if (approveOpeners && !approveReplies && approveDateAsks && approveBookings) globalLevel = 'semi_auto'
+  if (!approveOpeners && !approveReplies && !approveDateAsks && approveBookings) globalLevel = 'full_auto'
+
+  const config = {
+    source: 'clapcheeks_user_settings',
+    global_level: globalLevel,
+    approve_openers: approveOpeners,
+    approve_replies: approveReplies,
+    approve_date_asks: approveDateAsks,
+    approve_bookings: approveBookings,
+    auto_respond_enabled: !approveReplies,
+    require_approval_for_first_message: approveOpeners,
+    ai_active: settingsRow?.ai_active ?? null,
+    ai_paused_until: settingsRow?.ai_paused_until ?? null,
+    ai_paused_reason: settingsRow?.ai_paused_reason ?? null,
+    updated_at: settingsRow?.updated_at ?? null,
   }
 
   return (
@@ -81,9 +67,9 @@ export default async function AutonomyPage() {
         <AutonomyDashboard
           initialConfig={config}
           initialQueue={queueRes.data ?? []}
-          initialActions={actionsRes.data ?? []}
-          initialModel={modelRes.data ?? { version: 0, training_size: 0, accuracy: null, weights: {} }}
-          totalSwipeDecisions={swipesCountRes.count ?? 0}
+          initialActions={[]}
+          initialModel={{ version: 0, training_size: 0, accuracy: null, weights: {} }}
+          totalSwipeDecisions={0}
           userId={user.id}
         />
       </div>

@@ -1,4 +1,4 @@
-import { createClient } from '@/lib/supabase/server'
+import { createClient } from '@/lib/convex/server'
 
 export const PLAN_LIMITS = {
   base: { swipes: 500, coaching_calls: 5, ai_replies: 20 },
@@ -20,8 +20,8 @@ export interface UsageSummary {
 }
 
 async function getUserPlan(userId: string): Promise<'base' | 'elite'> {
-  const supabase = await createClient()
-  const { data } = await supabase
+  const convex = await createClient()
+  const { data } = await convex
     .from('clapcheeks_subscriptions')
     .select('plan')
     .eq('user_id', userId)
@@ -44,11 +44,11 @@ export async function checkLimit(
     return { allowed: true, used: 0, limit }
   }
 
-  const supabase = await createClient()
+  const convex = await createClient()
   const today = new Date().toISOString().split('T')[0]
 
   const dbField = `${field}_used`
-  const { data } = await supabase
+  const { data } = await convex
     .from('clapcheeks_usage_daily')
     .select(dbField)
     .eq('user_id', userId)
@@ -68,8 +68,8 @@ export async function incrementUsage(
   userId: string,
   field: ResourceField
 ): Promise<void> {
-  const supabase = await createClient()
-  const { error } = await supabase.rpc('increment_usage', {
+  const convex = await createClient()
+  const { error } = await convex.rpc('increment_usage', {
     p_user_id: userId,
     p_field: `${field}_used`,
     p_amount: 1,
@@ -82,10 +82,10 @@ export async function incrementUsage(
 
 export async function getUsageSummary(userId: string): Promise<UsageSummary> {
   const plan = await getUserPlan(userId)
-  const supabase = await createClient()
+  const convex = await createClient()
   const today = new Date().toISOString().split('T')[0]
 
-  const { data } = await supabase
+  const { data } = await convex
     .from('clapcheeks_usage_daily')
     .select('swipes_used, coaching_calls_used, ai_replies_used')
     .eq('user_id', userId)

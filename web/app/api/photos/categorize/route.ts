@@ -11,7 +11,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import { createClient } from '@/lib/convex/server'
 import { categorizePhotos } from '@/lib/photo-ai'
 
 export const dynamic = 'force-dynamic'
@@ -40,10 +40,10 @@ function normalizeIds(body: RequestBody): string[] | null {
 }
 
 export async function POST(req: NextRequest) {
-  const supabase = await createClient()
+  const convex = await createClient()
   const {
     data: { user },
-  } = await supabase.auth.getUser()
+  } = await convex.auth.getUser()
 
   if (!user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -73,7 +73,7 @@ export async function POST(req: NextRequest) {
 
   // Ownership gate. Any id not owned by this user is silently dropped so
   // we don't leak existence of other users' rows.
-  const { data: ownedRows, error: ownErr } = await supabase
+  const { data: ownedRows, error: ownErr } = await convex
     .from('profile_photos')
     .select('id')
     .eq('user_id', user.id)
