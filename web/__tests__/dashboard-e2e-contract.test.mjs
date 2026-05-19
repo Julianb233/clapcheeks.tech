@@ -66,6 +66,20 @@ test('scheduled messages require approval and explicit send confirmation', () =>
   assert.match(files.scheduledSendRoute, /message_sha256/)
 })
 
+test('scheduled live send claims the row before transport to prevent duplicate retries', () => {
+  assert.match(files.scheduledSendRoute, /LIVE_SEND_CLAIM_PREFIX = 'send_claim:'/)
+  assert.match(files.scheduledSendRoute, /acquireLiveSendLock/)
+  assert.match(files.scheduledSendRoute, /claimLiveSend/)
+  assert.match(files.scheduledSendRoute, /status: 'rejected', rejection_reason: rejectionReason/)
+  assert.match(files.scheduledSendRoute, /This scheduled message is already being sent/)
+  assert.match(files.scheduledSendRoute, /no_send_performed: true/)
+  assert.match(files.scheduledSendRoute, /row was claimed before transport to prevent duplicate retries/)
+  assert.ok(
+    files.scheduledSendRoute.indexOf('const claim = await claimLiveSend') <
+      files.scheduledSendRoute.indexOf('const { stdout, stderr } = await execFileAsync'),
+  )
+})
+
 test('scheduled live send verifies immediate iMessage delivery through local Messages DB', () => {
   assert.match(files.scheduledSendRoute, /verifyImmediateSendInMessages/)
   assert.match(files.scheduledSendRoute, /Library\/Messages\/chat\.db/)

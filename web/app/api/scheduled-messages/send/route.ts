@@ -49,6 +49,29 @@ const LIVE_SEND_ENV = [
 ] as const
 const LIVE_SEND_PERMISSION = 'SEND LIVE TO JULIAN'
 const SAMPLE_2944_OVERRIDE_PHRASE = 'I CONFIRM 757-831-2944 IS THE LIVE DESTINATION'
+const LIVE_SEND_CLAIM_PREFIX = 'send_claim:'
+const LIVE_SEND_LOCK_TTL_MS = 60_000
+const LIVE_SEND_CLAIM_SETTLE_MS = 150
+const liveSendLocks = new Map<string, number>()
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+function acquireLiveSendLock(id: string) {
+  const now = Date.now()
+  for (const [key, expiresAt] of liveSendLocks.entries()) {
+    if (expiresAt <= now) liveSendLocks.delete(key)
+  }
+  const existing = liveSendLocks.get(id)
+  if (existing && existing > now) return false
+  liveSendLocks.set(id, now + LIVE_SEND_LOCK_TTL_MS)
+  return true
+}
+
+function releaseLiveSendLock(id: string) {
+  liveSendLocks.delete(id)
+}
 
 function sqlQuote(value: string) {
   return `'${value.replace(/'/g, "''")}'`
@@ -78,6 +101,61 @@ function normalizePhone(raw: string) {
   if (digits.length === 11 && digits.startsWith('1')) return `+${digits}`
   if (digits.length > 11) return `+${digits}`
   return null
+}
+
+async function fetchScheduledMessage(convex: Awaited<ReturnType<typeof createClient>>, id: string, userId: string) {
+  return convex
+    .from('clapcheeks_scheduled_messages')
+    .select('*')
+    .eq('id', id)
+    .eq('user_id', userId)
+    .single()
+}
+
+async function claimLiveSend(
+  convex: Awaited<ReturnType<typeof createClient>>,
+  id: string,
+  userId: string,
+  requestId: string,
+) {
+  const rejectionReason = `${LIVE_SEND_CLAIM_PREFIX}${requestId}`
+  const { error: claimErr } = await convex
+    .from('clapcheeks_scheduled_messages')
+    .update({ status: 'rejected', rejection_reason: rejectionReason })
+    .eq('id', id)
+    .eq('user_id', userId)
+    .select()
+    .single()
+
+  if (claimErr) {
+    return {
+      claimed: false,
+      rejectionReason,
+      error: claimErr.message,
+      message: null,
+    }
+  }
+
+  // Give another near-simultaneous request a chance to overwrite our claim;
+  // only the request whose claim is still current gets to touch transport.
+  await sleep(LIVE_SEND_CLAIM_SETTLE_MS)
+
+  const { data: claimedMsg, error: verifyErr } = await fetchScheduledMessage(convex, id, userId)
+  if (verifyErr || !claimedMsg) {
+    return {
+      claimed: false,
+      rejectionReason,
+      error: verifyErr?.message ?? 'claimed row could not be reloaded',
+      message: null,
+    }
+  }
+
+  return {
+    claimed: claimedMsg.status === 'rejected' && claimedMsg.rejection_reason === rejectionReason,
+    rejectionReason,
+    error: null,
+    message: claimedMsg,
+  }
 }
 
 function validateLiveSendGate(phone: string, messageText: string) {
@@ -199,12 +277,7 @@ export async function POST(request: NextRequest) {
     )
   }
 
-  const { data: msg, error: fetchErr } = await convex
-    .from('clapcheeks_scheduled_messages')
-    .select('*')
-    .eq('id', id)
-    .eq('user_id', user.id)
-    .single()
+  const { data: msg, error: fetchErr } = await fetchScheduledMessage(convex, id, user.id)
 
   if (fetchErr || !msg) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
@@ -287,6 +360,35 @@ export async function POST(request: NextRequest) {
     )
   }
 
+  if (!acquireLiveSendLock(id)) {
+    return NextResponse.json(
+      {
+        error: 'This scheduled message is already being sent. Refresh the queue before retrying.',
+        send_provenance: sendProvenance,
+        no_send_performed: true,
+      },
+      { status: 409 },
+    )
+  }
+
+  const claim = await claimLiveSend(convex, id, user.id, sendRequestId)
+  if (!claim.claimed) {
+    releaseLiveSendLock(id)
+    return NextResponse.json(
+      {
+        error: 'This scheduled message could not be claimed safely for live send. Refresh the queue before retrying.',
+        send_provenance: sendProvenance,
+        claim: {
+          claimed: false,
+          reason: claim.error,
+          rejection_reason_prefix: LIVE_SEND_CLAIM_PREFIX,
+        },
+        no_send_performed: true,
+      },
+      { status: 409 },
+    )
+  }
+
   let godDraftId: string | null = null
   let godError: string | null = null
   let messagesDbVerification: Awaited<ReturnType<typeof verifyImmediateSendInMessages>> | null = null
@@ -326,6 +428,7 @@ export async function POST(request: NextRequest) {
       .update({ status: 'failed', rejection_reason: godError })
       .eq('id', id)
 
+    releaseLiveSendLock(id)
     return NextResponse.json({ error: godError, send_provenance: sendProvenance }, { status: 500 })
   }
 
@@ -340,7 +443,18 @@ export async function POST(request: NextRequest) {
     .select()
     .single()
 
-  if (updateErr) return NextResponse.json({ error: updateErr.message }, { status: 500 })
+  releaseLiveSendLock(id)
+
+  if (updateErr) {
+    return NextResponse.json(
+      {
+        error: `Live send completed but status update failed; the row was claimed before transport to prevent duplicate retries: ${updateErr.message}`,
+        send_provenance: sendProvenance,
+        messages_db_verification: messagesDbVerification,
+      },
+      { status: 500 },
+    )
+  }
 
   return NextResponse.json({
     message: updated,
