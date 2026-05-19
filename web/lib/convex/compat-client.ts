@@ -49,10 +49,42 @@ const tableToConvexList: Record<string, string> = {
   clapcheeks_agent_jobs: "agent_jobs:listForUser",
   calendar_slots: "calendar:listFreeSlots",
   clapcheeks_matches: "matches:listForUser",
+  clapcheeks_leads: "__derived_from_matches_and_conversations__",
   devices: "devices:listForUser",
   approval_queue: "queues:listApprovalsForUser",
   clapcheeks_queued_replies: "queues:listRepliesForUser",
   outbound_scheduled_messages: "outbound:listForUser",
+}
+
+const LEAD_STAGES = new Set([
+  "matched",
+  "opened",
+  "replying",
+  "date_proposed",
+  "date_booked",
+  "date_happened",
+  "ongoing",
+  "dead",
+])
+
+const LEAD_TO_MATCH_STAGE: Record<string, string> = {
+  matched: "new",
+  opened: "new",
+  replying: "chatting",
+  date_proposed: "date_planned",
+  date_booked: "date_planned",
+  date_happened: "dated",
+  ongoing: "dated",
+  dead: "archived",
+}
+
+const MATCH_TO_LEAD_STAGE: Record<string, string> = {
+  new: "matched",
+  chatting: "replying",
+  date_planned: "date_proposed",
+  dated: "date_happened",
+  dormant: "dead",
+  archived: "dead",
 }
 
 function coerceMs(value: unknown): number {
@@ -82,6 +114,15 @@ function arrayify(value: any): any[] {
   return Array.isArray(value) ? value : [value]
 }
 
+function plainObject(value: unknown): Record<string, any> {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, any> : {}
+}
+
+function isoFrom(value: unknown): string | null {
+  const ms = toUnixMs(value)
+  return ms === undefined ? null : new Date(ms).toISOString()
+}
+
 async function liveConversationRows() {
   if (!convexConfigured()) return []
   const rows = await convexQuery<any[]>("conversations:listForUser", { user_id: DEFAULT_USER.id })
@@ -92,6 +133,107 @@ async function liveMatchRows(limit?: number | null) {
   if (!convexConfigured()) return []
   const rows = await convexQuery<any[]>("matches:listForUser", { user_id: DEFAULT_USER.id, limit: limit || 500 })
   return Array.isArray(rows) ? rows : []
+}
+
+function normalizeLeadStage(value: unknown) {
+  const stage = String(value || "").trim().toLowerCase()
+  return LEAD_STAGES.has(stage) ? stage : null
+}
+
+function leadStageFromMatch(row: Record<string, any>, conversation?: Record<string, any>) {
+  const intel = plainObject(row.match_intel)
+  const explicit = normalizeLeadStage(intel.lead_stage)
+  if (explicit) return explicit
+
+  const conversationStage = normalizeLeadStage(conversation?.stage)
+  if (conversationStage) return conversationStage
+
+  const matchStage = String(row.stage || "").trim().toLowerCase()
+  if (MATCH_TO_LEAD_STAGE[matchStage]) return MATCH_TO_LEAD_STAGE[matchStage]
+
+  const status = String(row.status || "").trim().toLowerCase()
+  if (["archived", "dead", "rejected", "blocked"].includes(status)) return "dead"
+  if (["active", "chatting", "conversing"].includes(status)) return "replying"
+  return "matched"
+}
+
+function leadStatusFromStage(stage: string) {
+  if (stage === "dead") return "archived"
+  if (["replying", "date_proposed", "date_booked", "date_happened", "ongoing"].includes(stage)) return "active"
+  return "lead"
+}
+
+function conversationKeyParts(row: Record<string, any>) {
+  const platform = String(row.platform || "").toLowerCase()
+  const ids = [
+    row.match_id,
+    row.external_match_id,
+    row.external_id,
+    row.id,
+    row._id,
+  ].filter(Boolean).map((value) => `${platform}:id:${String(value)}`)
+  const names = [
+    row.match_name,
+    row.name,
+  ].filter(Boolean).map((value) => `${platform}:name:${String(value).trim().toLowerCase()}`)
+  return [...ids, ...names]
+}
+
+function matchConversation(row: Record<string, any>, conversations: Record<string, any>[]) {
+  const byKey = new Map<string, Record<string, any>>()
+  for (const convo of conversations) {
+    for (const key of conversationKeyParts(convo)) {
+      if (!byKey.has(key)) byKey.set(key, convo)
+    }
+  }
+  for (const key of conversationKeyParts(row)) {
+    const found = byKey.get(key)
+    if (found) return found
+  }
+  return null
+}
+
+function toLeadRow(row: Record<string, any>, conversation?: Record<string, any> | null) {
+  const intel = plainObject(row.match_intel)
+  const profileDetails = plainObject(intel.profile_details)
+  const id = String(row.id || row._id || row.external_match_id || row.match_id)
+  const external = row.external_match_id || row.external_id || row.match_id || id
+  const age = row.age ?? intel.age ?? profileDetails.age ?? null
+  const stage = leadStageFromMatch(row, conversation || undefined)
+  const lastMessageAt = isoFrom(conversation?.last_message_at || row.last_activity_at || row.updated_at || row.created_at || row._creationTime)
+  const lastOutbound = toUnixMs(conversation?.last_outbound_at)
+  const lastMessage = toUnixMs(conversation?.last_message_at)
+  const zodiac = typeof row.zodiac === "string"
+    ? row.zodiac
+    : typeof intel.zodiac === "string"
+      ? intel.zodiac
+      : plainObject(intel.zodiac).sign ?? null
+
+  return {
+    id,
+    user_id: row.user_id || DEFAULT_USER.id,
+    platform: row.platform || conversation?.platform || "unknown",
+    match_id: String(external),
+    name: row.name || row.match_name || intel.name || conversation?.match_name || conversation?.name || null,
+    age: age === null || age === undefined || age === "" ? null : Number(age),
+    stage,
+    stage_entered_at: isoFrom(intel.lead_stage_entered_at || row.stage_entered_at || row.updated_at || row.created_at || row._creationTime),
+    last_message_at: lastMessageAt,
+    last_message_by: lastMessage && lastOutbound && Math.abs(lastMessage - lastOutbound) < 1000 ? "julian" : conversation?.last_message_by ?? null,
+    message_count: Number(conversation?.message_count || intel.message_count || 0),
+    date_asked_at: isoFrom(intel.date_asked_at),
+    date_slot_iso: isoFrom(intel.date_slot_iso) || (typeof intel.date_slot_iso === "string" ? intel.date_slot_iso : null),
+    date_booked_at: isoFrom(intel.date_booked_at),
+    calendar_event_link: intel.calendar_event_link ?? null,
+    zodiac,
+    interests: Array.isArray(intel.interests) ? intel.interests : [],
+    prompt_themes: Array.isArray(intel.prompt_themes) ? intel.prompt_themes : [],
+    tag: intel.tag ?? row.tag ?? null,
+    notes: intel.notes ?? null,
+    outcome: row.outcome ?? intel.outcome ?? null,
+    drip_fired: plainObject(intel.drip_fired),
+    updated_at: isoFrom(row.updated_at || row.last_activity_at || row.created_at || row._creationTime),
+  }
 }
 
 async function deriveAnalyticsDaily(limit?: number | null) {
@@ -155,6 +297,14 @@ async function deriveConversationStats(limit?: number | null) {
     if (row.last_message_at) bucket.conversations_replied += 1
   }
   return Array.from(byDatePlatform.values()).slice(0, limit || undefined)
+}
+
+async function deriveLeadRows(limit?: number | null) {
+  const [matches, conversations] = await Promise.all([
+    liveMatchRows(limit || 500),
+    liveConversationRows(),
+  ])
+  return matches.map((row) => toLeadRow(row, matchConversation(row, conversations)))
 }
 
 function emptyForTable(table: string) {
@@ -373,6 +523,39 @@ class ConvexQueryBuilder {
         return okResult(result || { id, ...values })
       }
 
+      if (kind === "update" && mapped === "clapcheeks_leads") {
+        const id = this.filterValue("id") || this.filterValue("_id")
+        if (!id) return errorResult("clapcheeks_leads update requires eq('id', value)")
+        const rows = await liveMatchRows(500)
+        const existing = rows.find((row) => String(row.id || row._id) === String(id))
+        if (!existing) return errorResult("lead match not found", "NOT_FOUND")
+
+        const matchPatch: Record<string, any> = { id }
+        const intel = { ...plainObject(existing.match_intel) }
+        const leadStage = normalizeLeadStage(values.stage)
+        if (values.stage !== undefined && !leadStage) {
+          return errorResult(`stage must be one of: ${Array.from(LEAD_STAGES).join(", ")}`, "INVALID_LEAD_STAGE")
+        }
+        if (leadStage) {
+          intel.lead_stage = leadStage
+          matchPatch.stage = LEAD_TO_MATCH_STAGE[leadStage]
+          matchPatch.status = leadStatusFromStage(leadStage)
+        }
+        if (values.stage_entered_at !== undefined) {
+          intel.lead_stage_entered_at = isoFrom(values.stage_entered_at) || values.stage_entered_at
+        }
+        for (const key of ["tag", "notes", "outcome", "date_slot_iso", "date_asked_at", "date_booked_at", "calendar_event_link"]) {
+          if (values[key] !== undefined) intel[key] = values[key] || null
+        }
+        if (values.outcome !== undefined) matchPatch.outcome = values.outcome || null
+        matchPatch.match_intel = intel
+
+        const result = await convexMutation<any>("matches:patch", matchPatch)
+        const resultError = convexReturnedError(result)
+        if (resultError) return errorResult(resultError)
+        return okResult(toLeadRow({ ...existing, ...result, ...matchPatch }, null))
+      }
+
       if (kind === "update" && mapped === "approval_queue") {
         const id = this.filterValue("id") || this.filterValue("_id")
         if (!id) return errorResult("approval_queue update requires eq('id', value)")
@@ -493,6 +676,8 @@ class ConvexQueryBuilder {
         data = await deriveAnalyticsDaily(this.limitValue)
       } else if (mapped === "clapcheeks_conversation_stats") {
         data = await deriveConversationStats(this.limitValue)
+      } else if (mapped === "clapcheeks_leads") {
+        data = await deriveLeadRows(this.limitValue)
       } else if (convexPath && convexConfigured()) {
         const args: Record<string, unknown> = { user_id: DEFAULT_USER.id, limit: this.limitValue || 500 }
         if (mapped === "conversations" || mapped === "clapcheeks_conversations") {

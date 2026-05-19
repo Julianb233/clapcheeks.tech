@@ -37,7 +37,7 @@ export default async function LeadsPage() {
     .order('last_message_at', { ascending: false, nullsFirst: false })
     .limit(500)
 
-  const leads: Lead[] = (data ?? []).map((row) => ({
+  const leads: Lead[] = (data ?? []).map((row: any) => ({
     id: row.id,
     platform: row.platform,
     match_id: row.match_id,

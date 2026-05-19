@@ -72,6 +72,7 @@ function verifyConvexFacadeMappings() {
     'conversations',
     'clapcheeks_conversations',
     'clapcheeks_matches',
+    'clapcheeks_leads',
     'devices',
     'approval_queue',
     'clapcheeks_queued_replies',
@@ -91,6 +92,7 @@ function verifyConvexFacadeMappings() {
     'queues:enqueueReply',
     'queues:decideApproval',
     'matches:upsertByExternal',
+    'matches:patch',
   ]
   const missingTables = requiredReadTables.filter((name) => !compat.includes(`${name}:`) && !compat.includes(`"${name}"`) && !compat.includes(`'${name}'`))
   const missingFunctions = requiredFunctions.filter((name) => !compat.includes(name) && !http.includes(name))
