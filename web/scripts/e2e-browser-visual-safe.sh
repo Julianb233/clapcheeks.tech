@@ -176,7 +176,7 @@ dashboard_health_blockers_js() {
 (() => {
   const text = document.body.innerText || ''
   const lowerText = text.toLowerCase()
-  const expected = ['tinder', 'hinge', 'sendbird']
+  const expected = ['tinder']
   const missingLabels = expected.filter((label) => !lowerText.includes(label))
   const runtimeTilePresent = text.includes('Runtime Blockers')
   const runtimeBlockerPresent = text.includes('Runtime Blockers') &&

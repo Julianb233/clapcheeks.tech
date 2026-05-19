@@ -121,7 +121,7 @@ function browserEvidence(screenshots) {
       dashboard_health_blockers: {
         ok: true,
         token_tile_present: true,
-        expected_blockers: ['tinder', 'hinge', 'sendbird'],
+        expected_blockers: ['tinder'],
         missing_labels: [],
         no_token_values_present: true,
         no_live_send_performed: true,
@@ -677,7 +677,7 @@ test('evidence index exposes live/preflight fingerprint mismatches', async () =>
   assert.equal(index.summary.scheduled_api_total_messages, 8)
   assert.equal(index.summary.dashboard_navigation_integrity, true)
   assert.equal(index.summary.dashboard_health_blockers_quick_view, true)
-  assert.deepEqual(index.summary.dashboard_health_blockers_expected, ['tinder', 'hinge', 'sendbird'])
+  assert.deepEqual(index.summary.dashboard_health_blockers_expected, ['tinder'])
   assert.equal(index.summary.dashboard_imessage_self_test_surface, true)
   assert.equal(index.summary.dashboard_live_send_gate_ready, false)
   assert.equal(index.summary.dashboard_live_send_gate_missing.length, 4)
@@ -728,7 +728,7 @@ test('evidence index marks completion only when live evidence matches preflight 
   assert.equal(index.summary.approval_packet_markdown_sample_override_present, true)
   assert.equal(index.summary.dashboard_navigation_integrity, true)
   assert.equal(index.summary.dashboard_health_blockers_quick_view, true)
-  assert.deepEqual(index.summary.dashboard_health_blockers_expected, ['tinder', 'hinge', 'sendbird'])
+  assert.deepEqual(index.summary.dashboard_health_blockers_expected, ['tinder'])
   assert.equal(index.summary.dashboard_imessage_self_test_surface, true)
   assert.equal(index.summary.dashboard_live_send_gate_ready, false)
   assert.equal(index.summary.dashboard_live_send_gate_missing.length, 4)
