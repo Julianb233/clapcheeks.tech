@@ -48,6 +48,8 @@ test('match image UI falls back instead of leaving stale Hinge images broken', (
   assert.match(files.matches, /normalizeMatchPhotos\(m\.photos\)/)
   assert.match(files.roster, /getCoverPhoto\(match\.photos_jsonb\) \?\? getCoverPhoto\(match\.photos\)/)
   assert.match(files.dailyTopThree, /getCoverPhoto\(m\.photos_jsonb\) \?\? getCoverPhoto\(m\.photos\)/)
+  assert.ok(files.roster.includes('href={`/matches/${match.id}`}'))
+  assert.ok(files.dailyTopThree.includes('href={`/matches/${m.id}`}'))
   assert.match(files.detail, /normalizeMatchPhotos/)
   assert.match(files.detail, /<MatchPhotoImage/)
 })
