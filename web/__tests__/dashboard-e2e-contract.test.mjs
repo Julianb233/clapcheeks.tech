@@ -101,6 +101,14 @@ test('scheduled dashboard has mobile-friendly quick-view controls', () => {
   assert.match(files.scheduledPage, /setCountMessages/)
 })
 
+test('scheduled dashboard clears stale errors before successful actions', () => {
+  assert.match(files.scheduledPage, /async function submitCompose\(\) \{\s*setError\(null\)/)
+  assert.match(files.scheduledPage, /else \{\s*setError\(null\)\s*setShowCompose\(false\)/)
+  assert.match(files.scheduledPage, /async function approve\(id: string\) \{\s*setError\(null\)/)
+  assert.match(files.scheduledPage, /async function sendNow\(id: string\) \{\s*setError\(null\)/)
+  assert.match(files.scheduledPage, /async function deleteMsg\(id: string\) \{[\s\S]*setError\(null\)/)
+})
+
 test('intelligence insights fall back to the Convex-backed analytics summary', () => {
   assert.match(files.intelligencePage, /statsFromAnalytics/)
   assert.match(files.intelligencePage, /\/api\/analytics\/summary\?days=30/)

@@ -119,6 +119,7 @@ function ScheduledPageClient() {
   useEffect(() => { loadMessages() }, [loadMessages])
 
   async function approve(id: string) {
+    setError(null)
     setActionLoading(id + '-approve')
     await fetch(`/api/scheduled-messages/${id}`, {
       method: 'PATCH',
@@ -131,6 +132,7 @@ function ScheduledPageClient() {
 
   async function reject(id: string) {
     const reason = prompt('Rejection reason (optional):') ?? ''
+    setError(null)
     setActionLoading(id + '-reject')
     await fetch(`/api/scheduled-messages/${id}`, {
       method: 'PATCH',
@@ -142,6 +144,7 @@ function ScheduledPageClient() {
   }
 
   async function sendNow(id: string) {
+    setError(null)
     setActionLoading(id + '-send')
     const res = await fetch('/api/scheduled-messages/send', {
       method: 'POST',
@@ -159,6 +162,7 @@ function ScheduledPageClient() {
 
   async function deleteMsg(id: string) {
     if (!confirm('Cancel this scheduled message? It will remain in audit history.')) return
+    setError(null)
     setActionLoading(id + '-delete')
     await fetch(`/api/scheduled-messages/${id}`, { method: 'DELETE' })
     await loadMessages()
@@ -166,6 +170,7 @@ function ScheduledPageClient() {
   }
 
   async function submitCompose() {
+    setError(null)
     if (!compose.match_name || !compose.message_text || !compose.scheduled_at) {
       setError('Name, message, and schedule time are required')
       return
@@ -187,6 +192,7 @@ function ScheduledPageClient() {
     if (!res.ok) {
       setError(data.error ?? 'Failed to create')
     } else {
+      setError(null)
       setShowCompose(false)
       setCompose({ match_name: '', phone: '', message_text: '', scheduled_at: '', sequence_type: 'manual', delay_hours: '' })
       setFilter('pending')
