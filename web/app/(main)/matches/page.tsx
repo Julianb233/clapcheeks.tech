@@ -4,6 +4,7 @@ import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import MatchPhotoImage from '@/components/matches/MatchPhotoImage'
 import { normalizeMatchPhotos } from '@/lib/matches/photos'
+import { isDisplayableMatchProfile } from '@/lib/matches/visibility'
 
 export const metadata: Metadata = {
   title: 'Match Intel - Clapcheeks',
@@ -24,6 +25,7 @@ type MatchListRow = {
   job?: string | null
   school?: string | null
   stage?: string | null
+  status?: string | null
   health_score?: number | null
   julian_rank?: number | null
   match_intel?: unknown
@@ -44,14 +46,14 @@ export default async function MatchesPage() {
   const { data: matches, error } = await convex
     .from('clapcheeks_matches')
     .select(
-      'id, match_name, name, age, bio, platform, photos_jsonb, photos, instagram_handle, zodiac, job, school, stage, health_score, julian_rank, match_intel, created_at'
+      'id, match_name, name, age, bio, platform, photos_jsonb, photos, instagram_handle, zodiac, job, school, stage, status, health_score, julian_rank, match_intel, created_at'
     )
     .eq('user_id', user.id)
     .order('julian_rank', { ascending: false, nullsFirst: false })
     .order('created_at', { ascending: false })
     .limit(200)
 
-  const items = (matches ?? []) as MatchListRow[]
+  const items = ((matches ?? []) as MatchListRow[]).filter(isDisplayableMatchProfile)
 
   return (
     <div className="min-h-screen bg-black text-white p-4 md:p-8">

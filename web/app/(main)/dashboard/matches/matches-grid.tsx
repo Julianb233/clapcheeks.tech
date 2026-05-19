@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Search, X, ArrowDownUp } from 'lucide-react'
 import MatchCard from '@/components/matches/MatchCard'
 import { ClapcheeksMatchRow } from '@/lib/matches/types'
+import { isArchivedMatch, isTransportOnlyPlaceholder } from '@/lib/matches/visibility'
 
 // Extend the canonical row type with columns that exist in clapcheeks_matches
 // but aren't in the shared type yet (distance_miles, match_name, stage,
@@ -42,12 +43,6 @@ const SORT_OPTIONS: Array<{ value: SortKey; label: string }> = [
   { value: 'distance', label: 'Distance' },
   { value: 'age', label: 'Age' },
 ]
-
-function isArchived(m: MatchGridRow): boolean {
-  const status = (m.status as unknown as string) ?? ''
-  const stage = (m.stage as unknown as string) ?? ''
-  return status === 'archived' || stage === 'archived' || stage === 'archived_cluster_dupe'
-}
 
 function displayName(m: MatchGridRow): string {
   return (m.match_name ?? m.name ?? '').toString()
@@ -158,7 +153,8 @@ export default function MatchesGrid({ matches, lastMessages }: Props) {
     const q = search.trim().toLowerCase()
 
     const filtered = matches.filter((m) => {
-      if (!showArchived && isArchived(m)) return false
+      if (isTransportOnlyPlaceholder(m)) return false
+      if (!showArchived && isArchivedMatch(m)) return false
 
       if (selectedPlatforms.size > 0 && !selectedPlatforms.has(String(m.platform ?? ''))) {
         return false

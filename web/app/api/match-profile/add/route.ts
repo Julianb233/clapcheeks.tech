@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/convex/server'
+import { isArchivedMatch, isTransportOnlyPlaceholder } from '@/lib/matches/visibility'
 
 /**
  * POST /api/match-profile/add — create a manually-added match profile.
@@ -97,10 +98,13 @@ export async function POST(request: NextRequest) {
   return NextResponse.json({ profile })
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   const convex = await createClient()
   const { data: { user } } = await convex.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const includeArchived = request.nextUrl.searchParams.get('include_archived') === '1'
+  const includePlaceholders = request.nextUrl.searchParams.get('include_placeholders') === '1'
 
   const { data, error } = await convex
     .from('clapcheeks_matches')
@@ -136,6 +140,10 @@ export async function GET() {
       enrichment_error: (mi.enrichment_error as string | undefined) ?? null,
       enriched_at: (mi.enriched_at as string | undefined) ?? null,
     }
+  }).filter((row: any) => {
+    if (!includeArchived && isArchivedMatch(row)) return false
+    if (!includePlaceholders && isTransportOnlyPlaceholder(row)) return false
+    return true
   })
 
   return NextResponse.json({ profiles })
