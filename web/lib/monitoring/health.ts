@@ -1,6 +1,6 @@
 import { createClient } from '@/lib/convex/compat-client'
 import { convexHealth } from '@/lib/convex/http'
-import { getRuntimeHealth } from '@/lib/clapcheeks/runtime-health'
+import { getInboundWatcherHealth } from '@/lib/clapcheeks/inbound-watcher-health'
 
 interface HealthCheckResult {
   service: string
@@ -100,14 +100,12 @@ async function checkApiBackend(): Promise<HealthCheckResult> {
 
 async function checkInboundWatcher(): Promise<HealthCheckResult> {
   const start = Date.now()
-  const runtime = getRuntimeHealth()
+  const runtime = await getInboundWatcherHealth()
   return {
     service: 'inbound-watcher',
     status: runtime.ok ? 'healthy' : 'degraded',
     latencyMs: Date.now() - start,
-    message: runtime.ok
-      ? 'chat.db tailer can read Messages and no FDA alert send is enabled'
-      : runtime.blockers.map((item) => `${item.name}: ${item.reason}`).join('; '),
+    message: runtime.message,
     checkedAt: new Date().toISOString(),
   }
 }

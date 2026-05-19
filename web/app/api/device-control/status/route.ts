@@ -4,6 +4,7 @@ import { homedir } from 'node:os'
 import { createClient } from '@/lib/convex/server'
 import { getTokenHealth } from '@/lib/clapcheeks/token-health'
 import { getRuntimeHealth } from '@/lib/clapcheeks/runtime-health'
+import { getInboundWatcherHealth } from '@/lib/clapcheeks/inbound-watcher-health'
 
 const ADAPTERS = [
   {
@@ -239,12 +240,15 @@ export async function GET() {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const tokenHealth = await getTokenHealth(user.id)
+  const [tokenHealth, inboundHealth] = await Promise.all([
+    getTokenHealth(user.id),
+    getInboundWatcherHealth(user.id),
+  ])
   const runtimeHealth = getRuntimeHealth()
   const latestCompletionAudit = readLatestCompletionAudit()
   const physicalIOSBlockers = latestPhysicalIOSBlockers(latestCompletionAudit)
-  const inboundBlocker = runtimeHealth.inbound_watcher.blocker || (
-    runtimeHealth.inbound_watcher.ok ? null : 'inbound_watcher_not_ready'
+  const inboundBlocker = inboundHealth.blocker || (
+    inboundHealth.ok ? null : 'inbound_watcher_not_ready'
   )
 
   return NextResponse.json({
@@ -283,7 +287,7 @@ export async function GET() {
     sendbird: tokenHealth.sendbird,
     blockers: [
       ...(tokenHealth.missing_required > 0 ? ['missing_required_platform_or_sendbird_token'] : []),
-      ...(runtimeHealth.inbound_watcher.ok ? [] : [inboundBlocker || 'inbound_watcher_not_ready']),
+      ...(inboundHealth.ok ? [] : [inboundBlocker || 'inbound_watcher_not_ready']),
       ...physicalIOSBlockers,
       ...(latestCompletionAudit.status === 'passed' ? [] : ['physical_ios_observe_png_not_verified']),
       'first_live_tap_swipe_or_send_requires_explicit_operator_approval',
@@ -295,12 +299,18 @@ export async function GET() {
       convex_sync: 'optional via CLAPCHEEKS_DEVICE_CONTROL_CONVEX_MUTATION',
     },
     inbound_watcher: {
-      ok: runtimeHealth.inbound_watcher.ok,
-      running: runtimeHealth.inbound_watcher.running,
-      can_read_chatdb: runtimeHealth.inbound_watcher.can_read_chatdb,
+      ok: inboundHealth.ok,
+      source: inboundHealth.source,
+      running: inboundHealth.running,
+      can_read_chatdb: inboundHealth.can_read_chatdb,
       blocker: inboundBlocker,
-      status_path: runtimeHealth.inbound_watcher.status_path,
-      fda_alert_imessage_enabled: runtimeHealth.inbound_watcher.fda_alert_imessage_enabled,
+      blockers: inboundHealth.blockers,
+      message: inboundHealth.message,
+      status_path: inboundHealth.status_path,
+      updated_at_ms: inboundHealth.updated_at_ms,
+      telemetry_event_id: inboundHealth.telemetry_event_id,
+      telemetry_age_ms: inboundHealth.telemetry_age_ms,
+      fda_alert_imessage_enabled: inboundHealth.fda_alert_imessage_enabled,
       terminal_read_proof: runtimeHealth.terminal_read_proof,
       tcc: readInboundRepairTcc(),
       required_python_app: '/opt/homebrew/Cellar/python@3.14/3.14.5/Frameworks/Python.framework/Versions/3.14/Resources/Python.app',
@@ -308,9 +318,9 @@ export async function GET() {
       unblock_command: 'cd ~/clapcheeks-local && scripts/open-inbound-watcher-fda-settings.sh',
       restart_command: 'launchctl kickstart -k gui/$(id -u)/tech.clapcheeks.inbound-watcher',
       verify_command: 'cd ~/clapcheeks-local && scripts/launchd_doctor.sh && cd ~/clapcheeks.tech/web && npm run test:e2e:runtime',
-      next_step: runtimeHealth.inbound_watcher.ok
+      next_step: inboundHealth.ok
         ? 'Inbound watcher can read Messages and is ready.'
-        : 'Grant Full Disk Access to the launchd Python app, restart tech.clapcheeks.inbound-watcher, then rerun runtime smoke.',
+        : 'Restart tech.clapcheeks.inbound-watcher, verify the Convex telemetry event is fresh, then rerun runtime smoke.',
     },
     proof_runner: {
       host: 'MacBook Pro',

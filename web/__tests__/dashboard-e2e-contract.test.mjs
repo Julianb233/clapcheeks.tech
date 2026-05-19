@@ -34,6 +34,7 @@ const files = {
   tokenHealthRoute: readFileSync('app/api/agent/token-health/route.ts', 'utf8'),
   tokenHealthLib: readFileSync('lib/clapcheeks/token-health.ts', 'utf8'),
   runtimeHealthLib: readFileSync('lib/clapcheeks/runtime-health.ts', 'utf8'),
+  inboundWatcherHealthLib: readFileSync('lib/clapcheeks/inbound-watcher-health.ts', 'utf8'),
   healthRoute: readFileSync('app/api/health/route.ts', 'utf8'),
 }
 
@@ -399,8 +400,13 @@ test('safe readiness verifier checks dashboard runtime health contract without l
   assert.match(files.healthRoute, /detailed && !shouldLog/)
   assert.match(files.healthRoute, /health\.overall === 'healthy'/)
   assert.match(files.healthRoute, /503/)
-  assert.match(readFileSync('lib/monitoring/health.ts', 'utf8'), /checkInboundWatcher/)
-  assert.match(readFileSync('lib/monitoring/health.ts', 'utf8'), /service: 'inbound-watcher'/)
+  const monitoringHealth = readFileSync('lib/monitoring/health.ts', 'utf8')
+  assert.match(monitoringHealth, /checkInboundWatcher/)
+  assert.match(monitoringHealth, /service: 'inbound-watcher'/)
+  assert.match(monitoringHealth, /getInboundWatcherHealth/)
+  assert.match(files.inboundWatcherHealthLib, /runtime\.inbound_watcher_status/)
+  assert.match(files.inboundWatcherHealthLib, /telemetry:listEventsForUser/)
+  assert.match(files.inboundWatcherHealthLib, /REMOTE_STALE_MS/)
   assert.match(files.runtimeHealthLib, /inbound-watcher-status\.json/)
   assert.match(files.runtimeHealthLib, /fda_alert_imessage_enabled/)
   assert.match(files.runtimeHealthLib, /Full Disk Access missing for launchd Python/)
