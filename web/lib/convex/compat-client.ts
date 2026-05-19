@@ -4,11 +4,15 @@ import { normalizeMatchPhotos } from "@/lib/matches/photos"
 export type ConvexCompatClient = ConvexFacadeClient
 
 type QueryResult<T = any> = Promise<{ data: T; error: null | { message: string; code?: string }; count?: number | null }>
-type MaybeUser = {
+export type MaybeUser = {
   id: string
   email: string
   email_confirmed_at: string
   user_metadata: Record<string, unknown>
+}
+
+type ConvexFacadeOptions = {
+  user?: MaybeUser | null
 }
 
 const DEFAULT_USER: MaybeUser = {
@@ -741,13 +745,31 @@ class ConvexQueryBuilder {
 }
 
 export class ConvexFacadeClient {
+  private readonly currentUser: MaybeUser | null
+
+  constructor(options: ConvexFacadeOptions = {}) {
+    this.currentUser = options.user === undefined ? DEFAULT_USER : options.user
+  }
+
   auth = {
-    getUser: async () => ({ data: { user: DEFAULT_USER }, error: null }),
-    getSession: async () => ({ data: { session: { user: DEFAULT_USER } }, error: null }),
-    exchangeCodeForSession: async (_code: string) => ({ data: { session: { user: DEFAULT_USER } }, error: null }),
-    signInWithPassword: async (_data: any) => ({ data: { user: DEFAULT_USER }, error: null }),
-    signUp: async (_data: any) => ({ data: { user: DEFAULT_USER }, error: null }),
-    signInWithOAuth: async (_data: any) => ({ data: { url: "/dashboard" }, error: null }),
+    getUser: async () => ({ data: { user: this.currentUser }, error: null }),
+    getSession: async () => ({ data: { session: this.currentUser ? { user: this.currentUser } : null }, error: null }),
+    exchangeCodeForSession: async (_code: string) => ({
+      data: { session: null },
+      error: { message: "Operator auth does not exchange OAuth codes in the Convex facade", code: "AUTH_UNMAPPED" },
+    }),
+    signInWithPassword: async (_data: any) => ({
+      data: { user: null },
+      error: { message: "Use the operator login action for email/password auth", code: "AUTH_UNMAPPED" },
+    }),
+    signUp: async (_data: any) => ({
+      data: { user: null },
+      error: { message: "Public signup is disabled for this operator dashboard", code: "AUTH_DISABLED" },
+    }),
+    signInWithOAuth: async (_data: any) => ({
+      data: { url: null },
+      error: { message: "Google app login is not configured for this Convex-only dashboard", code: "AUTH_UNMAPPED" },
+    }),
     signOut: async () => ({ error: null }),
   }
 
@@ -765,5 +787,5 @@ export class ConvexFacadeClient {
 
 export function createClient(..._args: any[]) { return new ConvexFacadeClient() }
 export function createBrowserClient(..._args: any[]) { return new ConvexFacadeClient() }
-export function createServerClient(..._args: any[]) { return new ConvexFacadeClient() }
-export function createAdminClient() { return new ConvexFacadeClient() }
+export function createServerClient(options: ConvexFacadeOptions = {}) { return new ConvexFacadeClient(options) }
+export function createAdminClient() { return new ConvexFacadeClient({ user: DEFAULT_USER }) }
