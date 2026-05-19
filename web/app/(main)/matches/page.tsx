@@ -18,6 +18,7 @@ type MatchListRow = {
   bio?: string | null
   platform?: string | null
   photos_jsonb?: unknown
+  photos?: unknown
   instagram_handle?: string | null
   zodiac?: string | null
   job?: string | null
@@ -43,7 +44,7 @@ export default async function MatchesPage() {
   const { data: matches, error } = await convex
     .from('clapcheeks_matches')
     .select(
-      'id, match_name, name, age, bio, platform, photos_jsonb, instagram_handle, zodiac, job, school, stage, health_score, julian_rank, match_intel, created_at'
+      'id, match_name, name, age, bio, platform, photos_jsonb, photos, instagram_handle, zodiac, job, school, stage, health_score, julian_rank, match_intel, created_at'
     )
     .eq('user_id', user.id)
     .order('julian_rank', { ascending: false, nullsFirst: false })
@@ -102,7 +103,7 @@ export default async function MatchesPage() {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
             {items.map((m) => {
               const displayName = m.name || m.match_name || 'Unknown'
-              const photos = normalizeMatchPhotos(m.photos_jsonb)
+              const photos = normalizeMatchPhotos([...(normalizeMatchPhotos(m.photos_jsonb)), ...(normalizeMatchPhotos(m.photos))])
               const photo = photos[0]?.url ?? null
               const nPhotos = photos.length
               const interests = intelInterests(m.match_intel).slice(0, 5)

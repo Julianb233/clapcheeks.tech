@@ -60,7 +60,7 @@ export default function DailyTopThree({ matches }: Props) {
             typeof m.close_probability === 'number'
               ? Math.round(m.close_probability * 100)
               : null
-          const photo = getCoverPhoto(m.photos_jsonb)
+          const photo = getCoverPhoto(m.photos_jsonb) ?? getCoverPhoto(m.photos)
           return (
             <li key={m.id}>
               <Link

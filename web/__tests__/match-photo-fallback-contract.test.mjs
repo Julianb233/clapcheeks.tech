@@ -7,6 +7,8 @@ const files = {
   image: readFileSync('components/matches/MatchPhotoImage.tsx', 'utf8'),
   matches: readFileSync('app/(main)/matches/page.tsx', 'utf8'),
   detail: readFileSync('app/(main)/matches/[id]/match-profile-view.tsx', 'utf8'),
+  roster: readFileSync('components/roster/RosterCard.tsx', 'utf8'),
+  dailyTopThree: readFileSync('components/roster/DailyTopThree.tsx', 'utf8'),
   compat: readFileSync('lib/convex/compat-client.ts', 'utf8'),
 }
 
@@ -42,6 +44,10 @@ test('match image UI falls back instead of leaving stale Hinge images broken', (
   assert.match(files.image, /naturalWidth === 0/)
   assert.match(files.image, /fallbackClassName/)
   assert.match(files.matches, /<MatchPhotoImage/)
+  assert.match(files.matches, /photos_jsonb, photos/)
+  assert.match(files.matches, /normalizeMatchPhotos\(m\.photos\)/)
+  assert.match(files.roster, /getCoverPhoto\(match\.photos_jsonb\) \?\? getCoverPhoto\(match\.photos\)/)
+  assert.match(files.dailyTopThree, /getCoverPhoto\(m\.photos_jsonb\) \?\? getCoverPhoto\(m\.photos\)/)
   assert.match(files.detail, /normalizeMatchPhotos/)
   assert.match(files.detail, /<MatchPhotoImage/)
 })

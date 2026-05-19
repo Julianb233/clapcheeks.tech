@@ -85,6 +85,7 @@ export type ClapcheeksMatchRow = {
   age: number | null
   bio: string | null
   photos_jsonb: MatchPhoto[] | null
+  photos?: MatchPhoto[] | null
   prompts_jsonb: MatchPrompt[] | null
   job: string | null
   school: string | null

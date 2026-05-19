@@ -21,7 +21,7 @@ type Props = {
  * photo, name+age, health bar, Julian rank stars, close-prob %, last-msg.
  */
 export default function RosterCard({ match, lastMessage, onDragStart, draggable = true }: Props) {
-  const primaryPhoto = getCoverPhoto(match.photos_jsonb)
+  const primaryPhoto = getCoverPhoto(match.photos_jsonb) ?? getCoverPhoto(match.photos)
   const initials = (match.name ?? '?').slice(0, 1).toUpperCase()
   const health = typeof match.health_score === 'number' ? match.health_score : null
   const rank = typeof match.julian_rank === 'number' ? match.julian_rank : null
