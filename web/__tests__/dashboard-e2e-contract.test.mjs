@@ -9,7 +9,11 @@ const files = {
   scheduledSendRoute: readFileSync('app/api/scheduled-messages/send/route.ts', 'utf8'),
   scheduledPage: readFileSync('app/(main)/scheduled/page.tsx', 'utf8'),
   intelligencePage: readFileSync('app/(main)/intelligence/page.tsx', 'utf8'),
+  dashboardPage: readFileSync('app/(main)/dashboard/page.tsx', 'utf8'),
   briefingCard: readFileSync('app/(main)/dashboard/components/briefing-card.tsx', 'utf8'),
+  appSidebar: readFileSync('components/layout/app-sidebar.tsx', 'utf8'),
+  communicationsPage: readFileSync('app/(main)/communications/page.tsx', 'utf8'),
+  communicationsConsole: readFileSync('app/(main)/communications/communications-console.tsx', 'utf8'),
   imessageTestRoute: readFileSync('app/api/imessage/test/route.ts', 'utf8'),
   imessageTestPanel: readFileSync('app/(main)/dashboard/components/imessage-test-panel.tsx', 'utf8'),
   packageJson: readFileSync('package.json', 'utf8'),
@@ -33,6 +37,8 @@ const files = {
   liveSendPreflightExecTest: readFileSync('__tests__/live-send-preflight-exec.test.mjs', 'utf8'),
   tokenHealthRoute: readFileSync('app/api/agent/token-health/route.ts', 'utf8'),
   tokenHealthLib: readFileSync('lib/clapcheeks/token-health.ts', 'utf8'),
+  replyGenerator: readFileSync('lib/conversation-ai/generate-replies.ts', 'utf8'),
+  userSettings: readFileSync('lib/clapcheeks/user-settings.ts', 'utf8'),
   runtimeHealthLib: readFileSync('lib/clapcheeks/runtime-health.ts', 'utf8'),
   inboundWatcherHealthLib: readFileSync('lib/clapcheeks/inbound-watcher-health.ts', 'utf8'),
   healthRoute: readFileSync('app/api/health/route.ts', 'utf8'),
@@ -109,9 +115,29 @@ test('dashboard briefing uses Convex-backed conversations for stale-convo count'
   assert.match(files.briefingCard, /missing_required_services/)
   assert.match(files.briefingCard, /tokenBlockers/)
   assert.match(files.briefingCard, /All required tokens configured/)
-  assert.match(files.briefingCard, /getRuntimeHealth/)
+  assert.match(files.briefingCard, /getInboundWatcherHealth/)
   assert.match(files.briefingCard, /Runtime Blockers/)
   assert.match(files.briefingCard, /Inbound watcher healthy/)
+})
+
+test('communications console connects dashboard navigation to gated draft replies', () => {
+  assert.match(files.appSidebar, /href: '\/communications'/)
+  assert.match(files.dashboardPage, /href="\/communications"/)
+  assert.match(files.communicationsPage, /TARGET_PLATFORMS/)
+  assert.match(files.communicationsPage, /\.from\('clapcheeks_conversations'\)/)
+  assert.match(files.communicationsPage, /redirect\('\/auth\/login'\)/)
+  assert.match(files.communicationsConsole, /\/api\/conversation\/suggest/)
+  assert.match(files.communicationsConsole, /\/api\/autonomy-config/)
+  assert.match(files.communicationsConsole, /auto_respond_enabled/)
+  assert.match(files.communicationsConsole, /Drafts stay approval gated/)
+})
+
+test('reply drafting degrades gracefully when Anthropic is unavailable', () => {
+  assert.match(files.replyGenerator, /ANTHROPIC_REPLY_MODEL/)
+  assert.match(files.replyGenerator, /buildFallbackReplies/)
+  assert.match(files.replyGenerator, /storeReplySuggestions/)
+  assert.match(files.replyGenerator, /if \(!anthropicApiKey\)/)
+  assert.match(files.userSettings, /\.clapcheeks-local/)
 })
 
 test('Convex read rows expose legacy id fields used by dashboard links and keys', () => {

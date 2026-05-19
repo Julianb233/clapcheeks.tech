@@ -495,7 +495,9 @@ class ConvexQueryBuilder {
         data = await deriveConversationStats(this.limitValue)
       } else if (convexPath && convexConfigured()) {
         const args: Record<string, unknown> = { user_id: DEFAULT_USER.id, limit: this.limitValue || 500 }
-        if (mapped === "calendar_slots") {
+        if (mapped === "conversations" || mapped === "clapcheeks_conversations") {
+          delete args.limit
+        } else if (mapped === "calendar_slots") {
           args.horizon_days = 14
           args.limit = this.limitValue || 50
         } else if (mapped === "devices") {

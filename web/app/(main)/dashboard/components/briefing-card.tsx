@@ -2,7 +2,7 @@ import Link from 'next/link'
 import { ArrowRight } from 'lucide-react'
 import { createClient } from '@/lib/convex/server'
 import { getTokenHealth } from '@/lib/clapcheeks/token-health'
-import { getRuntimeHealth } from '@/lib/clapcheeks/runtime-health'
+import { getInboundWatcherHealth } from '@/lib/clapcheeks/inbound-watcher-health'
 
 /**
  * Operator briefing card — top-of-dashboard glanceable counts that point to
@@ -28,7 +28,7 @@ export default async function BriefingCard() {
   const nowIso = new Date().toISOString()
   const sevenDaysFromNow = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
 
-  const [approvalsRes, staleRes, datesRes, tokenHealth, runtimeHealth] = await Promise.all([
+  const [approvalsRes, staleRes, datesRes, tokenHealth, inboundHealth] = await Promise.all([
     convex
       .from('clapcheeks_approval_queue')
       .select('id', { count: 'exact', head: true })
@@ -47,7 +47,7 @@ export default async function BriefingCard() {
       .gte('scheduled_at', nowIso)
       .lte('scheduled_at', sevenDaysFromNow),
     getTokenHealth(userId).catch(() => null),
-    Promise.resolve(getRuntimeHealth()).catch(() => null),
+    getInboundWatcherHealth(userId).catch(() => null),
   ])
 
   const approvals = approvalsRes.count ?? 0
@@ -56,8 +56,8 @@ export default async function BriefingCard() {
 
   const missingTokens = tokenHealth?.missing_required ?? 0
   const tokenBlockers = tokenHealth?.missing_required_services?.map((item) => item.name).join(', ') || 'All required tokens configured'
-  const runtimeBlockers = runtimeHealth?.blockers?.length ?? 1
-  const runtimeDetail = runtimeHealth?.blockers?.map((item) => item.reason).join(', ') || 'Runtime status unavailable'
+  const runtimeBlockers = inboundHealth?.blockers?.length ?? 1
+  const runtimeDetail = inboundHealth?.blockers?.map((item) => item.reason).join(', ') || 'Runtime status unavailable'
 
   const cards: Array<{
     label: string
@@ -70,7 +70,7 @@ export default async function BriefingCard() {
     { label: 'Drafts to Approve', count: approvals, href: '/autonomy', redAt: 5 },
     { label: 'Stale Convos', count: stale, href: '/matches?filter=stale', redAt: 5 },
     { label: 'Tokens Missing', count: missingTokens, href: '/device', detail: tokenBlockers, redAt: 0 },
-    { label: 'Runtime Blockers', count: runtimeHealth?.ok === true ? 0 : runtimeBlockers, href: '/device', detail: runtimeHealth?.ok === true ? 'Inbound watcher healthy' : runtimeDetail, redAt: 0 },
+    { label: 'Runtime Blockers', count: inboundHealth?.ok === true ? 0 : runtimeBlockers, href: '/device', detail: inboundHealth?.ok === true ? 'Inbound watcher healthy' : runtimeDetail, redAt: 0 },
     { label: 'Dates This Week', count: dates, href: '/scheduled' },
   ]
 

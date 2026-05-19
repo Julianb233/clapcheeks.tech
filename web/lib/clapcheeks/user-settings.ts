@@ -1,3 +1,7 @@
+import { existsSync, readFileSync } from "node:fs"
+import { homedir } from "node:os"
+import { join } from "node:path"
+
 type SupabaseSettingsRow = Record<string, any>
 
 const DEFAULT_OPERATOR_EMAIL = "julianb233@gmail.com"
@@ -22,7 +26,38 @@ const SAFE_SETTINGS_COLUMNS = [
   "updated_at",
 ].join(",")
 
+let runtimeEnvLoaded = false
+
+function loadRuntimeEnvFallback() {
+  if (runtimeEnvLoaded) return
+  runtimeEnvLoaded = true
+  for (const file of [
+    join(homedir(), ".clapcheeks-local", ".env"),
+    join(homedir(), ".clapcheeks", ".env"),
+  ]) {
+    if (!existsSync(file)) continue
+    const text = readFileSync(file, "utf8")
+    for (const line of text.split(/\r?\n/)) {
+      const trimmed = line.trim()
+      if (!trimmed || trimmed.startsWith("#") || !trimmed.includes("=")) continue
+      const idx = trimmed.indexOf("=")
+      const key = trimmed.slice(0, idx).trim()
+      let value = trimmed.slice(idx + 1).trim()
+      if (
+        (value.startsWith('"') && value.endsWith('"')) ||
+        (value.startsWith("'") && value.endsWith("'"))
+      ) {
+        value = value.slice(1, -1)
+      }
+      if (key && process.env[key] === undefined) {
+        process.env[key] = value
+      }
+    }
+  }
+}
+
 function env() {
+  loadRuntimeEnvFallback()
   const url = (process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || "").replace(/\/+$/, "")
   const key = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || ""
   if (!url || !key) {

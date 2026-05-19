@@ -27,6 +27,7 @@ const PRIMARY: NavItem[] = [
   { href: '/dashboard/content-library', label: 'Content Library', icon: <CameraIcon />, badge: 'new' },
   { href: '/leads', label: 'Leads', icon: <PipelineIcon /> },
   { href: '/matches', label: 'Match Brief', icon: <ProfileIcon />, badge: 'new' },
+  { href: '/communications', label: 'Communications', icon: <ChatIcon />, badge: 'new' },
   { href: '/conversation', label: 'Conversations', icon: <ChatIcon /> },
   { href: '/scheduled', label: 'Scheduled', icon: <ClockIcon /> },
   { href: '/intelligence', label: 'Intelligence', icon: <SparkIcon /> },
@@ -109,7 +110,7 @@ export default function AppSidebar() {
             refreshApprovals()
           },
         )
-        .subscribe((status) => {
+        .subscribe((status: string) => {
           if (status === 'SUBSCRIBED') {
             realtimeOk = true
             // Stop polling — realtime is live.

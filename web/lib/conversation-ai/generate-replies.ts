@@ -129,7 +129,7 @@ export async function generateReplies(
   conversationContext: string,
   matchName: string,
   platform: string,
-  profileContext?: string
+  profileContext?: unknown
 ): Promise<ReplySuggestion[]> {
   // Fetch voice profile
   const { data: voiceProfile } = await convex
@@ -160,11 +160,24 @@ Style details: ${JSON.stringify(voiceProfile.profile_data || {})}`
   const platformTone = PLATFORM_TONE[platform] || ''
   const personaBlock = renderPersonaBlock(persona) // PHASE-E
 
-  const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+  const anthropicApiKey = process.env.ANTHROPIC_API_KEY
 
   const profileSection = profileContext
-    ? `\nProfile context about the user: ${profileContext}`
+    ? `\nProfile context about the user: ${
+        typeof profileContext === 'string'
+          ? profileContext
+          : JSON.stringify(profileContext)
+      }`
     : ''
+
+  const fallbackReplies = buildFallbackReplies(conversationContext, matchName, platform)
+
+  if (!anthropicApiKey) {
+    await storeReplySuggestions(convex, userId, conversationContext, fallbackReplies)
+    return fallbackReplies
+  }
+
+  const anthropic = new Anthropic({ apiKey: anthropicApiKey })
 
   // PHASE-E — persona block leads, so voice + formatting rules set the floor
   // before any other instruction.
@@ -202,22 +215,29 @@ Style details: ${JSON.stringify(voiceProfile.profile_data || {})}`
     .filter(Boolean)
     .join('\n')
 
-  const message = await anthropic.messages.create({
-    model: 'claude-sonnet-4-6',
-    max_tokens: 768,
-    system: systemPrompt,
-    messages: [
-      {
-        role: 'user',
-        content: `Conversation on ${platform} with ${matchName}:
+  let message
+  try {
+    message = await anthropic.messages.create({
+      model: process.env.ANTHROPIC_REPLY_MODEL || 'claude-sonnet-4-6',
+      max_tokens: 768,
+      system: systemPrompt,
+      messages: [
+        {
+          role: 'user',
+          content: `Conversation on ${platform} with ${matchName}:
 
 ${conversationContext}${profileSection}
 
 Generate 3 reply options.
 Return JSON: [{ "text": "reply", "tone": "witty|warm|direct", "reasoning": "why this works", "confidence": 0.0-1.0 }]`,
-      },
-    ],
-  })
+        },
+      ],
+    })
+  } catch (error) {
+    console.error('Anthropic reply generation failed, using local fallback:', error)
+    await storeReplySuggestions(convex, userId, conversationContext, fallbackReplies)
+    return fallbackReplies
+  }
 
   const responseText = message.content[0].type === 'text' ? message.content[0].text : ''
   let suggestions: ReplySuggestion[]
@@ -249,12 +269,70 @@ Return JSON: [{ "text": "reply", "tone": "witty|warm|direct", "reasoning": "why 
     ? cleaned
     : suggestions.map((s) => ({ ...s, text: sanitizeDraft(s.text).slice(0, 160) }))
 
-  // Store suggestions
-  await convex.from('clapcheeks_reply_suggestions').insert({
-    user_id: userId,
-    conversation_context: conversationContext,
-    suggestions: finalList,
-  })
+  await storeReplySuggestions(convex, userId, conversationContext, finalList)
 
   return finalList
+}
+
+function latestInboundLine(conversationContext: string) {
+  const lines = conversationContext
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+  const inbound = [...lines].reverse().find((line) => /^(them|her):/i.test(line))
+  return (inbound || lines[lines.length - 1] || '')
+    .replace(/^(them|her|you|me|julian):\s*/i, '')
+    .trim()
+}
+
+function buildFallbackReplies(
+  conversationContext: string,
+  matchName: string,
+  platform: string
+): ReplySuggestion[] {
+  const inbound = latestInboundLine(conversationContext)
+  const hook = inbound
+    ? inbound.replace(/[^\w\s?']/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 70)
+    : `${matchName} on ${platform}`
+  const raw: ReplySuggestion[] = [
+    {
+      text: `haha okay ${hook ? `tell me more about ${hook.toLowerCase()}` : 'tell me more'}`,
+      tone: 'witty',
+      reasoning: 'Local fallback keeps the thread moving when the model provider is unavailable.',
+      confidence: 0.62,
+    },
+    {
+      text: `i like that. what got you into it?`,
+      tone: 'warm',
+      reasoning: 'A short follow up invites more detail without overcommitting.',
+      confidence: 0.68,
+    },
+    {
+      text: `that sounds fun. we should compare notes over drinks this week`,
+      tone: 'direct',
+      reasoning: 'Direct option moves toward a date while staying casual.',
+      confidence: 0.64,
+    },
+  ]
+  return raw.map((s) => ({ ...s, text: sanitizeDraft(s.text).slice(0, 160) }))
+}
+
+async function storeReplySuggestions(
+  convex: ConvexCompatClient,
+  userId: string,
+  conversationContext: string,
+  suggestions: ReplySuggestion[]
+) {
+  try {
+    const { error } = await convex.from('clapcheeks_reply_suggestions').insert({
+      user_id: userId,
+      conversation_context: conversationContext,
+      suggestions,
+    })
+    if (error) {
+      console.warn('Reply suggestion persistence skipped:', error.message)
+    }
+  } catch (error) {
+    console.warn('Reply suggestion persistence failed:', error)
+  }
 }

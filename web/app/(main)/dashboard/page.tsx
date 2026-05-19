@@ -669,6 +669,7 @@ export default async function Dashboard() {
               <h2 className="text-white font-semibold text-sm mb-3">Quick actions</h2>
               <div className="grid grid-cols-2 gap-2">
                 <QuickAction href="/dashboard/roster" icon={<UsersRound className="h-4 w-4" />} label="Manage roster" />
+                <QuickAction href="/communications" icon={<MessageSquareText className="h-4 w-4" />} label="Unified inbox" />
                 <QuickAction href="/conversation?goal=ask_date" icon={<MessageSquareText className="h-4 w-4" />} label="Draft date ask" />
                 <QuickAction href="/scheduled" icon={<CalendarDays className="h-4 w-4" />} label="Review scheduled" />
                 <QuickAction href="/matches/add" icon={<UserRoundPlus className="h-4 w-4" />} label="Add contact" />
