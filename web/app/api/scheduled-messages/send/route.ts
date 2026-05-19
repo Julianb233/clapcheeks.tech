@@ -52,6 +52,7 @@ const SAMPLE_2944_OVERRIDE_PHRASE = 'I CONFIRM 757-831-2944 IS THE LIVE DESTINAT
 const LIVE_SEND_CLAIM_PREFIX = 'send_claim:'
 const LIVE_SEND_LOCK_TTL_MS = 60_000
 const LIVE_SEND_CLAIM_SETTLE_MS = 150
+const CLAIM_PROBE_PHRASE = 'PROBE CLAIM WITHOUT SENDING'
 const liveSendLocks = new Map<string, number>()
 
 function sleep(ms: number) {
@@ -267,7 +268,7 @@ export async function POST(request: NextRequest) {
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = await request.json()
-  const { id, confirm_send, dry_run, live_send_phrase } = body
+  const { id, confirm_send, dry_run, live_send_phrase, claim_probe, claim_probe_phrase } = body
 
   if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 })
   if (confirm_send !== true) {
@@ -314,6 +315,71 @@ export async function POST(request: NextRequest) {
     phone_last4: phone.slice(-4),
     message_length: messageText.length,
     message_sha256: sha256(messageText),
+  }
+
+  if (claim_probe === true) {
+    if (claim_probe_phrase !== CLAIM_PROBE_PHRASE) {
+      return NextResponse.json(
+        { error: `Type ${CLAIM_PROBE_PHRASE} to run the no-send claim probe` },
+        { status: 400 },
+      )
+    }
+    if (!acquireLiveSendLock(id)) {
+      return NextResponse.json(
+        {
+          error: 'This scheduled message is already being sent or claim-probed. Refresh the queue before retrying.',
+          send_provenance: sendProvenance,
+          claim_probe: true,
+          no_live_send_performed: true,
+        },
+        { status: 409 },
+      )
+    }
+
+    const claim = await claimLiveSend(convex, id, user.id, sendRequestId)
+    if (!claim.claimed) {
+      releaseLiveSendLock(id)
+      return NextResponse.json(
+        {
+          error: 'No-send claim probe could not claim this scheduled message safely.',
+          send_provenance: sendProvenance,
+          claim_probe: true,
+          claim: {
+            claimed: false,
+            reason: claim.error,
+            rejection_reason_prefix: LIVE_SEND_CLAIM_PREFIX,
+          },
+          no_live_send_performed: true,
+        },
+        { status: 409 },
+      )
+    }
+
+    const { data: restored, error: restoreErr } = await convex
+      .from('clapcheeks_scheduled_messages')
+      .update({ status: 'approved', rejection_reason: 'claim_probe_restored_no_send' })
+      .eq('id', id)
+      .eq('user_id', user.id)
+      .select()
+      .single()
+    releaseLiveSendLock(id)
+
+    return NextResponse.json({
+      ok: !restoreErr,
+      claim_probe: true,
+      no_live_send_performed: true,
+      dry_run: false,
+      send_provenance: sendProvenance,
+      claim: {
+        claimed: true,
+        rejection_reason_prefix: LIVE_SEND_CLAIM_PREFIX,
+      },
+      restore: {
+        ok: !restoreErr && restored?.status === 'approved',
+        status: restored?.status ?? null,
+        error: restoreErr?.message ?? null,
+      },
+    }, { status: restoreErr ? 500 : 200 })
   }
 
   if (dry_run === true) {
