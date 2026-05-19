@@ -50,7 +50,7 @@ function Hero() {
 
         {/* Headline */}
         <h1 className="text-5xl sm:text-6xl lg:text-7xl font-extrabold tracking-tight leading-[1.05] mb-6">
-          <span className="text-white">Set It and</span>
+          <span className="text-white">Set It and </span>
           <br />
           <span className="gradient-text">Forget It. Swipe 24/7.</span>
         </h1>
