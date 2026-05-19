@@ -420,6 +420,8 @@ test('safe readiness verifier checks dashboard runtime health contract without l
   assert.match(files.tokenHealthLib, /SendBird env missing/)
   assert.match(files.tokenHealthLib, /runtime\.sendbird_status/)
   assert.match(files.tokenHealthLib, /telemetry:listEventsForUser/)
+  assert.match(files.tokenHealthLib, /defaultTelemetryUserId/)
+  assert.match(files.tokenHealthLib, /fleet-julian/)
   assert.match(files.tokenHealthLib, /convex\.telemetry/)
   assert.match(files.healthRoute, /runHealthChecks/)
   assert.match(files.healthRoute, /detailed/)

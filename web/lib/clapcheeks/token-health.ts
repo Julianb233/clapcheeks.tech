@@ -138,41 +138,53 @@ function coerceUpdatedAt(value: unknown) {
   return null
 }
 
+function defaultTelemetryUserId() {
+  return process.env.CONVEX_FLEET_USER_ID || 'fleet-julian'
+}
+
 async function remoteSendBirdReadiness(userId: string): Promise<SendBirdReadiness | null> {
-  try {
-    const events = await convexQuery<Array<{ data?: Record<string, unknown>; occurred_at?: number; ts?: number }>>(
-      'telemetry:listEventsForUser',
-      {
-        user_id: userId,
-        event_type: SENDBIRD_STATUS_EVENT_TYPE,
-        limit: 1,
-      },
-    )
-    const event = Array.isArray(events) ? events[0] : null
-    const data = event?.data
-    if (!data || typeof data !== 'object') return null
-    const updatedMs = coerceUpdatedAt(data.updated_at_ms) || coerceUpdatedAt(event?.occurred_at) || coerceUpdatedAt(event?.ts)
-    const ageMs = updatedMs ? Date.now() - updatedMs : null
-    if (ageMs === null || ageMs > SENDBIRD_REMOTE_STALE_MS) {
+  const userIds = [userId, defaultTelemetryUserId()].filter(
+    (value, index, all) => value && all.indexOf(value) === index,
+  )
+  let staleReadiness: SendBirdReadiness | null = null
+  for (const telemetryUserId of userIds) {
+    try {
+      const events = await convexQuery<Array<{ data?: Record<string, unknown>; occurred_at?: number; ts?: number }>>(
+        'telemetry:listEventsForUser',
+        {
+          user_id: telemetryUserId,
+          event_type: SENDBIRD_STATUS_EVENT_TYPE,
+          limit: 1,
+        },
+      )
+      const event = Array.isArray(events) ? events[0] : null
+      const data = event?.data
+      if (!data || typeof data !== 'object') continue
+      const updatedMs = coerceUpdatedAt(data.updated_at_ms) || coerceUpdatedAt(event?.occurred_at) || coerceUpdatedAt(event?.ts)
+      const ageMs = updatedMs ? Date.now() - updatedMs : null
+      if (ageMs === null || ageMs > SENDBIRD_REMOTE_STALE_MS) {
+        staleReadiness = {
+          present: false,
+          mode: 'missing',
+          source: 'convex.telemetry',
+          updated_at: updatedMs ? new Date(updatedMs).toISOString() : null,
+          age_minutes: ageMs === null ? null : Math.round(ageMs / 600) / 100,
+        }
+        continue
+      }
+      const mode = data.mode === 'api_token' || data.mode === 'client_session' ? data.mode : 'missing'
       return {
-        present: false,
-        mode: 'missing',
+        present: data.present === true,
+        mode,
         source: 'convex.telemetry',
         updated_at: updatedMs ? new Date(updatedMs).toISOString() : null,
         age_minutes: ageMs === null ? null : Math.round(ageMs / 600) / 100,
       }
+    } catch {
+      continue
     }
-    const mode = data.mode === 'api_token' || data.mode === 'client_session' ? data.mode : 'missing'
-    return {
-      present: data.present === true,
-      mode,
-      source: 'convex.telemetry',
-      updated_at: updatedMs ? new Date(updatedMs).toISOString() : null,
-      age_minutes: ageMs === null ? null : Math.round(ageMs / 600) / 100,
-    }
-  } catch {
-    return null
   }
+  return staleReadiness
 }
 
 function platformStatus(
