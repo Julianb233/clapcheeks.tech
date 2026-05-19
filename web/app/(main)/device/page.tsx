@@ -722,7 +722,7 @@ function RuntimeStatusPanel({ status }: { status: RuntimeStatus }) {
               Runtime readiness
             </div>
             <p className="mt-1 max-w-2xl text-sm text-white/55">
-              MacBook Pro is the primary local host. Convex is the source of truth; Supabase is not used.
+              MacBook Pro is the primary local host. Convex tracks runtime, token, and device telemetry; approval settings still read from the shared settings row during migration.
             </p>
           </div>
           <div className={`rounded-full px-3 py-1 text-xs font-semibold ${blocked ? 'bg-amber-400/15 text-amber-200' : 'bg-emerald-400/15 text-emerald-200'}`}>

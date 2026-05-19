@@ -321,7 +321,7 @@ export default function AutonomyDashboard({
               Backend Coverage
             </h2>
             <div className="grid gap-2 text-sm">
-              <CoverageRow label="Approval gates" status="Live" detail="Supabase settings row read by runtime workers" />
+              <CoverageRow label="Approval gates" status="Live" detail="Shared settings row read by runtime workers" />
               <CoverageRow label="Approval queue" status="Live" detail="Convex queues mappings approve/reject items" />
               <CoverageRow label="Auto-swipe controls" status="Not exposed" detail="No live Convex mapping for autonomy model controls yet" muted />
               <CoverageRow label="Preference model" status="Not exposed" detail="No live Convex mapping for swipe training/model rows yet" muted />
