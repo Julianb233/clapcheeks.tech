@@ -425,7 +425,7 @@ test('safe readiness verifier checks dashboard runtime health contract without l
   assert.match(files.tokenHealthRoute, /Token values are intentionally omitted/)
   assert.match(files.tokenHealthLib, /missing_required/)
   assert.match(files.tokenHealthLib, /missing_required_services/)
-  assert.match(files.tokenHealthLib, /SendBird env missing/)
+  assert.match(files.tokenHealthLib, /SendBird missing/)
   assert.match(files.tokenHealthLib, /runtime\.sendbird_status/)
   assert.match(files.tokenHealthLib, /telemetry:listEventsForUser/)
   assert.match(files.tokenHealthLib, /defaultTelemetryUserId/)

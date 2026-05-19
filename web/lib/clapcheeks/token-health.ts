@@ -48,6 +48,7 @@ type SendBirdReadiness = {
   source: TokenHealthSummary['sendbird']['source']
   updated_at: string | null
   age_minutes: number | null
+  missing: string[]
 }
 
 function localSendBirdSessionPresent() {
@@ -76,6 +77,7 @@ function localSendBirdReadiness(): SendBirdReadiness {
       source: 'env',
       updated_at: null,
       age_minutes: null,
+      missing: [],
     }
   }
   if (localSendBirdSessionPresent()) {
@@ -85,14 +87,23 @@ function localSendBirdReadiness(): SendBirdReadiness {
       source: 'local-session',
       updated_at: null,
       age_minutes: null,
+      missing: [],
     }
   }
+  const sessionMissing = [
+    process.env.SENDBIRD_APP_ID ? null : 'SENDBIRD_APP_ID',
+    process.env.SENDBIRD_USER_ID ? null : 'SENDBIRD_USER_ID',
+    process.env.SENDBIRD_SESSION_KEY ? null : 'SENDBIRD_SESSION_KEY',
+  ].filter(Boolean) as string[]
   return {
     present: false,
     mode: 'missing',
     source: 'missing',
     updated_at: null,
     age_minutes: null,
+    missing: sessionMissing.length < 3
+      ? sessionMissing
+      : ['SENDBIRD_API_TOKEN or captured SendBird client session'],
   }
 }
 
@@ -169,16 +180,37 @@ async function remoteSendBirdReadiness(userId: string): Promise<SendBirdReadines
           source: 'convex.telemetry',
           updated_at: updatedMs ? new Date(updatedMs).toISOString() : null,
           age_minutes: ageMs === null ? null : Math.round(ageMs / 600) / 100,
+          missing: ['Fresh SendBird runtime telemetry'],
         }
         continue
       }
-      const mode = data.mode === 'api_token' || data.mode === 'client_session' ? data.mode : 'missing'
+      const appIdPresent = data.app_id_present === true
+      const userIdPresent = data.user_id_present === true
+      const sessionKeyPresent = data.session_key_present === true
+      const apiTokenPresent = data.api_token_present === true
+      const hasApiToken = appIdPresent && apiTokenPresent
+      const hasClientSession = appIdPresent && userIdPresent && sessionKeyPresent
+      const mode = hasApiToken
+        ? 'api_token'
+        : hasClientSession
+          ? 'client_session'
+          : 'missing'
+      const missing = hasApiToken || hasClientSession
+        ? []
+        : apiTokenPresent
+          ? (appIdPresent ? [] : ['SENDBIRD_APP_ID'])
+          : [
+              appIdPresent ? null : 'SENDBIRD_APP_ID',
+              userIdPresent ? null : 'SENDBIRD_USER_ID',
+              sessionKeyPresent ? null : 'SENDBIRD_SESSION_KEY',
+            ].filter(Boolean) as string[]
       return {
-        present: data.present === true,
+        present: data.present === true || hasApiToken || hasClientSession,
         mode,
         source: 'convex.telemetry',
         updated_at: updatedMs ? new Date(updatedMs).toISOString() : null,
         age_minutes: ageMs === null ? null : Math.round(ageMs / 600) / 100,
+        missing: missing.length > 0 ? missing : ['SENDBIRD_API_TOKEN or captured SendBird client session'],
       }
     } catch {
       continue
@@ -231,11 +263,11 @@ export async function getTokenHealth(userId: string): Promise<TokenHealthSummary
 
   const localSendBird = localSendBirdReadiness()
   const remoteSendBird = await remoteSendBirdReadiness(userId)
-  const sendBird = remoteSendBird?.present ? remoteSendBird : localSendBird
+  const sendBird = localSendBird.present ? localSendBird : remoteSendBird ?? localSendBird
   const sendBirdPresent = sendBird.present
   const missingSendBird = sendBirdPresent
     ? []
-    : ['SENDBIRD_API_TOKEN or captured SendBird client session']
+    : sendBird.missing
   const missingRequiredServices = [
     ...platforms
       .filter((platform) => platform.required && !platform.present)
@@ -248,7 +280,7 @@ export async function getTokenHealth(userId: string): Promise<TokenHealthSummary
       ? [{
           type: 'service' as const,
           name: 'sendbird' as const,
-          reason: 'SendBird env missing',
+          reason: `SendBird missing ${missingSendBird.join(', ')}`,
         }]
       : []),
   ]
