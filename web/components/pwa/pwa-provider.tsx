@@ -8,8 +8,11 @@ type BeforeInstallPromptEvent = Event & {
 }
 
 /**
- * Registers the service worker and exposes an "Install app" prompt button
- * when the browser is able to install. Mount once near the root.
+ * Exposes an "Install app" prompt button when the browser can install.
+ *
+ * Older production builds registered `/sw.js`. The app now keeps dynamic
+ * dashboard routes network-first, so any existing worker must be retired or
+ * it can keep serving a stale loading shell after deploys.
  */
 export default function PWAProvider() {
   const [deferred, setDeferred] = useState<BeforeInstallPromptEvent | null>(null)
@@ -17,14 +20,36 @@ export default function PWAProvider() {
 
   useEffect(() => {
     if (typeof window === 'undefined') return
-    // Register SW only when a production service worker exists.
+
+    async function unregisterStaleWorkers() {
+      if (!('serviceWorker' in navigator)) return
+      try {
+        const registrations = await navigator.serviceWorker.getRegistrations()
+        await Promise.all(
+          registrations
+            .filter((registration) => registration.scope.startsWith(window.location.origin))
+            .map((registration) => registration.unregister()),
+        )
+        if ('caches' in window) {
+          const keys = await caches.keys()
+          await Promise.all(keys.map((key) => caches.delete(key)))
+        }
+      } catch (err) {
+        console.warn('SW cleanup failed:', err)
+      }
+    }
+
     if ('serviceWorker' in navigator && process.env.NODE_ENV === 'production') {
-      fetch('/sw.js', { method: 'HEAD', cache: 'no-store' })
-        .then((res) => {
-          if (res.ok) return navigator.serviceWorker.register('/sw.js', { scope: '/' })
-          return null
-        })
-        .catch((err) => console.warn('SW register failed:', err))
+      if (process.env.NEXT_PUBLIC_ENABLE_PWA_SW === '1') {
+        fetch('/sw.js', { method: 'HEAD', cache: 'no-store' })
+          .then((res) => {
+            if (res.ok) return navigator.serviceWorker.register('/sw.js', { scope: '/' })
+            return unregisterStaleWorkers()
+          })
+          .catch((err) => console.warn('SW register failed:', err))
+      } else {
+        void unregisterStaleWorkers()
+      }
     }
 
     const onBefore = (e: Event) => {
