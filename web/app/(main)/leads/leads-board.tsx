@@ -1,7 +1,6 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { createClient } from '@/lib/convex/client'
 import { VoiceInput, VoiceTextarea } from '@/components/voice'
 
 export type Lead = {
@@ -30,6 +29,36 @@ export type Lead = {
 
 type Stage = { key: string; label: string; hint: string }
 
+const LEAD_TO_MATCH_STAGE: Record<string, string> = {
+  matched: 'new',
+  opened: 'new',
+  replying: 'chatting',
+  date_proposed: 'date_planned',
+  date_booked: 'date_planned',
+  date_happened: 'dated',
+  ongoing: 'dated',
+  dead: 'archived',
+}
+
+function leadStatusFromStage(stage: string) {
+  if (stage === 'dead') return 'archived'
+  if (['replying', 'date_proposed', 'date_booked', 'date_happened', 'ongoing'].includes(stage)) return 'active'
+  return 'lead'
+}
+
+async function patchLeadMatch(leadId: string, body: Record<string, unknown>) {
+  const res = await fetch(`/api/matches/${encodeURIComponent(leadId)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) {
+    throw new Error(data?.error || 'Lead update failed')
+  }
+  return data
+}
+
 export default function LeadsBoard({
   stages,
   initialLeads,
@@ -50,19 +79,24 @@ export default function LeadsBoard({
 
   async function moveLead(leadId: string, toStage: string) {
     // Optimistic update
+    const enteredAt = new Date().toISOString()
     setLeads((prev) =>
       prev.map((l) =>
         l.id === leadId
-          ? { ...l, stage: toStage, stageEnteredAt: new Date().toISOString() }
+          ? { ...l, stage: toStage, stageEnteredAt: enteredAt }
           : l,
       ),
     )
-    const convex = createClient()
-    const { error } = await convex
-      .from('clapcheeks_leads')
-      .update({ stage: toStage, stage_entered_at: new Date().toISOString() })
-      .eq('id', leadId)
-    if (error) {
+    try {
+      await patchLeadMatch(leadId, {
+        stage: LEAD_TO_MATCH_STAGE[toStage] || 'new',
+        status: leadStatusFromStage(toStage),
+        match_intel_patch: {
+          lead_stage: toStage,
+          lead_stage_entered_at: enteredAt,
+        },
+      })
+    } catch (error) {
       console.error('Stage update failed:', error)
       // revert on failure
       setLeads(initialLeads)
@@ -194,16 +228,26 @@ function LeadDrawer({
   const [notes, setNotes] = useState(lead.notes ?? '')
   const [outcome, setOutcome] = useState(lead.outcome ?? '')
   const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
 
   async function save() {
     setSaving(true)
-    const convex = createClient()
-    const { error } = await convex
-      .from('clapcheeks_leads')
-      .update({ tag: tag || null, notes: notes || null, outcome: outcome || null })
-      .eq('id', lead.id)
-    setSaving(false)
-    if (!error) onSave({ ...lead, tag, notes, outcome })
+    setSaveError(null)
+    try {
+      await patchLeadMatch(lead.id, {
+        outcome: outcome || null,
+        match_intel_patch: {
+          tag: tag || null,
+          notes: notes || null,
+          outcome: outcome || null,
+        },
+      })
+      onSave({ ...lead, tag, notes, outcome })
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : 'Lead update failed')
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (
@@ -273,6 +317,11 @@ function LeadDrawer({
         >
           {saving ? 'Saving…' : 'Save'}
         </button>
+        {saveError && (
+          <div className="mt-3 rounded border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-200">
+            {saveError}
+          </div>
+        )}
 
         {Object.keys(lead.dripFired).length > 0 && (
           <div className="mt-6 text-xs text-white/40">

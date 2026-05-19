@@ -19,8 +19,14 @@ test('leads board reads live Convex-derived rows instead of an unmapped legacy t
   assert.match(files.compat, /leadStageFromMatch/)
 })
 
-test('leads edits persist back to Convex matches through a mapped write path', () => {
-  assert.match(files.leadsBoard, /\.from\('clapcheeks_leads'\)[\s\S]*\.update/)
+test('leads edits persist through the server match PATCH route', () => {
+  assert.match(files.leadsBoard, /async function patchLeadMatch/)
+  assert.match(files.leadsBoard, /\/api\/matches\/\$\{encodeURIComponent\(leadId\)\}/)
+  assert.match(files.leadsBoard, /match_intel_patch/)
+  assert.match(files.leadsBoard, /lead_stage_entered_at/)
+  assert.match(files.leadsBoard, /setSaveError/)
+  assert.doesNotMatch(files.leadsBoard, /createClient/)
+  assert.doesNotMatch(files.leadsBoard, /\.from\('clapcheeks_leads'\)[\s\S]*\.update/)
   assert.match(files.compat, /kind === "update" && mapped === "clapcheeks_leads"/)
   assert.match(files.compat, /matches:patch/)
   assert.match(files.compat, /lead_stage/)
