@@ -29,8 +29,12 @@ function mapLiveConvexMatch(row: any | null | undefined): Partial<MatchRow> | nu
     bio: row.bio ?? null,
     job: row.job ?? null,
     school: row.school ?? null,
+    first_impression: row.first_impression ?? null,
+    vision_summary: row.vision_summary ?? null,
     instagram_handle: row.instagram_handle ?? null,
     zodiac: row.zodiac ?? null,
+    birth_date: row.birth_date ?? null,
+    met_at: row.met_at ?? null,
     match_intel: row.match_intel ?? null,
     photos_jsonb: Array.isArray(row.photos)
       ? row.photos.map((p: any) => ({
@@ -42,6 +46,10 @@ function mapLiveConvexMatch(row: any | null | undefined): Partial<MatchRow> | nu
       : null,
     health_score: typeof row.health_score === 'number' ? row.health_score : null,
     attributes: row.attributes ?? null,
+    created_at: msToIso(row.created_at),
+    updated_at: msToIso(row.updated_at),
+    last_activity_at: msToIso(row.last_activity_at),
+    opener_sent_at: typeof row.opener_sent_at === 'string' ? row.opener_sent_at : null,
   }
 }
 
@@ -107,6 +115,10 @@ type MatchRow = {
   red_flags: string[] | null
   opener_sent_at: string | null
   created_at: string | null
+  updated_at: string | null
+  last_activity_at: string | null
+  birth_date: string | null
+  met_at: string | null
   // AI-8814 match attributes
   attributes: MatchAttributes | null
   attributes_updated_at: string | null
@@ -131,11 +143,27 @@ function getNestedList(obj: unknown, key: string): string[] {
   return stringList((obj as Record<string, unknown>)[key])
 }
 
+function msToIso(value: unknown): string | null {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return null
+  return new Date(value).toISOString()
+}
+
 type PatchBody = {
   stage?: string
   status?: string
   julian_rank?: number
   opener_sent_at?: string
+  name?: string
+  age?: number
+  bio?: string
+  job?: string
+  school?: string
+  instagram_handle?: string
+  zodiac?: string
+  birth_date?: string
+  met_at?: string
+  first_impression?: string
+  vision_summary?: string
   match_intel_patch?: Record<string, unknown>
 }
 
@@ -151,6 +179,32 @@ function formatRelative(iso: string | null | undefined) {
   if (hours < 24) return `${hours}h ago`
   const days = Math.round(hours / 24)
   return `${days}d ago`
+}
+
+function formatDateTime(iso: string | null | undefined) {
+  if (!iso) return 'Not set'
+  const date = new Date(iso)
+  if (Number.isNaN(date.getTime())) return iso
+  return date.toLocaleString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  })
+}
+
+function splitEditableList(value: string): string[] {
+  return value
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean)
+}
+
+function joinEditableList(value: unknown): string {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === 'string').join(', ')
+    : ''
 }
 
 function buildDraftContext({
@@ -473,6 +527,14 @@ export default function MatchProfileView({
         hasInbound={!!lastInbound}
       />
 
+      <RecordTimelineStrip
+        createdAt={m.created_at}
+        updatedAt={m.updated_at}
+        lastActivityAt={m.last_activity_at}
+        openerSentAt={m.opener_sent_at}
+        metAt={m.met_at}
+      />
+
       {/* Tabs */}
       <div className="mb-6 border-b border-white/10 flex gap-1 overflow-x-auto">
         {TABS.map((t) => {
@@ -735,7 +797,16 @@ export default function MatchProfileView({
       </div>
 
       {/* Notes + Tags block (profile tab only) */}
-      <div className={`mb-8 ${tab === 'profile' ? '' : 'hidden'}`}>
+      <div className={`mb-8 space-y-4 ${tab === 'profile' ? '' : 'hidden'}`}>
+        <ProfileBackendEditor
+          match={m}
+          interests={intelInterests}
+          topics={getNestedList(m.match_intel, 'topics')}
+          promptThemes={intelPromptThemes}
+          greenFlags={intelGreen}
+          redFlags={intelRed}
+          onPatch={patch}
+        />
         <NotesBlock
           matchId={m.id}
           initialNotes={existingNotes}
@@ -808,6 +879,285 @@ function CommunicationCommandStrip({
         </div>
       </div>
     </div>
+  )
+}
+
+function RecordTimelineStrip({
+  createdAt,
+  updatedAt,
+  lastActivityAt,
+  openerSentAt,
+  metAt,
+}: {
+  createdAt: string | null
+  updatedAt: string | null
+  lastActivityAt: string | null
+  openerSentAt: string | null
+  metAt: string | null
+}) {
+  const items = [
+    { label: 'Created', value: createdAt, relative: true },
+    { label: 'Updated', value: updatedAt, relative: true },
+    { label: 'Last activity', value: lastActivityAt, relative: true },
+    { label: 'Opener copied', value: openerSentAt, relative: true },
+    { label: 'Date met', value: metAt, relative: false },
+  ]
+
+  return (
+    <div className="mb-6 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-5">
+      {items.map((item) => (
+        <div
+          key={item.label}
+          className="rounded-lg border border-white/10 bg-white/[0.035] px-3 py-2"
+        >
+          <div className="text-[10px] uppercase tracking-wide text-white/40">
+            {item.label}
+          </div>
+          <div className="mt-1 text-sm text-white/80">
+            {formatDateTime(item.value)}
+          </div>
+          {item.relative && item.value && (
+            <div className="mt-0.5 text-[11px] text-white/40">
+              {formatRelative(item.value)}
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function ProfileBackendEditor({
+  match,
+  interests,
+  topics,
+  promptThemes,
+  greenFlags,
+  redFlags,
+  onPatch,
+}: {
+  match: MatchRow
+  interests: string[]
+  topics: string[]
+  promptThemes: string[]
+  greenFlags: string[]
+  redFlags: string[]
+  onPatch: (
+    body: PatchBody,
+    optimistic: Partial<MatchRow>,
+    label: string,
+  ) => Promise<boolean>
+}) {
+  const [name, setName] = useState(match.name || match.match_name || '')
+  const [age, setAge] = useState(match.age != null ? String(match.age) : '')
+  const [job, setJob] = useState(match.job ?? '')
+  const [school, setSchool] = useState(match.school ?? '')
+  const [instagram, setInstagram] = useState(match.instagram_handle ?? '')
+  const [zodiac, setZodiac] = useState(match.zodiac ?? '')
+  const [birthDate, setBirthDate] = useState(match.birth_date ?? '')
+  const [metAt, setMetAt] = useState(match.met_at ?? '')
+  const [bio, setBio] = useState(match.bio ?? '')
+  const [firstImpression, setFirstImpression] = useState(match.first_impression ?? '')
+  const [visionSummary, setVisionSummary] = useState(match.vision_summary ?? '')
+  const [interestsText, setInterestsText] = useState(interests.join(', '))
+  const [topicsText, setTopicsText] = useState(topics.join(', '))
+  const [promptThemesText, setPromptThemesText] = useState(promptThemes.join(', '))
+  const [greenText, setGreenText] = useState(greenFlags.join(', '))
+  const [redText, setRedText] = useState(redFlags.join(', '))
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    setName(match.name || match.match_name || '')
+    setAge(match.age != null ? String(match.age) : '')
+    setJob(match.job ?? '')
+    setSchool(match.school ?? '')
+    setInstagram(match.instagram_handle ?? '')
+    setZodiac(match.zodiac ?? '')
+    setBirthDate(match.birth_date ?? '')
+    setMetAt(match.met_at ?? '')
+    setBio(match.bio ?? '')
+    setFirstImpression(match.first_impression ?? '')
+    setVisionSummary(match.vision_summary ?? '')
+    setInterestsText(interests.join(', '))
+    setTopicsText(topics.join(', '))
+    setPromptThemesText(promptThemes.join(', '))
+    setGreenText(greenFlags.join(', '))
+    setRedText(redFlags.join(', '))
+  }, [
+    match.id,
+    match.name,
+    match.match_name,
+    match.age,
+    match.job,
+    match.school,
+    match.instagram_handle,
+    match.zodiac,
+    match.birth_date,
+    match.met_at,
+    match.bio,
+    match.first_impression,
+    match.vision_summary,
+    interests,
+    topics,
+    promptThemes,
+    greenFlags,
+    redFlags,
+  ])
+
+  const save = async () => {
+    const trimmedAge = age.trim()
+    let parsedAge: number | undefined
+    if (trimmedAge) {
+      const n = Number(trimmedAge)
+      if (!Number.isInteger(n) || n < 18 || n > 100) {
+        toast.error('Age must be a whole number from 18 to 100')
+        return
+      }
+      parsedAge = n
+    }
+
+    const matchIntelPatch: Record<string, unknown> = {
+      interests: splitEditableList(interestsText),
+      topics: splitEditableList(topicsText),
+      prompt_themes: splitEditableList(promptThemesText),
+      green_flags: splitEditableList(greenText),
+      red_flags: splitEditableList(redText),
+    }
+    const body: PatchBody = {
+      name: name.trim(),
+      bio: bio.trim(),
+      job: job.trim(),
+      school: school.trim(),
+      instagram_handle: instagram.trim().replace(/^@/, ''),
+      zodiac: zodiac.trim(),
+      birth_date: birthDate.trim(),
+      met_at: metAt.trim(),
+      first_impression: firstImpression.trim(),
+      vision_summary: visionSummary.trim(),
+      match_intel_patch: matchIntelPatch,
+    }
+    if (parsedAge !== undefined) body.age = parsedAge
+
+    setSaving(true)
+    const optimisticIntel = {
+      ...(match.match_intel ?? {}),
+      ...matchIntelPatch,
+    } as MatchIntel
+    const ok = await onPatch(
+      body,
+      {
+        name: body.name ?? match.name,
+        age: parsedAge ?? match.age,
+        bio: body.bio ?? match.bio,
+        job: body.job ?? match.job,
+        school: body.school ?? match.school,
+        instagram_handle: body.instagram_handle ?? match.instagram_handle,
+        zodiac: body.zodiac ?? match.zodiac,
+        birth_date: body.birth_date ?? match.birth_date,
+        met_at: body.met_at ?? match.met_at,
+        first_impression: body.first_impression ?? match.first_impression,
+        vision_summary: body.vision_summary ?? match.vision_summary,
+        match_intel: optimisticIntel,
+      },
+      'Save profile data',
+    )
+    setSaving(false)
+    if (ok) toast.success('Profile data saved')
+  }
+
+  return (
+    <div className="rounded-xl border border-white/10 bg-white/[0.04] p-5">
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-white/80">
+          Profile Data
+        </h2>
+        <button
+          type="button"
+          onClick={() => void save()}
+          disabled={saving}
+          className="rounded-md bg-pink-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-pink-500 disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          {saving ? 'Saving...' : 'Save edits'}
+        </button>
+      </div>
+
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+        <EditField label="Name" value={name} onChange={setName} />
+        <EditField label="Age" value={age} onChange={setAge} type="number" />
+        <EditField label="Job" value={job} onChange={setJob} />
+        <EditField label="School" value={school} onChange={setSchool} />
+        <EditField label="Instagram" value={instagram} onChange={setInstagram} />
+        <EditField label="Zodiac" value={zodiac} onChange={setZodiac} />
+        <EditField label="Birthday" value={birthDate} onChange={setBirthDate} type="date" />
+        <EditField label="Date met" value={metAt} onChange={setMetAt} />
+      </div>
+
+      <div className="mt-3 grid grid-cols-1 gap-3">
+        <EditTextArea label="Bio" value={bio} onChange={setBio} rows={3} />
+        <EditTextArea label="First impression" value={firstImpression} onChange={setFirstImpression} rows={3} />
+        <EditTextArea label="Photo vision summary" value={visionSummary} onChange={setVisionSummary} rows={3} />
+      </div>
+
+      <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+        <EditField label="Interests" value={interestsText} onChange={setInterestsText} />
+        <EditField label="Topics" value={topicsText} onChange={setTopicsText} />
+        <EditField label="Prompt themes" value={promptThemesText} onChange={setPromptThemesText} />
+        <EditField label="Green flags" value={greenText} onChange={setGreenText} />
+        <EditField label="Red flags" value={redText} onChange={setRedText} />
+      </div>
+    </div>
+  )
+}
+
+function EditField({
+  label,
+  value,
+  onChange,
+  type = 'text',
+}: {
+  label: string
+  value: string
+  onChange: (value: string) => void
+  type?: string
+}) {
+  return (
+    <label className="block">
+      <span className="mb-1 block text-[11px] uppercase tracking-wide text-white/45">
+        {label}
+      </span>
+      <input
+        type={type}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm text-white outline-none transition-colors placeholder:text-white/25 focus:border-pink-500/40"
+      />
+    </label>
+  )
+}
+
+function EditTextArea({
+  label,
+  value,
+  onChange,
+  rows,
+}: {
+  label: string
+  value: string
+  onChange: (value: string) => void
+  rows: number
+}) {
+  return (
+    <label className="block">
+      <span className="mb-1 block text-[11px] uppercase tracking-wide text-white/45">
+        {label}
+      </span>
+      <textarea
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        rows={rows}
+        className="w-full resize-y rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm text-white outline-none transition-colors placeholder:text-white/25 focus:border-pink-500/40"
+      />
+    </label>
   )
 }
 

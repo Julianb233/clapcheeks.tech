@@ -19,6 +19,17 @@ type PatchBody = {
   status?: unknown
   julian_rank?: unknown
   opener_sent_at?: unknown
+  name?: unknown
+  age?: unknown
+  bio?: unknown
+  job?: unknown
+  school?: unknown
+  instagram_handle?: unknown
+  zodiac?: unknown
+  birth_date?: unknown
+  met_at?: unknown
+  first_impression?: unknown
+  vision_summary?: unknown
   match_intel_patch?: unknown
 }
 
@@ -33,6 +44,47 @@ const ALLOWED_STAGES = new Set([
 
 function isPlainObject(v: unknown): v is Record<string, unknown> {
   return !!v && typeof v === 'object' && !Array.isArray(v)
+}
+
+const STRING_FIELD_LIMITS: Record<string, number> = {
+  name: 160,
+  bio: 4000,
+  job: 240,
+  school: 240,
+  instagram_handle: 120,
+  zodiac: 60,
+  birth_date: 20,
+  met_at: 240,
+  first_impression: 2000,
+  vision_summary: 4000,
+}
+
+function normalizeStringField(
+  body: Record<string, unknown>,
+  key: keyof typeof STRING_FIELD_LIMITS,
+): { ok: true; value?: string } | { ok: false; error: string } {
+  const value = body[key]
+  if (value === undefined) return { ok: true }
+  if (typeof value !== 'string') {
+    return { ok: false, error: `${key} must be a string` }
+  }
+  const trimmed = value.trim()
+  if (trimmed.length > STRING_FIELD_LIMITS[key]) {
+    return {
+      ok: false,
+      error: `${key} must be ${STRING_FIELD_LIMITS[key]} characters or less`,
+    }
+  }
+  if (key === 'birth_date' && trimmed) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+      return { ok: false, error: 'birth_date must be YYYY-MM-DD' }
+    }
+    const parsed = new Date(`${trimmed}T00:00:00.000Z`)
+    if (Number.isNaN(parsed.getTime())) {
+      return { ok: false, error: 'birth_date must be a valid date' }
+    }
+  }
+  return { ok: true, value: trimmed }
 }
 
 export async function PATCH(
@@ -113,6 +165,25 @@ export async function PATCH(
       )
     }
     update.julian_rank = n
+  }
+
+  if (body.age !== undefined && body.age !== null && body.age !== '') {
+    const n = typeof body.age === 'number' ? body.age : Number(body.age)
+    if (!Number.isFinite(n) || !Number.isInteger(n) || n < 18 || n > 100) {
+      return NextResponse.json(
+        { error: 'age must be an integer 18-100' },
+        { status: 400 },
+      )
+    }
+    update.age = n
+  }
+
+  for (const key of Object.keys(STRING_FIELD_LIMITS) as Array<keyof typeof STRING_FIELD_LIMITS>) {
+    const normalized = normalizeStringField(body as Record<string, unknown>, key)
+    if (!normalized.ok) {
+      return NextResponse.json({ error: normalized.error }, { status: 400 })
+    }
+    if (normalized.value !== undefined) update[key] = normalized.value
   }
 
   if (typeof body.opener_sent_at === 'string') {

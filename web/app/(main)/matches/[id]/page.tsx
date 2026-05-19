@@ -86,6 +86,12 @@ export default async function MatchDetailPage({
         ? rawMatch.opener_sent_at
         : null,
     created_at: legacy.created_at ?? null,
+    updated_at: legacy.updated_at ?? null,
+    last_activity_at: legacy.last_activity_at ?? null,
+    birth_date:
+      typeof rawMatch.birth_date === 'string' ? rawMatch.birth_date : null,
+    met_at:
+      typeof rawMatch.met_at === 'string' ? rawMatch.met_at : null,
     attributes:
       (rawMatch.attributes as Record<string, unknown> | null | undefined) ?? null,
     attributes_updated_at:
