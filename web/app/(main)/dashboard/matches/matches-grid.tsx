@@ -53,6 +53,36 @@ function displayName(m: MatchGridRow): string {
   return (m.match_name ?? m.name ?? '').toString()
 }
 
+function intelSearchText(m: MatchGridRow): string {
+  const intel = m.match_intel
+  if (!intel || typeof intel !== 'object') return ''
+  const values: string[] = []
+
+  function collect(value: unknown, depth = 0) {
+    if (value == null || depth > 3) return
+    if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+      values.push(String(value))
+      return
+    }
+    if (Array.isArray(value)) {
+      for (const item of value.slice(0, 20)) collect(item, depth + 1)
+      return
+    }
+    if (typeof value === 'object') {
+      for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+        if (key.toLowerCase().includes('token') || key.toLowerCase().includes('auth')) continue
+        collect(child, depth + 1)
+      }
+    }
+  }
+
+  for (const [key, value] of Object.entries(intel)) {
+    if (key.toLowerCase().includes('token') || key.toLowerCase().includes('auth')) continue
+    collect(value)
+  }
+  return values.join(' ')
+}
+
 // Nulls-last numeric sort comparator.
 // dir='desc' => larger first; dir='asc' => smaller first.
 function cmpNumNullsLast(
@@ -142,6 +172,7 @@ export default function MatchesGrid({ matches, lastMessages }: Props) {
           m.name ?? '',
           m.match_name ?? '',
           m.bio ?? '',
+          intelSearchText(m),
         ]
           .join(' \n ')
           .toLowerCase()
@@ -384,7 +415,7 @@ export default function MatchesGrid({ matches, lastMessages }: Props) {
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
           {visible.map((m) => (
-            <MatchCard key={m.id} match={m} lastMessage={lastMessages[m.id]} />
+            <MatchCard key={m.id || (m as any)._id || `${m.platform}-${m.name || m.match_name || 'match'}`} match={m} lastMessage={lastMessages[m.id || (m as any)._id]} />
           ))}
         </div>
       )}

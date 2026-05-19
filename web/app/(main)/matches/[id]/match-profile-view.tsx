@@ -56,9 +56,9 @@ const TABS: { key: TabKey; label: string }[] = [
 
 type Photo = {
   url: string
-  supabase_path?: string | null
-  width?: number
-  height?: number
+  convex_path?: string | null
+  width?: number | null
+  height?: number | null
 }
 
 type Prompt = { question?: string; answer?: string; prompt?: string; text?: string }
@@ -68,6 +68,9 @@ type MatchIntel = Record<string, unknown> & {
   tags?: string[]
   interests?: string[]
   topics?: string[]
+  prompt_text?: string
+  prompt_themes?: string[]
+  profile_prompts_observed?: string[]
   green_flags?: string[]
   red_flags?: string[]
   opener_suggestions?: string[]
@@ -82,7 +85,9 @@ type MatchRow = {
   bio: string | null
   platform: string | null
   photos_jsonb: Photo[] | null
+  photos?: Photo[] | null
   prompts_jsonb: Prompt[] | null
+  prompts?: Prompt[] | null
   instagram_handle: string | null
   spotify_artists: unknown
   zodiac: string | null
@@ -134,6 +139,85 @@ type PatchBody = {
   match_intel_patch?: Record<string, unknown>
 }
 
+function formatRelative(iso: string | null | undefined) {
+  if (!iso) return 'No timestamp'
+  const time = new Date(iso).getTime()
+  if (Number.isNaN(time)) return 'Invalid timestamp'
+  const diffMs = Date.now() - time
+  const mins = Math.max(0, Math.round(diffMs / 60000))
+  if (mins < 1) return 'just now'
+  if (mins < 60) return `${mins}m ago`
+  const hours = Math.round(mins / 60)
+  if (hours < 24) return `${hours}h ago`
+  const days = Math.round(hours / 24)
+  return `${days}d ago`
+}
+
+function buildDraftContext({
+  displayName,
+  platform,
+  bio,
+  prompts,
+  interests,
+  topics,
+  messages,
+}: {
+  displayName: string
+  platform: string | null
+  bio: string | null
+  prompts: Prompt[]
+  interests: string[]
+  topics: string[]
+  messages: ChatMessage[]
+}) {
+  const lines: string[] = []
+  lines.push(`Match: ${displayName}`)
+  lines.push(`Platform: ${platform ?? 'unknown'}`)
+  if (bio) lines.push(`Bio: ${bio}`)
+  const promptLines = prompts
+    .slice(0, 4)
+    .map((p) => `${p.question || p.prompt || 'Prompt'}: ${p.answer || p.text || ''}`)
+    .filter(Boolean)
+  if (promptLines.length) lines.push(`Profile prompts:\n${promptLines.join('\n')}`)
+  const signals = [...interests, ...topics].slice(0, 12)
+  if (signals.length) lines.push(`Useful hooks: ${signals.join(', ')}`)
+  if (messages.length) {
+    lines.push('Recent conversation:')
+    for (const msg of messages.slice(-12)) {
+      lines.push(`${msg.is_from_me ? 'You' : 'Them'}: ${msg.text}`)
+    }
+  }
+  return lines.join('\n\n')
+}
+
+function formatIntelValue(value: unknown, depth = 0): string {
+  if (value == null || value === '') return ''
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+    return String(value)
+  }
+  if (Array.isArray(value)) {
+    return value
+      .slice(0, 20)
+      .map((item) => formatIntelValue(item, depth + 1))
+      .filter(Boolean)
+      .join(', ')
+      .slice(0, 1200)
+  }
+  if (typeof value === 'object' && depth < 3) {
+    return Object.entries(value as Record<string, unknown>)
+      .filter(([key, child]) => {
+        const lower = key.toLowerCase()
+        return !lower.includes('token') && !lower.includes('auth') && child != null && child !== ''
+      })
+      .slice(0, 24)
+      .map(([key, child]) => `${key.replace(/_/g, ' ')}: ${formatIntelValue(child, depth + 1)}`)
+      .filter((line) => !line.endsWith(': '))
+      .join(' · ')
+      .slice(0, 1200)
+  }
+  return ''
+}
+
 export default function MatchProfileView({
   match: initial,
   conversation = [],
@@ -177,12 +261,26 @@ export default function MatchProfileView({
   // the thread + quick-note + thoughtful-questions on mobile. Previously the
   // page opened on Profile and forced an extra tap on small screens.
   const [tab, setTab] = useState<TabKey>('conversation')
+  const [briefCopied, setBriefCopied] = useState(false)
 
   const displayName = m.name || m.match_name || 'Unknown'
-  const photos = (m.photos_jsonb ?? []).filter((p): p is Photo => !!p?.url)
+  const photos = useMemo(() => {
+    const seen = new Set<string>()
+    return [...(m.photos_jsonb ?? []), ...(m.photos ?? [])].filter((p): p is Photo => {
+      if (!p?.url || seen.has(p.url)) return false
+      seen.add(p.url)
+      return true
+    })
+  }, [m.photos, m.photos_jsonb])
 
   const intelInterests = getNestedList(m.match_intel, 'interests')
-  const intelTopics = getNestedList(m.match_intel, 'topics')
+  const intelPromptThemes = getNestedList(m.match_intel, 'prompt_themes')
+  const intelTopics = [...getNestedList(m.match_intel, 'topics'), ...intelPromptThemes]
+  const intelProfilePrompts = getNestedList(m.match_intel, 'profile_prompts_observed')
+  const intelPromptText =
+    typeof (m.match_intel as MatchIntel | null)?.prompt_text === 'string'
+      ? ((m.match_intel as MatchIntel).prompt_text ?? '')
+      : ''
   const intelGreen = getNestedList(m.match_intel, 'green_flags')
   const intelRed = [...(m.red_flags ?? []), ...getNestedList(m.match_intel, 'red_flags')]
   const intelOpeners = useMemo(() => {
@@ -196,7 +294,7 @@ export default function MatchProfileView({
         .filter(Boolean)
     : []
 
-  const prompts = (m.prompts_jsonb ?? []).filter(
+  const prompts = [...(m.prompts_jsonb ?? []), ...(m.prompts ?? [])].filter(
     (p) => p && (p.answer || p.text)
   )
 
@@ -205,6 +303,51 @@ export default function MatchProfileView({
     [m.match_intel]
   )
   const existingNotes = (m.match_intel as MatchIntel | null)?.notes ?? ''
+
+  const lastMessage = useMemo(() => {
+    return [...conversation]
+      .filter((msg) => msg.sent_at)
+      .sort((a, b) => new Date(b.sent_at ?? 0).getTime() - new Date(a.sent_at ?? 0).getTime())[0]
+  }, [conversation])
+
+  const lastInbound = useMemo(() => {
+    return [...conversation]
+      .filter((msg) => !msg.is_from_me && msg.sent_at)
+      .sort((a, b) => new Date(b.sent_at ?? 0).getTime() - new Date(a.sent_at ?? 0).getTime())[0]
+  }, [conversation])
+
+  const draftContext = useMemo(
+    () =>
+      buildDraftContext({
+        displayName,
+        platform: m.platform,
+        bio: m.bio,
+        prompts,
+        interests: intelInterests,
+        topics: intelTopics,
+        messages: conversation,
+      }),
+    [displayName, m.platform, m.bio, prompts, intelInterests, intelTopics, conversation],
+  )
+
+  const draftHref = useMemo(() => {
+    const params = new URLSearchParams()
+    params.set('matchName', displayName)
+    params.set('platform', m.platform ?? 'iMessage')
+    params.set('context', draftContext)
+    params.set('goal', lastInbound ? 'keep_momentum' : 'recover_thread')
+    return `/conversation?${params.toString()}`
+  }, [displayName, m.platform, draftContext, lastInbound])
+
+  const copyDraftBrief = async () => {
+    try {
+      await navigator.clipboard.writeText(draftContext)
+      setBriefCopied(true)
+      setTimeout(() => setBriefCopied(false), 1600)
+    } catch {
+      toast.error('Could not copy communication brief')
+    }
+  }
 
   // Send a PATCH with optimistic update. Returns true on success.
   const patch = useCallback(
@@ -319,6 +462,17 @@ export default function MatchProfileView({
         onCopyOpener={handleCopyOpener}
       />
 
+      <CommunicationCommandStrip
+        draftHref={draftHref}
+        onCopyBrief={copyDraftBrief}
+        briefCopied={briefCopied}
+        messageCount={conversation.length}
+        lastMessageLabel={lastMessage ? formatRelative(lastMessage.sent_at) : 'No messages'}
+        lastInboundLabel={lastInbound ? formatRelative(lastInbound.sent_at) : 'No inbound yet'}
+        lastSpeaker={lastMessage ? (lastMessage.is_from_me ? 'You' : 'Them') : 'None'}
+        hasInbound={!!lastInbound}
+      />
+
       {/* Tabs */}
       <div className="mb-6 border-b border-white/10 flex gap-1 overflow-x-auto">
         {TABS.map((t) => {
@@ -402,11 +556,14 @@ export default function MatchProfileView({
           prompts={prompts}
           intelInterests={intelInterests}
           intelTopics={intelTopics}
+          intelPromptText={intelPromptText}
+          intelProfilePrompts={intelProfilePrompts}
           intelGreen={intelGreen}
           intelRed={intelRed}
           spotifyArtists={spotifyArtists}
           dealbreakers={m.dealbreaker_flags ?? []}
           visionSummary={m.vision_summary}
+          rawIntel={m.match_intel ?? {}}
         />
       )}
 
@@ -590,36 +747,118 @@ export default function MatchProfileView({
   )
 }
 
+function CommunicationCommandStrip({
+  draftHref,
+  onCopyBrief,
+  briefCopied,
+  messageCount,
+  lastMessageLabel,
+  lastInboundLabel,
+  lastSpeaker,
+  hasInbound,
+}: {
+  draftHref: string
+  onCopyBrief: () => void
+  briefCopied: boolean
+  messageCount: number
+  lastMessageLabel: string
+  lastInboundLabel: string
+  lastSpeaker: string
+  hasInbound: boolean
+}) {
+  return (
+    <div className="mb-6 rounded-xl border border-white/10 bg-white/[0.04] p-4">
+      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+        <div>
+          <div className="text-[11px] uppercase tracking-wide text-white/40">
+            Communication state
+          </div>
+          <div className="mt-2 flex flex-wrap gap-2 text-xs">
+            <span className="rounded-full border border-white/10 bg-black/30 px-2.5 py-1 text-white/70">
+              {messageCount} messages
+            </span>
+            <span className="rounded-full border border-white/10 bg-black/30 px-2.5 py-1 text-white/70">
+              latest: {lastSpeaker} - {lastMessageLabel}
+            </span>
+            <span
+              className={`rounded-full border px-2.5 py-1 ${
+                hasInbound
+                  ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-300'
+                  : 'border-yellow-500/20 bg-yellow-500/10 text-yellow-300'
+              }`}
+            >
+              inbound: {lastInboundLabel}
+            </span>
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Link
+            href={draftHref}
+            className="rounded-lg bg-pink-600 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-pink-500"
+          >
+            Draft reply
+          </Link>
+          <button
+            type="button"
+            onClick={onCopyBrief}
+            className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-white/70 transition-colors hover:border-white/20 hover:text-white"
+          >
+            {briefCopied ? 'Copied brief' : 'Copy brief'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 /* --------------------------------- Intel Tab --------------------------------- */
 
 function IntelTab({
   prompts,
   intelInterests,
   intelTopics,
+  intelPromptText,
+  intelProfilePrompts,
   intelGreen,
   intelRed,
   spotifyArtists,
   dealbreakers,
   visionSummary,
+  rawIntel,
 }: {
   prompts: Prompt[]
   intelInterests: string[]
   intelTopics: string[]
+  intelPromptText: string
+  intelProfilePrompts: string[]
   intelGreen: string[]
   intelRed: string[]
   spotifyArtists: string[]
   dealbreakers: string[]
   visionSummary: string | null
+  rawIntel: MatchIntel
 }) {
+  const intelEntries = Object.entries(rawIntel)
+    .filter(([key, value]) => {
+      if (['notes', 'tags', 'interests', 'topics', 'prompt_themes', 'profile_prompts_observed', 'green_flags', 'red_flags', 'openers', 'opener_suggestions', 'spotify_artists'].includes(key)) return false
+      if (value == null || value === '') return false
+      if (Array.isArray(value) && value.length === 0) return false
+      if (typeof value === 'object' && !Array.isArray(value) && Object.keys(value as Record<string, unknown>).length === 0) return false
+      return true
+    })
+    .slice(0, 12)
   const hasAny =
     prompts.length > 0 ||
     intelInterests.length > 0 ||
     intelTopics.length > 0 ||
+    intelPromptText.trim().length > 0 ||
+    intelProfilePrompts.length > 0 ||
     intelGreen.length > 0 ||
     intelRed.length > 0 ||
     spotifyArtists.length > 0 ||
     dealbreakers.length > 0 ||
-    !!visionSummary
+    !!visionSummary ||
+    intelEntries.length > 0
 
   if (!hasAny) {
     return (
@@ -674,6 +913,23 @@ function IntelTab({
                 {t}
               </Chip>
             ))}
+          </div>
+        </Section>
+      )}
+
+      {(intelProfilePrompts.length > 0 || intelPromptText.trim()) && (
+        <Section title="Profile Copy">
+          <div className="space-y-2">
+            {intelProfilePrompts.map((line, i) => (
+              <div key={i} className="rounded-lg border border-white/10 bg-black/30 p-3 text-sm text-white/75">
+                {line}
+              </div>
+            ))}
+            {intelPromptText.trim() && (
+              <p className="rounded-lg border border-white/10 bg-black/30 p-3 text-sm text-white/70 whitespace-pre-wrap">
+                {intelPromptText}
+              </p>
+            )}
           </div>
         </Section>
       )}
@@ -740,6 +996,23 @@ function IntelTab({
           <p className="text-sm text-white/70 whitespace-pre-wrap">
             {visionSummary}
           </p>
+        </Section>
+      )}
+
+      {intelEntries.length > 0 && (
+        <Section title="Intel Snapshot">
+          <div className="grid grid-cols-1 gap-2">
+            {intelEntries.map(([key, value]) => (
+              <div key={key} className="rounded-lg border border-white/10 bg-black/30 p-3">
+                <div className="text-[11px] uppercase tracking-wide text-white/40">
+                  {key.replace(/_/g, ' ')}
+                </div>
+                <div className="mt-1 text-sm text-white/75 break-words">
+                  {formatIntelValue(value)}
+                </div>
+              </div>
+            ))}
+          </div>
         </Section>
       )}
     </div>
