@@ -46,6 +46,13 @@ type Suggestion = {
 }
 
 const PLATFORM_FILTERS = ['all', 'hinge', 'tinder', 'instagram'] as const
+const TIMESTAMP_FORMATTER = new Intl.DateTimeFormat('en-US', {
+  timeZone: 'UTC',
+  month: 'short',
+  day: 'numeric',
+  hour: 'numeric',
+  minute: '2-digit',
+})
 
 function platformLabel(platform: string) {
   if (platform === 'instagram') return 'Instagram'
@@ -65,12 +72,7 @@ function formatWhen(value: string | null) {
   if (!value) return 'No timestamp'
   const date = new Date(value)
   if (!Number.isFinite(date.getTime())) return 'No timestamp'
-  return date.toLocaleString(undefined, {
-    month: 'short',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-  })
+  return `${TIMESTAMP_FORMATTER.format(date)} UTC`
 }
 
 function draftContext(thread: CommunicationThread) {

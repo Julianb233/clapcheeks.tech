@@ -109,6 +109,21 @@ const ACTION_LABELS: Record<string, string> = {
   app_to_text: 'App → Text',
 }
 
+const DATE_TIME_FORMATTER = new Intl.DateTimeFormat('en-US', {
+  timeZone: 'UTC',
+  month: 'short',
+  day: 'numeric',
+  hour: 'numeric',
+  minute: '2-digit',
+})
+
+function formatDateTime(value: string | null | undefined) {
+  if (!value) return 'unknown'
+  const date = new Date(value)
+  if (!Number.isFinite(date.getTime())) return 'unknown'
+  return `${DATE_TIME_FORMATTER.format(date)} UTC`
+}
+
 // ---------------------------------------------------------------------------
 // Tab definitions
 // ---------------------------------------------------------------------------
@@ -309,8 +324,8 @@ export default function AutonomyDashboard({
               />
             </div>
             <div className="mt-5 rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-xs text-white/40">
-              Source: {config.source}. Last updated: {config.updated_at ? new Date(config.updated_at).toLocaleString() : 'unknown'}.
-              {config.ai_paused_until ? ` Paused until: ${new Date(config.ai_paused_until).toLocaleString()}.` : ''}
+              Source: {config.source}. Last updated: {formatDateTime(config.updated_at)}.
+              {config.ai_paused_until ? ` Paused until: ${formatDateTime(config.ai_paused_until)}.` : ''}
             </div>
           </div>
 
@@ -372,7 +387,7 @@ export default function AutonomyDashboard({
                           {item.confidence}% confidence
                         </span>
                       )}
-                      <span>{new Date(item.created_at).toLocaleString()}</span>
+                      <span>{formatDateTime(item.created_at)}</span>
                     </div>
                   </div>
 
@@ -448,7 +463,7 @@ export default function AutonomyDashboard({
                           </span>
                         </td>
                         <td className="p-3 text-xs text-white/40">
-                          {new Date(action.created_at).toLocaleString()}
+                          {formatDateTime(action.created_at)}
                         </td>
                       </tr>
                     ))}
