@@ -531,7 +531,9 @@ class ConvexQueryBuilder {
         const result = await convexMutation<any>("matches:patch", { id, ...values })
         const resultError = convexReturnedError(result)
         if (resultError) return errorResult(resultError, "CONVEX_MUTATION_ERROR")
-        return okResult(result || { id, ...values })
+        const rows = await liveMatchRows(500)
+        const updated = rows.find((row) => String(row.id || row._id) === String(id))
+        return okResult(updated || result || { id, ...values })
       }
 
       if (kind === "update" && mapped === "clapcheeks_leads") {

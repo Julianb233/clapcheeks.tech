@@ -170,7 +170,7 @@ Style details: ${JSON.stringify(voiceProfile.profile_data || {})}`
       }`
     : ''
 
-  const fallbackReplies = buildFallbackReplies(conversationContext, matchName, platform)
+  const fallbackReplies = buildFallbackReplies(conversationContext, matchName, platform, profileContext)
 
   if (!anthropicApiKey) {
     await storeReplySuggestions(convex, userId, conversationContext, fallbackReplies)
@@ -288,27 +288,59 @@ function latestInboundLine(conversationContext: string) {
 function buildFallbackReplies(
   conversationContext: string,
   matchName: string,
-  platform: string
+  platform: string,
+  profileContext?: unknown
 ): ReplySuggestion[] {
   const inbound = latestInboundLine(conversationContext)
-  const hook = inbound
-    ? inbound.replace(/[^\w\s?']/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 70)
-    : `${matchName} on ${platform}`
+  const inboundLower = inbound.toLowerCase()
+  const profileText =
+    typeof profileContext === 'string'
+      ? profileContext
+      : profileContext
+        ? JSON.stringify(profileContext)
+        : ''
+  const combined = `${inboundLower} ${profileText.toLowerCase()} ${platform.toLowerCase()}`
+
+  let specificQuestion = 'what was the best part?'
+  let warmReply = 'okay that sounds fun'
+  let directReply = 'we should compare notes over drinks this week'
+
+  if (/(hike|hiking|trail|joshua tree|desert)/i.test(combined)) {
+    specificQuestion = 'what was the best part of the hike?'
+    warmReply = 'that sounds sick'
+    directReply = 'we should compare hike stories over drinks this week'
+  } else if (/(food|restaurant|dinner|cook|cooking|taco|sushi|coffee)/i.test(combined)) {
+    specificQuestion = 'what spot should i try first?'
+    warmReply = 'okay your taste sounds dangerous'
+    directReply = 'we should compare food takes over drinks this week'
+  } else if (/(music|concert|show|song|playlist|dj)/i.test(combined)) {
+    specificQuestion = 'what song is on repeat right now?'
+    warmReply = 'okay i respect the music taste'
+    directReply = 'we should trade playlists over drinks this week'
+  } else if (/(dog|cat|puppy|pet)/i.test(combined)) {
+    specificQuestion = 'what is their name?'
+    warmReply = 'that is very cute'
+    directReply = 'i need the pet lore over drinks this week'
+  } else if (inbound) {
+    const clean = inbound.replace(/[^\w\s?']/g, ' ').replace(/\s+/g, ' ').trim()
+    if (clean.length <= 36) warmReply = `okay ${clean.toLowerCase()} is funny`
+  }
+
   const raw: ReplySuggestion[] = [
     {
-      text: `haha okay ${hook ? `tell me more about ${hook.toLowerCase()}` : 'tell me more'}`,
+      text: specificQuestion,
       tone: 'witty',
-      reasoning: 'Local fallback keeps the thread moving when the model provider is unavailable.',
+      reasoning: 'Local fallback asks one specific, short follow up in Julian voice.',
       confidence: 0.62,
     },
     {
-      text: `i like that. what got you into it?`,
+      text: warmReply,
       tone: 'warm',
-      reasoning: 'A short follow up invites more detail without overcommitting.',
+      reasoning: 'Short warm acknowledgement without overcommitting.',
       confidence: 0.68,
     },
     {
-      text: `that sounds fun. we should compare notes over drinks this week`,
+      text: directReply,
       tone: 'direct',
       reasoning: 'Direct option moves toward a date while staying casual.',
       confidence: 0.64,

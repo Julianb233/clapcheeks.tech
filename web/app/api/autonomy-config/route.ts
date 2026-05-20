@@ -5,7 +5,7 @@ import {
 } from '@/lib/clapcheeks/user-settings'
 import * as Sentry from '@sentry/nextjs'
 
-const VALID_AUTONOMY_LEVELS = new Set(['supervised', 'semi_auto', 'full_auto'])
+const VALID_AUTONOMY_LEVELS = new Set(['supervised', 'semi_auto', 'full_auto', 'custom'])
 
 function levelPatch(level: string): Record<string, boolean> {
   if (level === 'supervised') {
@@ -123,7 +123,14 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: 'Body must be an object' }, { status: 400 })
     }
 
-    const updates = normalizePayload(body as Record<string, unknown>)
+    const rawBody = body as Record<string, unknown>
+    const configBody =
+      rawBody.config && typeof rawBody.config === 'object' && !Array.isArray(rawBody.config)
+        ? { ...(rawBody.config as Record<string, unknown>), ...rawBody }
+        : rawBody
+    delete (configBody as Record<string, unknown>).config
+
+    const updates = normalizePayload(configBody)
 
     if (Object.keys(updates).length === 0) {
       return NextResponse.json({ error: 'No persisted runtime fields provided' }, { status: 400 })

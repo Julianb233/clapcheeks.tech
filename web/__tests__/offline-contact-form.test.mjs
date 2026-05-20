@@ -86,3 +86,10 @@ test('offline route stores handoff details in Convex match_intel', () => {
   assert.match(offlineRouteSource, /met_at: metAt/)
   assert.match(offlineRouteSource, /first_impression: firstImpression/)
 })
+
+test('Convex match patch facade returns the refreshed row for dashboard edits', () => {
+  const compat = readFileSync(join(__dirname, '../lib/convex/compat-client.ts'), 'utf8')
+  assert.match(compat, /const rows = await liveMatchRows\(500\)/)
+  assert.match(compat, /const updated = rows\.find/)
+  assert.match(compat, /return okResult\(updated \|\| result/)
+})

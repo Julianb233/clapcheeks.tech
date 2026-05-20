@@ -57,3 +57,9 @@ test('autonomy dashboard writes real runtime approval settings instead of dead c
   assert.match(files.autonomyDashboard, /aria-label=\{label\}/)
   assert.match(files.autonomyDashboard, /aria-pressed=\{enabled\}/)
 })
+
+test('autonomy config accepts the returned config wrapper and custom level round trip', () => {
+  assert.match(files.autonomyRoute, /rawBody\.config/)
+  assert.match(files.autonomyRoute, /delete \(configBody as Record<string, unknown>\)\.config/)
+  assert.match(files.autonomyRoute, /'custom'/)
+})
