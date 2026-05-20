@@ -143,6 +143,13 @@ const liveEvidenceMatchesPreflight = Boolean(
 const browserScreenshots = Array.isArray(browser?.screenshots)
   ? browser.screenshots.map((path) => fileInfo(path))
   : []
+const productionCctScreenshotPaths = Array.isArray(productionCct?.screenshots)
+  ? productionCct.screenshots
+  : Array.isArray(productionCct?.pages)
+    ? productionCct.pages.filter((page) => page?.screenshotPath).map((page) => page.screenshotPath)
+    : []
+const productionCctScreenshots = productionCctScreenshotPaths.map((path) => fileInfo(path))
+const allVisualScreenshots = [...browserScreenshots, ...productionCctScreenshots]
 const mobileMetrics = browser?.checks?.mobile_metrics && typeof browser.checks.mobile_metrics === 'object'
   ? browser.checks.mobile_metrics
   : {}
@@ -311,6 +318,10 @@ const index = {
     device_control_current_blocker: browser?.checks?.device_control_status?.current_blocker || null,
     browser_screenshot_count: browserScreenshots.length,
     browser_screenshots_all_present: browserScreenshots.length > 0 && browserScreenshots.every((item) => item.exists === true && Number(item.bytes || 0) > 0),
+    production_cct_screenshot_count: productionCctScreenshots.length,
+    production_cct_screenshots_all_present: productionCctScreenshots.length > 0 && productionCctScreenshots.every((item) => item.exists === true && Number(item.bytes || 0) > 0),
+    visual_screenshot_count: allVisualScreenshots.length,
+    visual_screenshots_all_present: allVisualScreenshots.length > 0 && allVisualScreenshots.every((item) => item.exists === true && Number(item.bytes || 0) > 0),
     mobile_metric_count: mobileMetricEntries.length,
     mobile_metrics_overflow_free: mobileMetricOverflowFree,
     scheduled_ui_matches_api: browser?.checks?.scheduled_ui_matches_api === true,
@@ -344,6 +355,16 @@ const index = {
       all_present: browserScreenshots.length > 0 && browserScreenshots.every((item) => item.exists === true && Number(item.bytes || 0) > 0),
       count: browserScreenshots.length,
       files: browserScreenshots,
+    },
+    production_cct_screenshots: {
+      all_present: productionCctScreenshots.length > 0 && productionCctScreenshots.every((item) => item.exists === true && Number(item.bytes || 0) > 0),
+      count: productionCctScreenshots.length,
+      files: productionCctScreenshots,
+    },
+    visual_screenshots: {
+      all_present: allVisualScreenshots.length > 0 && allVisualScreenshots.every((item) => item.exists === true && Number(item.bytes || 0) > 0),
+      count: allVisualScreenshots.length,
+      files: allVisualScreenshots,
     },
     mobile_metrics: {
       overflow_free: mobileMetricOverflowFree,
@@ -471,9 +492,7 @@ const index = {
         patchStatus: productionCct.fixture.patchStatus ?? null,
         archiveStatus: productionCct.fixture.archiveStatus ?? null,
       } : null,
-      screenshots: Array.isArray(productionCct.pages)
-        ? productionCct.pages.filter((page) => page.screenshotPath).map((page) => page.screenshotPath)
-        : [],
+      screenshots: productionCctScreenshotPaths,
       failed_checks: Array.isArray(productionCct.checks)
         ? productionCct.checks.filter((check) => check.pass !== true).map((check) => check.name)
         : [],

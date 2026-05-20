@@ -370,9 +370,12 @@ const status = {
     evidence_index_generated_at: evidenceIndex?.generated_at || null,
     evidence_index_age_seconds: ageSeconds(evidenceIndex?.generated_at),
     artifacts: evidenceIndex?.artifacts || {},
-    screenshot_count: evidenceIndex?.summary?.browser_screenshot_count ?? null,
-    screenshots_all_present: evidenceIndex?.summary?.browser_screenshots_all_present === true,
-    screenshots: evidenceIndex?.evidence_highlights?.browser_screenshots?.files || [],
+    screenshot_count: evidenceIndex?.summary?.visual_screenshot_count ?? evidenceIndex?.summary?.browser_screenshot_count ?? null,
+    screenshots_all_present: evidenceIndex?.summary?.visual_screenshots_all_present === true ||
+      evidenceIndex?.summary?.browser_screenshots_all_present === true,
+    screenshots: evidenceIndex?.evidence_highlights?.visual_screenshots?.files ||
+      evidenceIndex?.evidence_highlights?.browser_screenshots?.files ||
+      [],
     dashboard_navigation_integrity: evidenceIndex?.summary?.dashboard_navigation_integrity === true,
     dashboard_navigation: evidenceIndex?.evidence_highlights?.browser?.dashboard_navigation || null,
     dashboard_health_blockers_quick_view: evidenceIndex?.summary?.dashboard_health_blockers_quick_view === true,

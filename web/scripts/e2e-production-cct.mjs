@@ -446,6 +446,7 @@ async function main() {
       if (key === 'analytics') summary = response.body?.totals || response.body
       return [key, { status: response.status, ok: response.ok, summary }]
     }))
+    const screenshots = pages.filter((page) => page.screenshotPath).map((page) => page.screenshotPath)
 
     const report = {
       ts,
@@ -453,6 +454,7 @@ async function main() {
       baseUrl,
       chromeDebugUrl,
       pages,
+      screenshots,
       linkChecks,
       apis: apiSummary,
       inventory,
@@ -484,7 +486,7 @@ async function main() {
         patchStatus: fixture.patchStatus,
         archiveStatus: fixture.archiveStatus,
       },
-      screenshots: pages.filter((page) => page.screenshotPath).map((page) => page.screenshotPath),
+      screenshots,
     }
     console.log(JSON.stringify(summary, null, 2))
     if (report.passed !== report.total) process.exitCode = 1
