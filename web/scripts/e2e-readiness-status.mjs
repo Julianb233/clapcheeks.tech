@@ -15,6 +15,7 @@ const evidenceIndexPath = process.env.CLAPCHEEKS_EVIDENCE_INDEX || '/tmp/clapche
 const approvalPacketPath = process.env.CLAPCHEEKS_LIVE_SEND_APPROVAL_PACKET || '/tmp/clapcheeks-live-send-approval-packet-2026-05-18.json'
 const approvalPacketMarkdownPath = process.env.CLAPCHEEKS_LIVE_SEND_APPROVAL_PACKET_MD || '/tmp/clapcheeks-live-send-approval-packet-2026-05-18.md'
 const productionCctPath = process.env.CLAPCHEEKS_PRODUCTION_CCT_LATEST || '/tmp/clapcheeks-production-cct-latest.json'
+const physicalDeviceAuditPath = process.env.CLAPCHEEKS_PHYSICAL_DEVICE_AUDIT || `${process.env.HOME || ''}/.clapcheeks-local/device-control/proof-runs/latest-completion-audit.json`
 const runbookPath = 'docs/e2e-live-send-runbook.md'
 const sampleRawPhone = '+17578312944'
 const sampleRawBody = 'Safe ClapCheeks no-send preflight for 757 sample. Do not reply.'
@@ -42,6 +43,7 @@ const backendDoctor = load(backendDoctorPath)
 const evidenceIndex = load(evidenceIndexPath)
 const approvalPacket = load(approvalPacketPath)
 const productionCct = load(productionCctPath)
+const physicalDeviceAudit = load(physicalDeviceAuditPath)
 const approvalPacketMarkdownRaw = existsSync(approvalPacketMarkdownPath) ? readFileSync(approvalPacketMarkdownPath, 'utf8') : ''
 const requirements = Array.isArray(audit?.requirements) ? audit.requirements : []
 const proved = requirements.filter((item) => item.status === 'proved')
@@ -119,6 +121,10 @@ function finalGateSummary() {
 
 function nextRequiredAction() {
   if (audit?.complete === true) return 'Goal can be marked complete after final evidence is reviewed.'
+  if (physicalDeviceAudit?.completion_audit && physicalDeviceAudit.completion_audit !== 'passed') {
+    const blockers = Array.isArray(physicalDeviceAudit.blockers) ? physicalDeviceAudit.blockers.join(', ') : 'physical iOS proof unavailable'
+    return `Clear physical sender iPhone readiness before live completion: ${blockers}. Run ${physicalDeviceAudit.readiness_command || 'cd ~/clapcheeks-local && scripts/prepare-device-control-readiness.sh 2'} after unlocking the secondary iPhone, connecting USB, trusting this computer, and enabling Developer Mode.`
+  }
   const runtimeInboundMissing = unproved.some((item) => item.name === 'runtime inbound source of truth is reachable in no-send mode')
   if (runtimeInboundMissing || inboundRepair?.launchd_ready === false || runtimeSmoke?.inbound_watcher_ok === false) {
     const blocker = inboundRepair?.remaining_blocker ||
@@ -181,6 +187,16 @@ const status = {
     failed_checks: Array.isArray(productionCct?.checks)
       ? productionCct.checks.filter((check) => check.pass !== true).map((check) => check.name)
       : [],
+  },
+  physical_device_audit: {
+    evidence_path: physicalDeviceAuditPath,
+    status: physicalDeviceAudit?.completion_audit || null,
+    audit_log: physicalDeviceAudit?.audit_log || null,
+    failed_checks: Array.isArray(physicalDeviceAudit?.failed_checks) ? physicalDeviceAudit.failed_checks : [],
+    blockers: Array.isArray(physicalDeviceAudit?.blockers) ? physicalDeviceAudit.blockers : [],
+    transport_visibility: physicalDeviceAudit?.transport_visibility || null,
+    readiness_command: physicalDeviceAudit?.readiness_command || 'cd ~/clapcheeks-local && scripts/prepare-device-control-readiness.sh 2',
+    physical_png_required: physicalDeviceAudit?.physical_png_required === true,
   },
   live_preflight: {
     evidence_path: livePreflightPath,
@@ -457,6 +473,7 @@ console.log(`Inbound repair harness: ok=${status.inbound_repair.ok} launchd_read
 console.log(`Inbound repair TCC: python_authorized=${status.inbound_repair.tcc_python_authorized} denied_or_off=${status.inbound_repair.tcc_python_denied_or_off} rows=${status.inbound_repair.tcc_python_row_count ?? 'n/a'} real_python=${status.inbound_repair.real_python ?? 'n/a'}`)
 console.log(`Live evidence: ${liveEvidencePath}`)
 console.log(`Production CCT: ok=${status.production_cct.ok} checks=${status.production_cct.passed ?? 'n/a'}/${status.production_cct.total ?? 'n/a'} profiles=${status.production_cct.inventory?.total ?? 'n/a'} hinge_images=${status.production_cct.inventory?.hingeWithImages ?? 'n/a'}/${status.production_cct.inventory?.hinge ?? 'n/a'} generic=${status.production_cct.inventory?.genericNames ?? 'n/a'} no_send=${status.production_cct.no_live_outbound_send_performed}`)
+console.log(`Physical device audit: status=${status.physical_device_audit.status ?? 'n/a'} blockers=${status.physical_device_audit.blockers.join(',') || 'none'} transport=${status.physical_device_audit.transport_visibility?.summary ?? 'n/a'}`)
 console.log(`Runbook: ${runbookPath}`)
 console.log(`Next: ${status.next_required_action}`)
 console.log('')

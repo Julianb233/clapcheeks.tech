@@ -19,6 +19,7 @@ const paths = {
   approval_packet: process.env.CLAPCHEEKS_LIVE_SEND_APPROVAL_PACKET || '/tmp/clapcheeks-live-send-approval-packet-2026-05-18.json',
   approval_packet_markdown: process.env.CLAPCHEEKS_LIVE_SEND_APPROVAL_PACKET_MD || '/tmp/clapcheeks-live-send-approval-packet-2026-05-18.md',
   production_cct: process.env.CLAPCHEEKS_PRODUCTION_CCT_LATEST || '/tmp/clapcheeks-production-cct-latest.json',
+  physical_device_audit: process.env.CLAPCHEEKS_PHYSICAL_DEVICE_AUDIT || `${process.env.HOME || ''}/.clapcheeks-local/device-control/proof-runs/latest-completion-audit.json`,
   completion: process.env.CLAPCHEEKS_COMPLETION_AUDIT || '/tmp/clapcheeks-completion-audit-2026-05-18.json',
   runbook: 'docs/e2e-live-send-runbook.md',
   audit_doc: 'docs/e2e-readiness-audit-2026-05-18.md',
@@ -62,6 +63,7 @@ const sampleLivePreflight = loadJson(paths.sample_live_preflight)
 const liveSendRehearsal = loadJson(paths.live_send_rehearsal)
 const approvalPacket = loadJson(paths.approval_packet)
 const productionCct = loadJson(paths.production_cct)
+const physicalDeviceAudit = loadJson(paths.physical_device_audit)
 const sampleLivePreflightRaw = existsSync(paths.sample_live_preflight) ? readFileSync(paths.sample_live_preflight, 'utf8') : ''
 const approvalPacketMarkdownRaw = existsSync(paths.approval_packet_markdown) ? readFileSync(paths.approval_packet_markdown, 'utf8') : ''
 const sampleLivePreflightRawPhoneAbsent = !sampleLivePreflightRaw.includes(sampleRawPhone)
@@ -144,6 +146,7 @@ const requiredFreshArtifactKeys = [
   'approval_packet',
   'approval_packet_markdown',
   'production_cct',
+  'physical_device_audit',
   'completion',
 ]
 const requiredFreshArtifacts = [
@@ -264,6 +267,14 @@ const index = {
     production_cct_generic_names: productionCct?.inventory?.genericNames ?? null,
     production_cct_fixture_archived: productionCct?.fixture?.archiveStatus === 200,
     production_cct_report_path: productionCct?.outDir ? `${productionCct.outDir}/report.json` : paths.production_cct,
+    physical_device_audit_complete: physicalDeviceAudit?.completion_audit === 'passed',
+    physical_device_audit_status: physicalDeviceAudit?.completion_audit || null,
+    physical_device_audit_log: physicalDeviceAudit?.audit_log || null,
+    physical_device_blockers: Array.isArray(physicalDeviceAudit?.blockers) ? physicalDeviceAudit.blockers : [],
+    physical_device_transport_summary: physicalDeviceAudit?.transport_visibility?.summary || null,
+    physical_device_ios_deploy_visible: physicalDeviceAudit?.transport_visibility?.ios_deploy_bound_udid_visible ?? null,
+    physical_device_pairing_ready: physicalDeviceAudit?.transport_visibility?.pairing_record_for_bound_udid ?? null,
+    physical_device_coredevice_visible: physicalDeviceAudit?.transport_visibility?.coredevice_bound_udid_visible ?? null,
     dashboard_navigation_integrity: browser?.checks?.dashboard_navigation_integrity === true,
     dashboard_health_blockers_quick_view: browser?.checks?.dashboard_health_blockers_quick_view === true,
     dashboard_health_blockers_expected: browser?.checks?.dashboard_health_blockers?.expected_blockers || [],
@@ -447,6 +458,16 @@ const index = {
         ? productionCct.checks.filter((check) => check.pass !== true).map((check) => check.name)
         : [],
     } : null,
+    physical_device_audit: physicalDeviceAudit ? {
+      evidence_path: paths.physical_device_audit,
+      status: physicalDeviceAudit.completion_audit || null,
+      audit_log: physicalDeviceAudit.audit_log || null,
+      failed_checks: Array.isArray(physicalDeviceAudit.failed_checks) ? physicalDeviceAudit.failed_checks : [],
+      blockers: Array.isArray(physicalDeviceAudit.blockers) ? physicalDeviceAudit.blockers : [],
+      transport_visibility: physicalDeviceAudit.transport_visibility || null,
+      readiness_command: physicalDeviceAudit.readiness_command || null,
+      physical_png_required: physicalDeviceAudit.physical_png_required === true,
+    } : null,
     live_preflight: livePreflight ? {
       ok_to_run_live_harness: livePreflight.ok_to_run_live_harness === true,
       no_send_performed: livePreflight.no_send_performed === true,
@@ -566,6 +587,9 @@ if (index.evidence_highlights.mobile_metrics) {
 }
 if (index.evidence_highlights.production_cct) {
   console.log(`Production CCT: ok=${index.evidence_highlights.production_cct.ok} checks=${index.evidence_highlights.production_cct.passed}/${index.evidence_highlights.production_cct.total} profiles=${index.evidence_highlights.production_cct.inventory?.total ?? 'n/a'} hinge_images=${index.evidence_highlights.production_cct.inventory?.hingeWithImages ?? 'n/a'}/${index.evidence_highlights.production_cct.inventory?.hinge ?? 'n/a'} generic=${index.evidence_highlights.production_cct.inventory?.genericNames ?? 'n/a'} no_send=${index.evidence_highlights.production_cct.no_live_outbound_send_performed}`)
+}
+if (index.evidence_highlights.physical_device_audit) {
+  console.log(`Physical device audit: status=${index.evidence_highlights.physical_device_audit.status ?? 'n/a'} blockers=${index.evidence_highlights.physical_device_audit.blockers.join(',') || 'none'} transport=${index.evidence_highlights.physical_device_audit.transport_visibility?.summary ?? 'n/a'}`)
 }
 if (index.evidence_highlights.scheduled_live_preflight_gate) {
   console.log(`Scheduled live gate: blocked_by_preflight=${index.evidence_highlights.scheduled_live_preflight_gate.ok} no_send=${index.evidence_highlights.scheduled_live_preflight_gate.no_send_performed} missing=${index.evidence_highlights.scheduled_live_preflight_gate.missing.length}`)
