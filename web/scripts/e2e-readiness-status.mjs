@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 
 import { existsSync, readFileSync } from 'node:fs'
+import { spawnSync } from 'node:child_process'
+import { fileURLToPath } from 'node:url'
 
 const auditPath = process.env.CLAPCHEEKS_COMPLETION_AUDIT || '/tmp/clapcheeks-completion-audit-2026-05-18.json'
 const safeEvidencePath = process.env.CLAPCHEEKS_E2E_EVIDENCE || '/tmp/clapcheeks-safe-e2e-readiness.json'
@@ -21,6 +23,16 @@ const sampleRawPhone = '+17578312944'
 const sampleRawBody = 'Safe ClapCheeks no-send preflight for 757 sample. Do not reply.'
 const sampleOverridePhrase = 'I CONFIRM 757-831-2944 IS THE LIVE DESTINATION'
 
+function refreshEvidenceIndex() {
+  if (process.env.CLAPCHEEKS_SKIP_EVIDENCE_INDEX_REFRESH === '1') return
+
+  const evidenceIndexScript = fileURLToPath(new URL('./e2e-evidence-index.mjs', import.meta.url))
+  spawnSync(process.execPath, [evidenceIndexScript], {
+    env: process.env,
+    stdio: 'ignore',
+  })
+}
+
 function load(path) {
   if (!existsSync(path)) return { missing: true, path }
   try {
@@ -29,6 +41,8 @@ function load(path) {
     return { parse_error: error instanceof Error ? error.message : String(error), path }
   }
 }
+
+refreshEvidenceIndex()
 
 const audit = load(auditPath)
 const safe = load(safeEvidencePath)
