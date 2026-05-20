@@ -149,7 +149,15 @@ function readPhysicalIOSLiveActionGate() {
 }
 
 const LATEST_COMPLETION_AUDIT_PATH = `${homedir()}/.clapcheeks-local/device-control/proof-runs/latest-completion-audit.json`
+const LATEST_TRANSPORT_DIAGNOSTICS_PATH = `${homedir()}/.clapcheeks-local/device-control/proof-runs/latest-transport-diagnostics.json`
 const INBOUND_REPAIR_EVIDENCE_PATH = process.env.CLAPCHEEKS_INBOUND_REPAIR_EVIDENCE || '/tmp/clapcheeks-inbound-watcher-fda-repair-2026-05-18.json'
+const TRANSPORT_BLOCKERS = new Set([
+  'usbmux_no_bound_udid',
+  'ios_deploy_no_bound_udid',
+  'pairing_record_missing_for_bound_udid',
+  'coredevice_no_bound_udid',
+  'coredevice_list_failed',
+])
 
 type LatestCompletionAudit = {
   status: 'missing' | 'unreadable' | 'passed' | 'failed'
@@ -170,6 +178,14 @@ type LatestCompletionAudit = {
   source?: 'local_file' | 'convex_telemetry' | 'missing'
   telemetry_event_id?: string | null
   telemetry_occurred_at?: number | null
+  error?: string
+}
+
+type LatestTransportDiagnostics = {
+  status: 'missing' | 'unreadable' | 'loaded'
+  path: string
+  blockers?: string[]
+  transport_visibility?: Record<string, unknown> | null
   error?: string
 }
 
@@ -226,6 +242,27 @@ function readLatestCompletionAudit(): LatestCompletionAudit {
   }
 }
 
+function readLatestTransportDiagnostics(): LatestTransportDiagnostics {
+  try {
+    if (!existsSync(LATEST_TRANSPORT_DIAGNOSTICS_PATH)) {
+      return { status: 'missing', path: LATEST_TRANSPORT_DIAGNOSTICS_PATH }
+    }
+    const parsed = JSON.parse(readFileSync(LATEST_TRANSPORT_DIAGNOSTICS_PATH, 'utf8'))
+    return {
+      status: 'loaded',
+      path: LATEST_TRANSPORT_DIAGNOSTICS_PATH,
+      blockers: cleanStringArray(parsed.blockers),
+      transport_visibility: cleanObject(parsed),
+    }
+  } catch (error) {
+    return {
+      status: 'unreadable',
+      path: LATEST_TRANSPORT_DIAGNOSTICS_PATH,
+      error: error instanceof Error ? error.message : String(error),
+    }
+  }
+}
+
 function defaultTelemetryUserId() {
   return process.env.CONVEX_FLEET_USER_ID || 'fleet-julian'
 }
@@ -275,9 +312,21 @@ async function latestCompletionAuditForUser(userId: string): Promise<LatestCompl
   return await readLatestCompletionAuditFromTelemetry(userId) || local
 }
 
-function latestPhysicalIOSBlockers(latestAudit: LatestCompletionAudit) {
-  if (Array.isArray(latestAudit.blockers) && latestAudit.blockers.length > 0) {
-    return latestAudit.blockers
+function latestPhysicalIOSBlockers(latestAudit: LatestCompletionAudit, latestTransport: LatestTransportDiagnostics) {
+  const auditBlockers = Array.isArray(latestAudit.blockers) ? latestAudit.blockers : []
+  const transportBlockers = latestTransport.status === 'loaded' && Array.isArray(latestTransport.blockers)
+    ? latestTransport.blockers
+    : []
+  const effectiveBlockers = [
+    ...new Set([
+      ...(transportBlockers.length > 0
+        ? auditBlockers.filter((blocker) => !TRANSPORT_BLOCKERS.has(blocker))
+        : auditBlockers),
+      ...transportBlockers,
+    ]),
+  ]
+  if (effectiveBlockers.length > 0) {
+    return effectiveBlockers
   }
   return FALLBACK_PHYSICAL_IOS_BLOCKERS
 }
@@ -339,15 +388,22 @@ export async function GET() {
   ])
   const runtimeHealth = getRuntimeHealth()
   const localLatestCompletionAudit = readLatestCompletionAudit()
+  const latestTransportDiagnostics = readLatestTransportDiagnostics()
   const latestCompletionAudit = await latestCompletionAuditForUser(user.id)
-  const physicalIOSBlockers = latestPhysicalIOSBlockers(latestCompletionAudit)
+  const transportVisibility = latestTransportDiagnostics.transport_visibility || latestCompletionAudit.transport_visibility
+  const physicalIOSBlockers = latestPhysicalIOSBlockers(latestCompletionAudit, latestTransportDiagnostics)
+  const effectiveLatestCompletionAudit = {
+    ...latestCompletionAudit,
+    blockers: physicalIOSBlockers,
+    transport_visibility: transportVisibility,
+  }
   const inboundBlocker = inboundHealth.blocker || (
     inboundHealth.ok ? null : 'inbound_watcher_not_ready'
   )
 
   return NextResponse.json({
     mode: 'observe_only_until_physical_iphone_screenshot_verified',
-    transport_visibility: latestCompletionAudit.transport_visibility,
+    transport_visibility: transportVisibility,
     safety: {
       personal_line_blocked: true,
       live_swipes_require_approval: true,
@@ -380,12 +436,15 @@ export async function GET() {
       screenshot_probe: 'capture.physical_ios_screenshot',
       current_blocker: currentPhysicalIOSBlocker(latestCompletionAudit, physicalIOSBlockers),
       latest_known_blockers: physicalIOSBlockers,
-      latest_blockers_source: latestCompletionAudit.source === 'convex_telemetry'
+      latest_blockers_source: latestTransportDiagnostics.status === 'loaded'
+        ? 'latest_transport_diagnostics_json'
+        : latestCompletionAudit.source === 'convex_telemetry'
         ? 'convex_telemetry'
         : latestCompletionAudit.status === 'missing' || latestCompletionAudit.status === 'unreadable'
         ? 'fallback_static_blockers'
         : 'latest_completion_audit_json',
-      transport_visibility: latestCompletionAudit.transport_visibility,
+      transport_visibility: transportVisibility,
+      latest_transport_diagnostics: latestTransportDiagnostics,
       local_latest_audit_status: localLatestCompletionAudit.status,
       next_step: 'Unlock and keep the iPhone nearby/on-network, then run the readiness command to clear transport visibility, Developer Mode, CoreDevice visibility, and physical PNG proof.',
     },
@@ -451,7 +510,9 @@ export async function GET() {
     },
     completion_audit: {
       ...COMPLETION_AUDIT,
-      latest_result: latestCompletionAudit,
+      latest_result: effectiveLatestCompletionAudit,
+      latest_transport_diagnostics_path: LATEST_TRANSPORT_DIAGNOSTICS_PATH,
+      latest_transport_diagnostics: latestTransportDiagnostics,
     },
   })
 }

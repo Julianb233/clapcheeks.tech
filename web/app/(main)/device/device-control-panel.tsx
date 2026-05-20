@@ -329,6 +329,8 @@ export function DeviceControlPanel() {
                 <div className="mt-1 break-words text-[11px] text-white/35">
                   Blockers: {status?.physical_ios?.latest_blockers_source === "convex_telemetry"
                     ? "Convex telemetry"
+                    : status?.physical_ios?.latest_blockers_source === "latest_transport_diagnostics_json"
+                      ? "latest transport diagnostics"
                     : status?.physical_ios?.latest_blockers_source === "latest_completion_audit_json"
                       ? "latest audit JSON"
                       : "fallback readiness map"}
