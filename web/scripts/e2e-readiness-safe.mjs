@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 
 const base = process.env.CLAPCHEEKS_E2E_BASE_URL || 'http://127.0.0.1:3002'
+const chromeDebugUrl = (process.env.CLAPCHEEKS_CCT_DEBUG_URL || 'http://127.0.0.1:9223').replace(/\/$/, '')
+const useCct = process.env.CLAPCHEEKS_SAFE_E2E_USE_CCT === '1' || /^https:\/\/clapcheeks\.tech\b/.test(base)
 const samplePhone = process.env.CLAPCHEEKS_E2E_SAMPLE_PHONE || '+17578312944'
 const sampleLast4 = samplePhone.replace(/\D/g, '').slice(-4)
 const sampleTail10 = samplePhone.replace(/\D/g, '').slice(-10)
@@ -32,7 +34,110 @@ function record(name, ok, detail = {}) {
   console.log(`${status} ${name}${detail.summary ? ` -- ${detail.summary}` : ''}`)
 }
 
+async function fetchJson(url) {
+  const response = await fetch(url)
+  const text = await response.text()
+  try {
+    return JSON.parse(text)
+  } catch {
+    throw new Error(`Expected JSON from ${url}; got status ${response.status}`)
+  }
+}
+
+class CdpClient {
+  constructor(wsUrl) {
+    this.ws = new WebSocket(wsUrl)
+    this.nextId = 0
+    this.pending = new Map()
+    this.ws.addEventListener('message', (event) => {
+      const message = JSON.parse(event.data)
+      if (!message.id || !this.pending.has(message.id)) return
+      const { resolve, reject } = this.pending.get(message.id)
+      this.pending.delete(message.id)
+      if (message.error) reject(new Error(JSON.stringify(message.error)))
+      else resolve(message.result)
+    })
+  }
+
+  async open() {
+    await new Promise((resolve, reject) => {
+      this.ws.addEventListener('open', resolve, { once: true })
+      this.ws.addEventListener('error', reject, { once: true })
+    })
+  }
+
+  send(method, params = {}) {
+    return new Promise((resolve, reject) => {
+      const id = ++this.nextId
+      this.pending.set(id, { resolve, reject })
+      this.ws.send(JSON.stringify({ id, method, params }))
+    })
+  }
+
+  close() {
+    this.ws.close()
+  }
+}
+
+async function getCctTab() {
+  const tabs = await fetchJson(`${chromeDebugUrl}/json`)
+  const existing = Array.isArray(tabs) ? tabs.find((tab) => String(tab.url || '').startsWith(base)) : null
+  if (existing?.webSocketDebuggerUrl) return existing
+  return fetchJson(`${chromeDebugUrl}/json/new?${base}/dashboard`)
+}
+
+let cctClient = null
+let cctClientPromise = null
+
+async function getCctClient() {
+  if (cctClient) return cctClient
+  if (cctClientPromise) return cctClientPromise
+  cctClientPromise = (async () => {
+    const tab = await getCctTab()
+    if (!tab.webSocketDebuggerUrl) throw new Error(`CCT tab did not expose a debugger URL from ${chromeDebugUrl}`)
+    cctClient = new CdpClient(tab.webSocketDebuggerUrl)
+    await cctClient.open()
+    await cctClient.send('Runtime.enable')
+    return cctClient
+  })()
+  return cctClientPromise
+}
+
+async function cctFetch(path, init = {}) {
+  const client = await getCctClient()
+  const result = await client.send('Runtime.evaluate', {
+    expression: `fetch(${JSON.stringify(path)}, {
+      method: ${JSON.stringify(init.method || 'GET')},
+      credentials: 'include',
+      headers: ${JSON.stringify({
+        'Content-Type': 'application/json',
+        ...(init.headers || {}),
+      })},
+      body: ${init.body === undefined ? 'undefined' : JSON.stringify(init.body)},
+      cache: 'no-store'
+    }).then(async (response) => {
+      const text = await response.text()
+      return { status: response.status, ok: response.ok, text }
+    })`,
+    awaitPromise: true,
+    returnByValue: true,
+  })
+  if (result.exceptionDetails) throw new Error(JSON.stringify(result.exceptionDetails))
+  return result.result.value
+}
+
 async function jsonFetch(path, init) {
+  if (useCct) {
+    const response = await cctFetch(path, init)
+    let body
+    try {
+      body = response.text ? JSON.parse(response.text) : null
+    } catch {
+      body = { raw: response.text.slice(0, 1000) }
+    }
+    return { res: { status: response.status, ok: response.ok }, body }
+  }
+
   const res = await fetch(`${base}${path}`, {
     ...init,
     headers: {
@@ -82,6 +187,18 @@ async function jsonFetchRetryColdCompile(path, init, attempts = 3) {
 }
 
 async function assertRoute(path, snippets) {
+  if (useCct) {
+    const response = await cctFetch(path)
+    const missing = snippets.filter((snippet) => !response.text.includes(snippet))
+    const ok = response.ok && missing.length === 0
+    record(`route ${path}`, ok, {
+      status: response.status,
+      missing,
+      summary: ok ? `rendered ${response.text.length} chars` : `status=${response.status} missing=${missing.join(', ')}`,
+    })
+    return
+  }
+
   const res = await fetch(`${base}${path}`)
   const text = await res.text()
   const missing = snippets.filter((snippet) => !text.includes(snippet))
@@ -184,13 +301,19 @@ async function verifyCoreRouteMatrix() {
   const results = []
   for (const item of coreRoutes) {
     try {
-      const res = await fetch(`${base}${item.route}`)
-      const text = await res.text()
+      const fetched = useCct
+        ? await cctFetch(item.route)
+        : await fetch(`${base}${item.route}`).then(async (res) => ({
+            status: res.status,
+            ok: res.ok,
+            text: await res.text(),
+          }))
+      const text = fetched.text
       const missing = item.snippets.filter((snippet) => !text.includes(snippet))
       results.push({
         route: item.route,
-        ok: res.ok && missing.length === 0,
-        status: res.status,
+        ok: fetched.ok && missing.length === 0,
+        status: fetched.status,
         rendered_chars: text.length,
         missing,
       })
@@ -653,6 +776,7 @@ async function main() {
   }
   await import('node:fs').then((fs) => fs.writeFileSync(evidencePath, JSON.stringify(evidence, null, 2)))
   console.log(`Evidence: ${evidencePath}`)
+  if (cctClient) cctClient.close()
   if (!ok) process.exit(1)
 }
 

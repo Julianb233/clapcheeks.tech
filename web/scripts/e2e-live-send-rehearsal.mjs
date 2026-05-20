@@ -3,6 +3,8 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 
 const baseUrl = process.env.CLAPCHEEKS_E2E_BASE_URL || 'http://127.0.0.1:3002'
+const chromeDebugUrl = (process.env.CLAPCHEEKS_CCT_DEBUG_URL || 'http://127.0.0.1:9223').replace(/\/$/, '')
+const useCct = process.env.CLAPCHEEKS_LIVE_SEND_REHEARSAL_USE_CCT === '1' || /^https:\/\/clapcheeks\.tech\b/.test(baseUrl)
 const outputPath = process.env.CLAPCHEEKS_LIVE_SEND_REHEARSAL || '/tmp/clapcheeks-live-send-rehearsal.json'
 const source = process.env.CLAPCHEEKS_LIVE_SEND_REHEARSAL_SOURCE || 'sample'
 const samplePreflightPath = process.env.CLAPCHEEKS_LIVE_SEND_SAMPLE_PREFLIGHT || '/tmp/clapcheeks-live-send-sample-preflight.json'
@@ -29,7 +31,96 @@ function last4(value) {
   return String(value || '').replace(/\D/g, '').slice(-4)
 }
 
+async function fetchJson(url) {
+  const response = await fetch(url)
+  const text = await response.text()
+  try {
+    return JSON.parse(text)
+  } catch {
+    throw new Error(`Expected JSON from ${url}; status=${response.status}`)
+  }
+}
+
+class CdpClient {
+  constructor(wsUrl) {
+    this.ws = new WebSocket(wsUrl)
+    this.nextId = 0
+    this.pending = new Map()
+    this.ws.addEventListener('message', (event) => {
+      const message = JSON.parse(event.data)
+      if (!message.id || !this.pending.has(message.id)) return
+      const { resolve, reject } = this.pending.get(message.id)
+      this.pending.delete(message.id)
+      if (message.error) reject(new Error(JSON.stringify(message.error)))
+      else resolve(message.result)
+    })
+  }
+
+  async open() {
+    await new Promise((resolve, reject) => {
+      this.ws.addEventListener('open', resolve, { once: true })
+      this.ws.addEventListener('error', reject, { once: true })
+    })
+  }
+
+  send(method, params = {}) {
+    return new Promise((resolve, reject) => {
+      const id = ++this.nextId
+      this.pending.set(id, { resolve, reject })
+      this.ws.send(JSON.stringify({ id, method, params }))
+    })
+  }
+
+  close() {
+    this.ws.close()
+  }
+}
+
+async function getCctTab() {
+  const tabs = await fetchJson(`${chromeDebugUrl}/json`)
+  const existing = Array.isArray(tabs) ? tabs.find((tab) => String(tab.url || '').startsWith(baseUrl)) : null
+  if (existing?.webSocketDebuggerUrl) return existing
+  return fetchJson(`${chromeDebugUrl}/json/new?${baseUrl}/scheduled`)
+}
+
+let cctClient = null
+
+async function getCctClient() {
+  if (cctClient) return cctClient
+  const tab = await getCctTab()
+  if (!tab.webSocketDebuggerUrl) throw new Error(`CCT tab did not expose a debugger URL from ${chromeDebugUrl}`)
+  cctClient = new CdpClient(tab.webSocketDebuggerUrl)
+  await cctClient.open()
+  await cctClient.send('Runtime.enable')
+  return cctClient
+}
+
 async function request(path, options = {}) {
+  if (useCct) {
+    const client = await getCctClient()
+    const result = await client.send('Runtime.evaluate', {
+      expression: `fetch(${JSON.stringify(path)}, {
+        method: ${JSON.stringify(options.method || 'GET')},
+        credentials: 'include',
+        headers: ${JSON.stringify({
+          'Content-Type': 'application/json',
+          ...(options.headers || {}),
+        })},
+        body: ${options.body === undefined ? 'undefined' : JSON.stringify(options.body)},
+        cache: 'no-store'
+      }).then(async (response) => {
+        const text = await response.text()
+        let json = {}
+        try { json = text ? JSON.parse(text) : {} } catch { json = { parse_error: text.slice(0, 200) } }
+        return { status: response.status, ok: response.ok, json }
+      })`,
+      awaitPromise: true,
+      returnByValue: true,
+    })
+    if (result.exceptionDetails) throw new Error(JSON.stringify(result.exceptionDetails))
+    return result.result.value
+  }
+
   const response = await fetch(`${baseUrl}${path}`, {
     ...options,
     headers: {
@@ -232,4 +323,5 @@ if (evidence.dry_run) {
 if (evidence.cleanup) console.log(`Cleanup: ok=${evidence.cleanup.ok} final_status=${evidence.cleanup.final_status || 'unknown'}`)
 if (evidence.failures.length) console.log(`Failures: ${evidence.failures.join('; ')}`)
 
+if (cctClient) cctClient.close()
 if (!evidence.ok) process.exit(1)

@@ -13,6 +13,7 @@ import DashboardLive from './components/dashboard-live'
 import AgentStatusBadge from './components/agent-status-badge'
 import IMessageTestPanel from './components/imessage-test-panel'
 import BriefingCard from './components/briefing-card'
+import SystemHealthCheck from './components/system-health-check'
 import { getLatestCoaching } from '@/lib/coaching/generate'
 import { TrendCard } from './components/trend-card'
 import { DashboardCharts } from './components/dashboard-charts'
@@ -693,6 +694,8 @@ export default async function Dashboard() {
                 <QuickAction href="/device" icon={<Zap className="h-4 w-4" />} label="Runtime" />
               </div>
             </section>
+
+            <SystemHealthCheck />
 
             <section className="bg-white/[0.035] border border-white/10 rounded-xl p-4">
               <div className="flex items-center gap-2 mb-3">

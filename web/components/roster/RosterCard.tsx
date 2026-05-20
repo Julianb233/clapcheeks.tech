@@ -1,6 +1,7 @@
 'use client'
 
 import Link from 'next/link'
+import { Star } from 'lucide-react'
 import {
   ClapcheeksMatchRow,
   PLATFORM_COLORS,
@@ -14,6 +15,7 @@ type Props = {
   match: ClapcheeksMatchRow
   lastMessage?: string | null
   onDragStart?: (id: string) => void
+  onToggleFavorite?: (id: string) => void
   draggable?: boolean
 }
 
@@ -21,13 +23,14 @@ type Props = {
  * Phase J (AI-8338) roster kanban card. Tighter than MatchCard — shows
  * photo, name+age, health bar, Julian rank stars, close-prob %, last-msg.
  */
-export default function RosterCard({ match, lastMessage, onDragStart, draggable = true }: Props) {
+export default function RosterCard({ match, lastMessage, onDragStart, onToggleFavorite, draggable = true }: Props) {
   const identity = getMatchIdentityStatus(match)
   const displayName = identity.displayName
   const primaryPhoto = getCoverPhoto(match.photos_jsonb) ?? getCoverPhoto(match.photos)
   const initials = displayName.slice(0, 1).toUpperCase()
   const health = typeof match.health_score === 'number' ? match.health_score : null
   const rank = typeof match.julian_rank === 'number' ? match.julian_rank : null
+  const favorite = rank !== null && rank >= 10
   const closeProb =
     typeof match.close_probability === 'number'
       ? Math.round(match.close_probability * 100)
@@ -50,7 +53,9 @@ export default function RosterCard({ match, lastMessage, onDragStart, draggable 
         e.dataTransfer.effectAllowed = 'move'
         onDragStart?.(match.id)
       }}
-      className="group bg-white/[0.04] border border-white/10 rounded-lg overflow-hidden hover:border-yellow-500/40 hover:bg-white/[0.06] transition-all cursor-grab active:cursor-grabbing"
+      className={`group bg-white/[0.04] border rounded-lg overflow-hidden hover:border-yellow-500/40 hover:bg-white/[0.06] transition-all cursor-grab active:cursor-grabbing ${
+        favorite ? 'border-yellow-400/45' : 'border-white/10'
+      }`}
     >
       <Link href={`/matches/${match.id}`} className="block">
         <div className="relative aspect-[4/3] w-full bg-gradient-to-br from-zinc-800 to-zinc-900 overflow-hidden">
@@ -137,6 +142,22 @@ export default function RosterCard({ match, lastMessage, onDragStart, draggable 
           )}
         </div>
       </Link>
+      <div className="border-t border-white/10 px-2.5 py-2">
+        <button
+          type="button"
+          onClick={() => onToggleFavorite?.(match.id)}
+          className={`inline-flex w-full items-center justify-center gap-1.5 rounded-md border px-2 py-1.5 text-[10px] font-semibold transition-colors ${
+            favorite
+              ? 'border-yellow-400/45 bg-yellow-500/15 text-yellow-200 hover:bg-yellow-500/25'
+              : 'border-white/10 bg-white/5 text-white/45 hover:bg-white/10 hover:text-white/80'
+          }`}
+          aria-pressed={favorite}
+          aria-label={favorite ? `Remove ${displayName} from favorites` : `Favorite ${displayName}`}
+        >
+          <Star className={`h-3.5 w-3.5 ${favorite ? 'fill-current' : ''}`} />
+          {favorite ? 'Favorited' : 'Favorite'}
+        </button>
+      </div>
     </div>
   )
 }

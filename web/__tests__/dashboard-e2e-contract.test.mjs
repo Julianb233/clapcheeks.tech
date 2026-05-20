@@ -410,6 +410,9 @@ test('safe readiness verifier cancels leftover active scheduled test fixtures', 
 })
 
 test('safe readiness verifier checks core dashboard route matrix', () => {
+  assert.match(files.safeReadinessScript, /CLAPCHEEKS_SAFE_E2E_USE_CCT/)
+  assert.match(files.safeReadinessScript, /CCT tab did not expose a debugger URL/)
+  assert.match(files.safeReadinessScript, /credentials: 'include'/)
   assert.match(files.safeReadinessScript, /coreRoutes/)
   assert.match(files.safeReadinessScript, /snippets/)
   assert.match(files.safeReadinessScript, /\/dashboard\/matches/)
@@ -691,6 +694,9 @@ test('one-command safe readiness suite runs all non-live E2E gates', () => {
 })
 
 test('live-send rehearsal drives the preflight plan through scheduled dry-run without sending', () => {
+  assert.match(files.liveSendRehearsalScript, /CLAPCHEEKS_LIVE_SEND_REHEARSAL_USE_CCT/)
+  assert.match(files.liveSendRehearsalScript, /CCT tab did not expose a debugger URL/)
+  assert.match(files.liveSendRehearsalScript, /credentials: 'include'/)
   assert.match(files.packageJson, /"test:e2e:live:rehearsal": "node scripts\/e2e-live-send-rehearsal\.mjs"/)
   assert.match(files.liveSendRehearsalScript, /CLAPCHEEKS_LIVE_SEND_REHEARSAL/)
   assert.match(files.liveSendRehearsalScript, /clapcheeks-live-send-rehearsal\.json/)
@@ -995,6 +1001,9 @@ test('evidence index consolidates readiness artifacts and repeatable commands', 
 
 test('local Chrome proof reads the real browser tab and only performs read-only checks', () => {
   assert.match(files.packageJson, /"test:e2e:local-browser": "node scripts\/e2e-local-browser-proof\.mjs"/)
+  assert.match(files.localBrowserProofScript, /CLAPCHEEKS_LOCAL_BROWSER_USE_CCT/)
+  assert.match(files.localBrowserProofScript, /CCT tab did not expose a debugger URL/)
+  assert.match(files.localBrowserProofScript, /credentials: 'include'/)
   assert.match(files.localBrowserProofScript, /Google Chrome/)
   assert.match(files.localBrowserProofScript, /openChromeLocalRoute/)
   assert.match(files.localBrowserProofScript, /set URL of active tab of front window/)
@@ -1008,6 +1017,9 @@ test('local Chrome proof reads the real browser tab and only performs read-only 
   assert.match(files.localBrowserProofScript, /Safe Browser Proof 2944/)
   assert.match(files.localBrowserProofScript, /Safe browser proof only\. Do not send\./)
   assert.match(files.localBrowserProofScript, /forbidden_fixture_present/)
+  assert.match(files.localBrowserProofScript, /analytics_matches_numeric/)
+  assert.match(files.completionAuditScript, /localBrowser\.analytics\.summary\.matches >= 0/)
+  assert.match(files.completionAuditScript, /browser\.checks\.analytics_summary\.matches >= 0/)
   assert.doesNotMatch(files.localBrowserProofScript, /fetch\([^)]*,\\s*\\{[^}]*method: ['"]POST/)
 })
 
