@@ -163,6 +163,7 @@ type LatestCompletionAudit = {
   readiness_command?: string
   transport_diagnostics_command?: string
   completion_audit_command?: string
+  transport_visibility?: Record<string, unknown> | null
   physical_png_required?: boolean
   completion_rule?: string
   path: string
@@ -176,6 +177,12 @@ function cleanStringArray(value: unknown) {
   return Array.isArray(value)
     ? value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
     : []
+}
+
+function cleanObject(value: unknown) {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null
 }
 
 function normalizeCompletionAudit(parsed: Record<string, unknown>, source: LatestCompletionAudit['source']): LatestCompletionAudit {
@@ -194,6 +201,7 @@ function normalizeCompletionAudit(parsed: Record<string, unknown>, source: Lates
       ? parsed.transport_diagnostics_command
       : 'cd ~/clapcheeks-local && scripts/run-device-control-transport-diagnostics.sh 2',
     completion_audit_command: typeof parsed.completion_audit_command === 'string' ? parsed.completion_audit_command : COMPLETION_AUDIT.command,
+    transport_visibility: cleanObject(parsed.transport_visibility),
     physical_png_required: Boolean(parsed.physical_png_required),
     completion_rule: typeof parsed.completion_rule === 'string' ? parsed.completion_rule : COMPLETION_AUDIT.decision_rule,
     path: typeof parsed.path === 'string' ? parsed.path : COMPLETION_AUDIT.latest_result_path,
@@ -362,6 +370,7 @@ export async function GET() {
         : latestCompletionAudit.status === 'missing' || latestCompletionAudit.status === 'unreadable'
         ? 'fallback_static_blockers'
         : 'latest_completion_audit_json',
+      transport_visibility: latestCompletionAudit.transport_visibility,
       local_latest_audit_status: localLatestCompletionAudit.status,
       next_step: 'Unlock and keep the iPhone nearby/on-network, then run the readiness command to clear transport visibility, Developer Mode, CoreDevice visibility, and physical PNG proof.',
     },

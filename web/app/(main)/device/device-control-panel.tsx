@@ -20,6 +20,17 @@ type DeviceControlStatus = {
     current_blocker?: string
     latest_known_blockers?: string[]
     latest_blockers_source?: string
+    transport_visibility?: {
+      summary?: string
+      usbmux_bound_udid_visible?: boolean | null
+      ios_deploy_bound_udid_visible?: boolean | null
+      ios_deploy_connection?: string | null
+      pairing_record_for_bound_udid?: boolean | null
+      usb_system_profile_bound_udid_visible?: boolean | null
+      coredevice_bound_udid_visible?: boolean | null
+      coredevice_list_failed?: boolean
+      blockers?: string[]
+    } | null
     next_step?: string
   }
   live_action_gate?: {
@@ -125,6 +136,17 @@ type DeviceControlStatus = {
 	      audit_log?: string | null
 	      failed_checks?: string[]
 	      blockers?: string[]
+	      transport_visibility?: {
+	        summary?: string
+	        usbmux_bound_udid_visible?: boolean | null
+	        ios_deploy_bound_udid_visible?: boolean | null
+	        ios_deploy_connection?: string | null
+	        pairing_record_for_bound_udid?: boolean | null
+	        usb_system_profile_bound_udid_visible?: boolean | null
+	        coredevice_bound_udid_visible?: boolean | null
+	        coredevice_list_failed?: boolean
+	        blockers?: string[]
+	      } | null
 	      next_unblock_steps?: string[]
 	      readiness_command?: string
 	      transport_diagnostics_command?: string
@@ -197,6 +219,7 @@ export function DeviceControlPanel() {
   const selectedLine = status?.physical_ios?.selected_line ?? 2
   const liveActionGate = status?.live_action_gate
   const liveActionGateEnabled = liveActionGate?.physical_ios_live_actions_enabled === true
+  const transportVisibility = status?.physical_ios?.transport_visibility || status?.completion_audit?.latest_result?.transport_visibility
   const sendBirdCapture = status?.sendbird?.capture_status
   const sendBirdCaptureReady = status?.sendbird?.present === true
   const sendBirdCaptureUpdated = sendBirdCapture?.snapshot_mtime_ms
@@ -361,6 +384,47 @@ export function DeviceControlPanel() {
                 }`}>
                   {sendBirdCapture.next_step || "Open Hinge chat through the proxied device to refresh SendBird capture."}
                 </div>
+              </div>
+            ) : null}
+
+            {transportVisibility ? (
+              <div className="mt-3 min-w-0 rounded-lg border border-white/10 bg-white/[0.035] p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="text-[10px] uppercase tracking-widest text-white/35">Transport visibility</div>
+                  <span className={`rounded-md px-2 py-1 text-[11px] font-semibold ${
+                    transportVisibility.coredevice_bound_udid_visible
+                      ? "bg-emerald-400/15 text-emerald-200"
+                      : "bg-amber-400/15 text-amber-100"
+                  }`}>
+                    {transportVisibility.coredevice_bound_udid_visible ? "CoreDevice ready" : "CoreDevice blocked"}
+                  </span>
+                </div>
+                <div className="mt-2 text-xs leading-relaxed text-white/55">
+                  {transportVisibility.summary || "Transport diagnostics have not produced a summary yet."}
+                </div>
+                <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                  <div className="min-w-0 break-words rounded-md bg-black/25 px-3 py-2 text-xs text-white/50">
+                    usbmux: {transportVisibility.usbmux_bound_udid_visible ? "visible" : "not visible"}
+                  </div>
+                  <div className="min-w-0 break-words rounded-md bg-black/25 px-3 py-2 text-xs text-white/50">
+                    ios-deploy: {transportVisibility.ios_deploy_bound_udid_visible ? `visible${transportVisibility.ios_deploy_connection ? ` (${transportVisibility.ios_deploy_connection})` : ""}` : "not visible"}
+                  </div>
+                  <div className="min-w-0 break-words rounded-md bg-black/25 px-3 py-2 text-xs text-white/50">
+                    Pairing record: {transportVisibility.pairing_record_for_bound_udid ? "present" : "missing"}
+                  </div>
+                  <div className="min-w-0 break-words rounded-md bg-black/25 px-3 py-2 text-xs text-white/50">
+                    CoreDevice: {transportVisibility.coredevice_bound_udid_visible ? "visible" : transportVisibility.coredevice_list_failed ? "list failed" : "not visible"}
+                  </div>
+                </div>
+                {transportVisibility.blockers?.length ? (
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {transportVisibility.blockers.map((blocker) => (
+                      <span key={blocker} className="rounded-md bg-amber-400/10 px-2 py-1 text-[11px] font-medium text-amber-100">
+                        {blocker.replace(/_/g, " ")}
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
               </div>
             ) : null}
 
