@@ -20,6 +20,7 @@ const files = {
   imessageTestPanel: readFileSync('app/(main)/dashboard/components/imessage-test-panel.tsx', 'utf8'),
   packageJson: readFileSync('package.json', 'utf8'),
   browserVisualScript: readFileSync('scripts/e2e-browser-visual-safe.sh', 'utf8'),
+  browserVisualCctScript: readFileSync('scripts/e2e-browser-visual-cct.mjs', 'utf8'),
   completionAuditScript: readFileSync('scripts/e2e-completion-audit.mjs', 'utf8'),
   liveSendEvidenceScript: readFileSync('scripts/e2e-live-send-evidence.mjs', 'utf8'),
   liveSendApprovalPacketScript: readFileSync('scripts/e2e-live-send-approval-packet.mjs', 'utf8'),
@@ -233,6 +234,12 @@ test('dashboard iMessage self-test is dry-run first and live sends require confi
 
 test('repeatable visual E2E verifier covers dashboard mobile, scheduled mobile, modal, and insights', () => {
   assert.match(files.packageJson, /"test:e2e:browser": "\.\/scripts\/e2e-browser-visual-safe\.sh"/)
+  assert.match(files.browserVisualScript, /CLAPCHEEKS_BROWSER_USE_CCT/)
+  assert.match(files.browserVisualScript, /e2e-browser-visual-cct\.mjs/)
+  assert.match(files.browserVisualCctScript, /CCT Chrome via CDP/)
+  assert.match(files.browserVisualCctScript, /scheduled_send_confirmation_guardrail/)
+  assert.match(files.browserVisualCctScript, /mobile_metrics_overflow_free/)
+  assert.match(files.browserVisualCctScript, /no_live_send_performed/)
   assert.match(files.browserVisualScript, /dashboard desktop/)
   assert.match(files.browserVisualScript, /dashboard navigation integrity/)
   assert.match(files.browserVisualScript, /dashboard health blockers quick view/)

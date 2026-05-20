@@ -5,6 +5,10 @@ BASE_URL="${CLAPCHEEKS_E2E_BASE_URL:-http://127.0.0.1:3002}"
 OUT_DIR="${CLAPCHEEKS_BROWSER_EVIDENCE_DIR:-/tmp/clapcheeks-e2e-browser}"
 MANIFEST="${CLAPCHEEKS_BROWSER_EVIDENCE:-/tmp/clapcheeks-browser-visual-evidence-2026-05-18.json}"
 
+if [[ "${CLAPCHEEKS_BROWSER_USE_CCT:-0}" == "1" || "$BASE_URL" == https://clapcheeks.tech* ]]; then
+  exec node scripts/e2e-browser-visual-cct.mjs
+fi
+
 mkdir -p "$OUT_DIR"
 
 require() {
