@@ -799,6 +799,20 @@ export default defineSchema({
       v.literal("error"),
     ),
     draft_body: v.optional(v.string()),    // pre-generated draft (or generate at fire time)
+    // AI-10219 follow-on — accept in-flight drafter fields that the drafter
+    // writes but the validator was missing (blocked Convex deploys). codex
+    // is iterating on the schema shape; v.any() is intentional to avoid
+    // deploy-blocking schema drift during active development.
+    draft_insights: v.optional(v.any()),
+    draft_original: v.optional(v.string()),
+    operator_feedback: v.optional(v.string()),
+    edit_diff_chars: v.optional(v.number()),
+    edit_kind: v.optional(v.string()),
+    pre_edit_body: v.optional(v.string()),
+    edit_summary: v.optional(v.string()),
+    preview_body: v.optional(v.string()),
+    pre_edit_draft: v.optional(v.string()),
+    last_edited_at: v.optional(v.number()),
     generate_at_fire_time: v.optional(v.boolean()),  // if true, defer body generation
     media_asset_id: v.optional(v.id("media_assets")),
     prompt_template: v.optional(v.string()),         // which template the AI used
