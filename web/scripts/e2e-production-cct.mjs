@@ -219,7 +219,35 @@ async function api(client, method, url, body) {
 
 async function pageProof(client, route) {
   await client.send('Page.navigate', { url: routeUrl(route) })
-  await new Promise((resolve) => setTimeout(resolve, 1700))
+  let settled = null
+  for (let attempt = 0; attempt < 24; attempt += 1) {
+    settled = await evaluate(
+      client,
+      `(() => {
+        const text = document.body?.innerText || ''
+        const lower = text.toLowerCase()
+        return {
+          readyState: document.readyState,
+          textLength: text.length,
+          title: document.title,
+          appError: lower.includes('application error') || lower.includes('runtime error') || lower.includes('could not load'),
+          routeReady: text.length > 80,
+          dashboardHealthReady: location.pathname !== '/dashboard' || text.includes('Health check'),
+          rosterReady: location.pathname !== '/dashboard/roster' || Boolean(document.querySelector('[data-testid="roster-kanban"]')),
+        }
+      })()`,
+    )
+    if (
+      settled.appError ||
+      (settled.readyState === 'complete' &&
+        settled.routeReady &&
+        settled.dashboardHealthReady &&
+        settled.rosterReady)
+    ) {
+      break
+    }
+    await new Promise((resolve) => setTimeout(resolve, 500))
+  }
   await evaluate(
     client,
     `new Promise(async (resolve) => {
@@ -251,6 +279,7 @@ async function pageProof(client, route) {
         url: location.href,
         title: document.title,
         textLength: text.length,
+        settled: ${JSON.stringify(settled)},
         hasSignIn: lower.includes('sign in') && lower.includes('email'),
         appError: lower.includes('application error') || lower.includes('runtime error') || lower.includes('could not load'),
         brokenImages: images.filter((image) => image.src && image.complete && (image.width === 0 || image.height === 0)),
@@ -413,7 +442,7 @@ async function main() {
     const checks = [
       {
         name: 'all target routes load authenticated',
-        pass: pages.every((page) => page.url.startsWith(baseUrl) && !page.hasSignIn && !page.appError),
+        pass: pages.every((page) => page.url.startsWith(baseUrl) && page.textLength > 80 && !page.hasSignIn && !page.appError),
       },
       {
         name: 'no broken images on target routes',
