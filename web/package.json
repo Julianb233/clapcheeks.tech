@@ -18,6 +18,7 @@
     "test:e2e:live:preflight": "node scripts/e2e-live-send-preflight.mjs",
     "test:e2e:live:rehearsal": "node scripts/e2e-live-send-rehearsal.mjs",
     "test:e2e:live:sample-preflight": "node scripts/e2e-live-send-sample-preflight.mjs",
+    "test:e2e:production-cct": "node scripts/e2e-production-cct.mjs",
     "test:e2e:readiness:local": "./scripts/e2e-readiness-local-safe.sh",
     "test:e2e:readiness": "./scripts/e2e-readiness-all-safe.sh",
     "test:e2e:runtime": "node scripts/e2e-runtime-smoke-safe.mjs",
