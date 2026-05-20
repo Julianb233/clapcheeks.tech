@@ -91,6 +91,24 @@ function nameOf(match) {
   return String(match?.name || match?.match_name || match?.first_name || '').trim()
 }
 
+function deviceStatusSummary(body) {
+  const physical = body?.physical_ios || {}
+  const transport = physical.transport_visibility || body?.transport_visibility || {}
+  return {
+    topology: physical.device_topology || null,
+    blockers: physical.latest_known_blockers || physical.blockers || [],
+    latest_blockers_source: physical.latest_blockers_source || null,
+    transport_visibility: transport,
+    ios_deploy_bound_udid_visible: transport.ios_deploy_bound_udid_visible ?? null,
+    ios_deploy_connection: transport.ios_deploy_connection ?? null,
+    pairing_record_for_bound_udid: transport.pairing_record_for_bound_udid ?? null,
+    coredevice_bound_udid_visible: transport.coredevice_bound_udid_visible ?? null,
+    latest_transport_diagnostics_status: physical.latest_transport_diagnostics?.status || null,
+    latest_transport_diagnostics_source: physical.latest_transport_diagnostics?.source || null,
+    telemetry_event_id: physical.latest_transport_diagnostics?.telemetry_event_id || null,
+  }
+}
+
 function summarizeInventory(profileBody) {
   const rows = Array.isArray(profileBody?.profiles)
     ? profileBody.profiles
@@ -366,6 +384,7 @@ async function main() {
       },
     })
 
+    const deviceSummary = deviceStatusSummary(apis.device.body)
     const checks = [
       {
         name: 'all target routes load authenticated',
@@ -407,8 +426,14 @@ async function main() {
       },
       {
         name: 'device topology and physical blockers visible',
-        pass: Boolean(apis.device.body?.physical_ios?.device_topology) &&
-          Boolean(apis.device.body?.physical_ios?.latest_known_blockers || apis.device.body?.physical_ios?.blockers),
+        pass: Boolean(deviceSummary.topology) && Boolean(deviceSummary.blockers?.length),
+      },
+      {
+        name: 'device status uses fresh transport telemetry source',
+        pass: deviceSummary.latest_blockers_source === 'latest_transport_diagnostics_json' &&
+          deviceSummary.latest_transport_diagnostics_status === 'loaded' &&
+          deviceSummary.ios_deploy_bound_udid_visible === true &&
+          !deviceSummary.blockers.includes('ios_deploy_no_bound_udid'),
       },
     ]
 
@@ -416,10 +441,7 @@ async function main() {
       let summary = response.body
       if (key === 'profile') summary = { rowCount: inventory.rowCount, inventory }
       if (key === 'device') {
-        summary = {
-          topology: response.body?.physical_ios?.device_topology,
-          blockers: response.body?.physical_ios?.latest_known_blockers || response.body?.physical_ios?.blockers,
-        }
+        summary = deviceStatusSummary(response.body)
       }
       if (key === 'analytics') summary = response.body?.totals || response.body
       return [key, { status: response.status, ok: response.ok, summary }]
