@@ -366,8 +366,7 @@ function toMatchUpsertArgs(row: Record<string, any>) {
   }
   const scalarKeys = [
     "match_name", "name", "age", "bio", "job", "school", "instagram_handle", "zodiac",
-    "match_intel", "status", "stage", "source", "primary_channel", "first_impression",
-    "her_phone", "met_at", "julian_rank", "health_score", "final_score", "outcome",
+    "match_intel", "status", "stage", "julian_rank", "health_score", "final_score",
   ]
   for (const key of scalarKeys) {
     const value = row[key]
@@ -495,6 +494,8 @@ class ConvexQueryBuilder {
         const inserted = []
         for (const row of arrayify(values)) {
           const result = await convexMutation<any>("queues:enqueueReply", toQueuedReplyArgs(row))
+          const resultError = convexReturnedError(result)
+          if (resultError) return errorResult(resultError, "CONVEX_MUTATION_ERROR")
           inserted.push(typeof result === "object" && result ? result : { id: result, ...row })
         }
         return okResult(Array.isArray(values) ? inserted : inserted[0])
@@ -505,6 +506,8 @@ class ConvexQueryBuilder {
         for (const row of arrayify(values)) {
           const args = toAgentJobArgs(row)
           const result = await convexMutation<any>("agent_jobs:enqueue", args)
+          const resultError = convexReturnedError(result)
+          if (resultError) return errorResult(resultError, "CONVEX_MUTATION_ERROR")
           inserted.push({ id: result, _id: result, ...args })
         }
         return okResult(Array.isArray(values) ? inserted : inserted[0])
@@ -515,6 +518,8 @@ class ConvexQueryBuilder {
         for (const row of arrayify(values)) {
           const args = toMatchUpsertArgs(row)
           const result = await convexMutation<any>("matches:upsertByExternal", args)
+          const resultError = convexReturnedError(result)
+          if (resultError) return errorResult(resultError, "CONVEX_MUTATION_ERROR")
           inserted.push(typeof result === "object" && result ? result : { id: result || args.external_match_id, ...row, external_id: args.external_match_id })
         }
         return okResult(Array.isArray(values) ? inserted : inserted[0])
@@ -524,6 +529,8 @@ class ConvexQueryBuilder {
         const id = this.filterValue("id") || this.filterValue("_id")
         if (!id) return errorResult("clapcheeks_matches update requires eq('id', value)")
         const result = await convexMutation<any>("matches:patch", { id, ...values })
+        const resultError = convexReturnedError(result)
+        if (resultError) return errorResult(resultError, "CONVEX_MUTATION_ERROR")
         return okResult(result || { id, ...values })
       }
 

@@ -78,3 +78,11 @@ test('offline route resolves a persisted editable match id', () => {
   assert.match(offlineRouteSource, /\.eq\('external_id', externalId\)/)
   assert.match(offlineRouteSource, /id: persistedMatchId/)
 })
+
+test('offline route stores handoff details in Convex match_intel', () => {
+  assert.match(offlineRouteSource, /match_intel:\s*{/)
+  assert.match(offlineRouteSource, /phone_e164: phoneE164/)
+  assert.match(offlineRouteSource, /her_phone: phoneE164/)
+  assert.match(offlineRouteSource, /met_at: metAt/)
+  assert.match(offlineRouteSource, /first_impression: firstImpression/)
+})

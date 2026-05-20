@@ -36,3 +36,15 @@ test('leads edits persist through the server match PATCH route', () => {
   assert.match(files.backendDoctor, /clapcheeks_leads/)
   assert.match(files.backendDoctor, /matches:patch/)
 })
+
+test('match upserts respect the live Convex validator and surface mutation errors', () => {
+  const scalarKeys = files.compat.match(/const scalarKeys = \[([\s\S]*?)\n  \]/)?.[1] ?? ''
+  assert.doesNotMatch(scalarKeys, /her_phone/)
+  assert.doesNotMatch(scalarKeys, /met_at/)
+  assert.doesNotMatch(scalarKeys, /source/)
+  assert.doesNotMatch(scalarKeys, /primary_channel/)
+  assert.doesNotMatch(scalarKeys, /first_impression/)
+  assert.doesNotMatch(scalarKeys, /outcome/)
+  assert.match(files.compat, /function convexReturnedError/)
+  assert.match(files.compat, /CONVEX_MUTATION_ERROR/)
+})
