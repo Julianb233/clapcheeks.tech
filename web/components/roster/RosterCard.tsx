@@ -58,6 +58,7 @@ export default function RosterCard({ match, lastMessage, onDragStart, draggable 
             src={primaryPhoto}
             alt={displayName}
             initials={initials}
+            loading="eager"
             className="w-full h-full object-cover"
             fallbackClassName="w-full h-full flex items-center justify-center text-white/30 text-3xl font-bold"
           />

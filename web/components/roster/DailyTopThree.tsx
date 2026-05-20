@@ -74,6 +74,7 @@ export default function DailyTopThree({ matches }: Props) {
                   src={photo}
                   alt={identity.displayName}
                   initials={identity.displayName}
+                  loading="eager"
                   className="w-8 h-8 rounded-full object-cover"
                   fallbackClassName="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center text-xs text-white/50"
                 />

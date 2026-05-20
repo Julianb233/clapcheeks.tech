@@ -12,6 +12,8 @@ const files = {
   dashboardPage: readFileSync('app/(main)/dashboard/page.tsx', 'utf8'),
   briefingCard: readFileSync('app/(main)/dashboard/components/briefing-card.tsx', 'utf8'),
   appSidebar: readFileSync('components/layout/app-sidebar.tsx', 'utf8'),
+  rosterCard: readFileSync('components/roster/RosterCard.tsx', 'utf8'),
+  dailyTopThree: readFileSync('components/roster/DailyTopThree.tsx', 'utf8'),
   communicationsPage: readFileSync('app/(main)/communications/page.tsx', 'utf8'),
   communicationsConsole: readFileSync('app/(main)/communications/communications-console.tsx', 'utf8'),
   imessageTestRoute: readFileSync('app/api/imessage/test/route.ts', 'utf8'),
@@ -148,6 +150,11 @@ test('dashboard briefing uses Convex-backed conversations for stale-convo count'
   assert.match(files.briefingCard, /getInboundWatcherHealth/)
   assert.match(files.briefingCard, /Runtime Blockers/)
   assert.match(files.briefingCard, /Inbound watcher healthy/)
+})
+
+test('roster thumbnails load eagerly inside scrollable kanban columns', () => {
+  assert.match(files.rosterCard, /loading="eager"/)
+  assert.match(files.dailyTopThree, /loading="eager"/)
 })
 
 test('communications console connects dashboard navigation to gated draft replies', () => {
