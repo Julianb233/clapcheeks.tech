@@ -132,6 +132,7 @@ test('scheduled dashboard clears stale errors before successful actions', () => 
 
 test('intelligence insights fall back to the Convex-backed analytics summary', () => {
   assert.match(files.intelligencePage, /statsFromAnalytics/)
+  assert.match(files.intelligencePage, /const canFetchApiBase = Boolean\(apiBase && token\)/)
   assert.match(files.intelligencePage, /\/api\/analytics\/summary\?days=30/)
   assert.match(files.intelligencePage, /setStats\(statsFromAnalytics/)
   assert.match(files.intelligencePage, /setAbTest\(\{ styles: \[\], winner: null \}\)/)

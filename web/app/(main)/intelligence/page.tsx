@@ -105,9 +105,11 @@ export default function IntelligencePage() {
         const headers: Record<string, string> = {}
         if (token) headers['Authorization'] = `Bearer ${token}`
 
+        const canFetchApiBase = Boolean(apiBase && token)
+
         const [statsRes, abRes, analyticsRes] = await Promise.all([
-          apiBase ? fetch(`${apiBase}/intelligence/stats`, { headers }).catch(() => null) : null,
-          apiBase ? fetch(`${apiBase}/intelligence/ab-test`, { headers }).catch(() => null) : null,
+          canFetchApiBase ? fetch(`${apiBase}/intelligence/stats`, { headers }).catch(() => null) : null,
+          canFetchApiBase ? fetch(`${apiBase}/intelligence/ab-test`, { headers }).catch(() => null) : null,
           fetch('/api/analytics/summary?days=30').catch(() => null),
         ])
 
