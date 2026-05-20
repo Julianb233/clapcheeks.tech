@@ -284,7 +284,7 @@ async function readLatestTransportDiagnosticsFromTelemetry(userId: string): Prom
       )
       const event = Array.isArray(events) ? events[0] : null
       const data = event?.data
-      const transport = data?.latest_transport_diagnostics
+      const transport = data?.latest_transport_diagnostics || data?.transport_visibility
       if (!transport || typeof transport !== 'object' || Array.isArray(transport)) continue
       return {
         status: 'loaded',

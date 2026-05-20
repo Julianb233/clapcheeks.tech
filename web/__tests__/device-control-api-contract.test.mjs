@@ -120,6 +120,7 @@ test('status route derives physical blockers from latest completion audit before
   assert.match(files.status, /readLatestTransportDiagnosticsFromTelemetry/)
   assert.match(files.status, /qa\.transport_diagnostics_readiness_wiring/)
   assert.match(files.status, /latest_transport_diagnostics/)
+  assert.match(files.status, /data\?\.latest_transport_diagnostics \|\| data\?\.transport_visibility/)
   assert.match(files.status, /function latestPhysicalIOSBlockers/)
   assert.match(files.status, /auditBlockers\.filter\(\(blocker\) => !TRANSPORT_BLOCKERS\.has\(blocker\)\)/)
   assert.match(files.status, /transportBlockers/)
