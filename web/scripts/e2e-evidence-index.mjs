@@ -20,6 +20,7 @@ const paths = {
   approval_packet_markdown: process.env.CLAPCHEEKS_LIVE_SEND_APPROVAL_PACKET_MD || '/tmp/clapcheeks-live-send-approval-packet-2026-05-18.md',
   production_cct: process.env.CLAPCHEEKS_PRODUCTION_CCT_LATEST || '/tmp/clapcheeks-production-cct-latest.json',
   physical_device_audit: process.env.CLAPCHEEKS_PHYSICAL_DEVICE_AUDIT || `${process.env.HOME || ''}/.clapcheeks-local/device-control/proof-runs/latest-completion-audit.json`,
+  physical_transport_diagnostics: process.env.CLAPCHEEKS_PHYSICAL_TRANSPORT_DIAGNOSTICS || `${process.env.HOME || ''}/.clapcheeks-local/device-control/proof-runs/latest-transport-diagnostics.json`,
   completion: process.env.CLAPCHEEKS_COMPLETION_AUDIT || '/tmp/clapcheeks-completion-audit-2026-05-18.json',
   runbook: 'docs/e2e-live-send-runbook.md',
   audit_doc: 'docs/e2e-readiness-audit-2026-05-18.md',
@@ -27,6 +28,13 @@ const paths = {
 const sampleRawPhone = '+17578312944'
 const sampleRawBody = 'Safe ClapCheeks no-send preflight for 757 sample. Do not reply.'
 const sampleOverridePhrase = 'I CONFIRM 757-831-2944 IS THE LIVE DESTINATION'
+const transportBlockerNames = new Set([
+  'usbmux_no_bound_udid',
+  'ios_deploy_no_bound_udid',
+  'pairing_record_missing_for_bound_udid',
+  'coredevice_no_bound_udid',
+  'coredevice_list_failed',
+])
 
 function fileInfo(path) {
   if (!existsSync(path)) return { path, exists: false }
@@ -64,6 +72,17 @@ const liveSendRehearsal = loadJson(paths.live_send_rehearsal)
 const approvalPacket = loadJson(paths.approval_packet)
 const productionCct = loadJson(paths.production_cct)
 const physicalDeviceAudit = loadJson(paths.physical_device_audit)
+const physicalTransportDiagnostics = loadJson(paths.physical_transport_diagnostics)
+const physicalAuditBlockers = Array.isArray(physicalDeviceAudit?.blockers) ? physicalDeviceAudit.blockers : []
+const latestTransportBlockers = Array.isArray(physicalTransportDiagnostics?.blockers) ? physicalTransportDiagnostics.blockers : []
+const effectivePhysicalBlockers = [
+  ...new Set([
+    ...(latestTransportBlockers.length > 0
+      ? physicalAuditBlockers.filter((blocker) => !transportBlockerNames.has(blocker))
+      : physicalAuditBlockers),
+    ...latestTransportBlockers,
+  ]),
+]
 const sampleLivePreflightRaw = existsSync(paths.sample_live_preflight) ? readFileSync(paths.sample_live_preflight, 'utf8') : ''
 const approvalPacketMarkdownRaw = existsSync(paths.approval_packet_markdown) ? readFileSync(paths.approval_packet_markdown, 'utf8') : ''
 const sampleLivePreflightRawPhoneAbsent = !sampleLivePreflightRaw.includes(sampleRawPhone)
@@ -147,6 +166,7 @@ const requiredFreshArtifactKeys = [
   'approval_packet_markdown',
   'production_cct',
   'physical_device_audit',
+  'physical_transport_diagnostics',
   'completion',
 ]
 const requiredFreshArtifacts = [
@@ -270,11 +290,11 @@ const index = {
     physical_device_audit_complete: physicalDeviceAudit?.completion_audit === 'passed',
     physical_device_audit_status: physicalDeviceAudit?.completion_audit || null,
     physical_device_audit_log: physicalDeviceAudit?.audit_log || null,
-    physical_device_blockers: Array.isArray(physicalDeviceAudit?.blockers) ? physicalDeviceAudit.blockers : [],
-    physical_device_transport_summary: physicalDeviceAudit?.transport_visibility?.summary || null,
-    physical_device_ios_deploy_visible: physicalDeviceAudit?.transport_visibility?.ios_deploy_bound_udid_visible ?? null,
-    physical_device_pairing_ready: physicalDeviceAudit?.transport_visibility?.pairing_record_for_bound_udid ?? null,
-    physical_device_coredevice_visible: physicalDeviceAudit?.transport_visibility?.coredevice_bound_udid_visible ?? null,
+    physical_device_blockers: effectivePhysicalBlockers,
+    physical_device_transport_summary: physicalTransportDiagnostics?.summary || physicalDeviceAudit?.transport_visibility?.summary || null,
+    physical_device_ios_deploy_visible: physicalTransportDiagnostics?.ios_deploy_bound_udid_visible ?? physicalDeviceAudit?.transport_visibility?.ios_deploy_bound_udid_visible ?? null,
+    physical_device_pairing_ready: physicalTransportDiagnostics?.pairing_record_for_bound_udid ?? physicalDeviceAudit?.transport_visibility?.pairing_record_for_bound_udid ?? null,
+    physical_device_coredevice_visible: physicalTransportDiagnostics?.coredevice_bound_udid_visible ?? physicalDeviceAudit?.transport_visibility?.coredevice_bound_udid_visible ?? null,
     dashboard_navigation_integrity: browser?.checks?.dashboard_navigation_integrity === true,
     dashboard_health_blockers_quick_view: browser?.checks?.dashboard_health_blockers_quick_view === true,
     dashboard_health_blockers_expected: browser?.checks?.dashboard_health_blockers?.expected_blockers || [],
@@ -460,11 +480,14 @@ const index = {
     } : null,
     physical_device_audit: physicalDeviceAudit ? {
       evidence_path: paths.physical_device_audit,
+      latest_transport_diagnostics_path: paths.physical_transport_diagnostics,
       status: physicalDeviceAudit.completion_audit || null,
       audit_log: physicalDeviceAudit.audit_log || null,
       failed_checks: Array.isArray(physicalDeviceAudit.failed_checks) ? physicalDeviceAudit.failed_checks : [],
-      blockers: Array.isArray(physicalDeviceAudit.blockers) ? physicalDeviceAudit.blockers : [],
-      transport_visibility: physicalDeviceAudit.transport_visibility || null,
+      audit_blockers: physicalAuditBlockers,
+      blockers: effectivePhysicalBlockers,
+      transport_visibility: physicalTransportDiagnostics || physicalDeviceAudit.transport_visibility || null,
+      latest_transport_diagnostics: physicalTransportDiagnostics || null,
       readiness_command: physicalDeviceAudit.readiness_command || null,
       physical_png_required: physicalDeviceAudit.physical_png_required === true,
     } : null,

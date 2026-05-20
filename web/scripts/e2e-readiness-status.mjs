@@ -18,10 +18,18 @@ const approvalPacketPath = process.env.CLAPCHEEKS_LIVE_SEND_APPROVAL_PACKET || '
 const approvalPacketMarkdownPath = process.env.CLAPCHEEKS_LIVE_SEND_APPROVAL_PACKET_MD || '/tmp/clapcheeks-live-send-approval-packet-2026-05-18.md'
 const productionCctPath = process.env.CLAPCHEEKS_PRODUCTION_CCT_LATEST || '/tmp/clapcheeks-production-cct-latest.json'
 const physicalDeviceAuditPath = process.env.CLAPCHEEKS_PHYSICAL_DEVICE_AUDIT || `${process.env.HOME || ''}/.clapcheeks-local/device-control/proof-runs/latest-completion-audit.json`
+const physicalTransportDiagnosticsPath = process.env.CLAPCHEEKS_PHYSICAL_TRANSPORT_DIAGNOSTICS || `${process.env.HOME || ''}/.clapcheeks-local/device-control/proof-runs/latest-transport-diagnostics.json`
 const runbookPath = 'docs/e2e-live-send-runbook.md'
 const sampleRawPhone = '+17578312944'
 const sampleRawBody = 'Safe ClapCheeks no-send preflight for 757 sample. Do not reply.'
 const sampleOverridePhrase = 'I CONFIRM 757-831-2944 IS THE LIVE DESTINATION'
+const transportBlockerNames = new Set([
+  'usbmux_no_bound_udid',
+  'ios_deploy_no_bound_udid',
+  'pairing_record_missing_for_bound_udid',
+  'coredevice_no_bound_udid',
+  'coredevice_list_failed',
+])
 
 function refreshEvidenceIndex() {
   if (process.env.CLAPCHEEKS_SKIP_EVIDENCE_INDEX_REFRESH === '1') return
@@ -58,6 +66,7 @@ const evidenceIndex = load(evidenceIndexPath)
 const approvalPacket = load(approvalPacketPath)
 const productionCct = load(productionCctPath)
 const physicalDeviceAudit = load(physicalDeviceAuditPath)
+const physicalTransportDiagnostics = load(physicalTransportDiagnosticsPath)
 const approvalPacketMarkdownRaw = existsSync(approvalPacketMarkdownPath) ? readFileSync(approvalPacketMarkdownPath, 'utf8') : ''
 const requirements = Array.isArray(audit?.requirements) ? audit.requirements : []
 const proved = requirements.filter((item) => item.status === 'proved')
@@ -136,7 +145,12 @@ function finalGateSummary() {
 function nextRequiredAction() {
   if (audit?.complete === true) return 'Goal can be marked complete after final evidence is reviewed.'
   if (physicalDeviceAudit?.completion_audit && physicalDeviceAudit.completion_audit !== 'passed') {
-    const blockers = Array.isArray(physicalDeviceAudit.blockers) ? physicalDeviceAudit.blockers.join(', ') : 'physical iOS proof unavailable'
+    const latestTransportBlockers = Array.isArray(physicalTransportDiagnostics?.blockers) ? physicalTransportDiagnostics.blockers : []
+    const auditBlockers = Array.isArray(physicalDeviceAudit.blockers) ? physicalDeviceAudit.blockers : []
+    const baseAuditBlockers = latestTransportBlockers.length > 0
+      ? auditBlockers.filter((blocker) => !transportBlockerNames.has(blocker))
+      : auditBlockers
+    const blockers = [...new Set([...baseAuditBlockers, ...latestTransportBlockers])].join(', ') || 'physical iOS proof unavailable'
     return `Clear physical sender iPhone readiness before live completion: ${blockers}. Run ${physicalDeviceAudit.readiness_command || 'cd ~/clapcheeks-local && scripts/prepare-device-control-readiness.sh 2'} after unlocking the secondary iPhone, connecting USB, trusting this computer, and enabling Developer Mode.`
   }
   const runtimeInboundMissing = unproved.some((item) => item.name === 'runtime inbound source of truth is reachable in no-send mode')
@@ -204,11 +218,25 @@ const status = {
   },
   physical_device_audit: {
     evidence_path: physicalDeviceAuditPath,
+    latest_transport_diagnostics_path: physicalTransportDiagnosticsPath,
     status: physicalDeviceAudit?.completion_audit || null,
     audit_log: physicalDeviceAudit?.audit_log || null,
     failed_checks: Array.isArray(physicalDeviceAudit?.failed_checks) ? physicalDeviceAudit.failed_checks : [],
-    blockers: Array.isArray(physicalDeviceAudit?.blockers) ? physicalDeviceAudit.blockers : [],
-    transport_visibility: physicalDeviceAudit?.transport_visibility || null,
+    audit_blockers: Array.isArray(physicalDeviceAudit?.blockers) ? physicalDeviceAudit.blockers : [],
+    blockers: (() => {
+      const auditBlockers = Array.isArray(physicalDeviceAudit?.blockers) ? physicalDeviceAudit.blockers : []
+      const latestTransportBlockers = Array.isArray(physicalTransportDiagnostics?.blockers) ? physicalTransportDiagnostics.blockers : []
+      const baseAuditBlockers = latestTransportBlockers.length > 0
+        ? auditBlockers.filter((blocker) => !transportBlockerNames.has(blocker))
+        : auditBlockers
+      return [...new Set([...baseAuditBlockers, ...latestTransportBlockers])]
+    })(),
+    transport_visibility: physicalTransportDiagnostics?.missing === true || physicalTransportDiagnostics?.parse_error
+      ? physicalDeviceAudit?.transport_visibility || null
+      : physicalTransportDiagnostics,
+    latest_transport_diagnostics: physicalTransportDiagnostics?.missing === true || physicalTransportDiagnostics?.parse_error
+      ? null
+      : physicalTransportDiagnostics,
     readiness_command: physicalDeviceAudit?.readiness_command || 'cd ~/clapcheeks-local && scripts/prepare-device-control-readiness.sh 2',
     physical_png_required: physicalDeviceAudit?.physical_png_required === true,
   },
