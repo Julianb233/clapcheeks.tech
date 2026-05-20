@@ -23,11 +23,53 @@ type OfflinePayload = {
   notes?: string | null
 }
 
+type MatchRecord = {
+  id?: string | null
+  _id?: string | null
+  external_id?: string | null
+  external_match_id?: string | null
+  match_id?: string | null
+}
+
 function normalizePhoneE164(raw: string): string | null {
   const digits = raw.replace(/\D+/g, '')
   if (digits.length === 10) return `+1${digits}`
   if (digits.length === 11 && digits.startsWith('1')) return `+${digits}`
   return null
+}
+
+function matchRecordId(row: MatchRecord | null | undefined): string | null {
+  const id = row?.id ?? row?._id
+  return typeof id === 'string' && id.trim() ? id : null
+}
+
+async function resolvePersistedMatch(
+  convex: unknown,
+  externalId: string,
+  initial: MatchRecord | null | undefined,
+): Promise<MatchRecord | null> {
+  if (matchRecordId(initial)) return initial ?? null
+
+  // Convex writes can return the upserted external fields without the document
+  // id. Resolve the persisted row so dashboard edit/archive links get a real id.
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    if (attempt > 0) {
+      await new Promise((resolve) => setTimeout(resolve, 150 * attempt))
+    }
+    const { data, error } = await (convex as any)
+      .from('clapcheeks_matches')
+      .select('id, _id, external_id, external_match_id, match_id')
+      .eq('external_id', externalId)
+      .maybeSingle()
+
+    if (error) {
+      console.warn('[offline-match] id resolve failed (non-fatal retry):', error)
+      continue
+    }
+    if (data && matchRecordId(data)) return data
+  }
+
+  return initial ?? null
 }
 
 export async function POST(req: Request) {
@@ -93,12 +135,24 @@ export async function POST(req: Request) {
   const { data: upserted, error: upsertError } = await (convex as any)
     .from('clapcheeks_matches')
     .upsert(row, { onConflict: 'user_id,platform,external_id' })
-    .select('id, external_id')
+    .select('id, _id, external_id, external_match_id, match_id')
     .single()
 
   if (upsertError) {
     return NextResponse.json(
       { error: 'Failed to create offline match', detail: upsertError.message },
+      { status: 500 },
+    )
+  }
+
+  const persistedMatch = await resolvePersistedMatch(convex, externalId, upserted)
+  const persistedMatchId = matchRecordId(persistedMatch)
+  if (!persistedMatchId) {
+    return NextResponse.json(
+      {
+        error: 'Created offline match but could not resolve editable match id',
+        external_id: externalId,
+      },
       { status: 500 },
     )
   }
@@ -142,7 +196,8 @@ export async function POST(req: Request) {
     {
       ok: true,
       match: {
-        id: upserted?.id,
+        id: persistedMatchId,
+        _id: persistedMatch?._id ?? persistedMatchId,
         external_id: externalId,
         name,
         phone_e164: phoneE164,

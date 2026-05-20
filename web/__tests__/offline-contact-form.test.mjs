@@ -8,6 +8,12 @@
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+const __dirname = dirname(fileURLToPath(import.meta.url))
+const offlineRouteSource = readFileSync(join(__dirname, '../app/api/matches/offline/route.ts'), 'utf8')
 
 // Same logic as in the route + component.
 function normalizePhoneE164(raw) {
@@ -63,4 +69,12 @@ test('missing name should fail validation (server-side)', () => {
 test('bad phone should fail normalization', () => {
   const payload = { name: 'Sarah', phone: 'abc' }
   assert.equal(normalizePhoneE164(payload.phone), null)
+})
+
+test('offline route resolves a persisted editable match id', () => {
+  assert.match(offlineRouteSource, /function matchRecordId/)
+  assert.match(offlineRouteSource, /row\?\._id/)
+  assert.match(offlineRouteSource, /function resolvePersistedMatch/)
+  assert.match(offlineRouteSource, /\.eq\('external_id', externalId\)/)
+  assert.match(offlineRouteSource, /id: persistedMatchId/)
 })
