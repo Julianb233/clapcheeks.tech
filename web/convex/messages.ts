@@ -301,6 +301,29 @@ export const upsertFromWebhook = mutation({
       }
     }
 
+    // AI-10022 — for outbound messages from a recently-fired preview touch,
+    // back-link source_touch_id so the closed-loop learner can diff the actual
+    // send vs the AI draft. 10-min lookup window matches the pending-row policy
+    // above. Match by person_id + outbound body equality (exact match — the
+    // commitPreview path writes the exact body the operator approved).
+    let sourceTouchId: Id<"scheduled_touches"> | undefined = undefined;
+    if (args.direction === "outbound" && resolvedPersonId) {
+      const tenMinAgo = args.sent_at - 10 * 60 * 1000;
+      const recentTouches = await ctx.db
+        .query("scheduled_touches")
+        .withIndex("by_person_status", (q) =>
+          q.eq("person_id", resolvedPersonId).eq("status", "fired"),
+        )
+        .order("desc")
+        .take(10);
+      const match = recentTouches.find(
+        (t) =>
+          (t.fired_at ?? 0) >= tenMinAgo &&
+          (t.draft_body ?? "").trim() === (args.body ?? "").trim(),
+      );
+      if (match) sourceTouchId = match._id;
+    }
+
     // 3. Insert message
     const messageId = await ctx.db.insert("messages", {
       conversation_id: convId,
@@ -316,6 +339,7 @@ export const upsertFromWebhook = mutation({
       send_error: args.send_error,
       ai_metadata: args.ai_metadata,
       person_id: resolvedPersonId,
+      ...(sourceTouchId ? { source_touch_id: sourceTouchId } : {}),
     });
 
     // 3b. Update people.last_inbound_at / last_outbound_at when linked.
@@ -704,5 +728,44 @@ export const unifiedThreadForPerson = query({
     const _handles_summary = Array.from(platformsSet);
 
     return { messages: sliced, _handles_summary };
+  },
+});
+
+
+// AI-10219 — patch a message row by Cloudinary cdnId. Used by the
+// voice-note transcription pipeline: capture-file watcher on the Mac
+// downloads via the captured signed URL, transcribes via Gemini, then
+// calls this mutation to replace the `[voice note Ns]` placeholder body
+// with the real transcript.
+//
+// Matches the first message with the given cdnId for this user (cdnId is
+// globally unique across Cloudinary so this is safe — the user_id filter
+// is defense-in-depth in case of cross-user collisions on legacy data).
+export const patchByCdnId = mutation({
+  args: {
+    user_id: v.string(),
+    cdnId: v.string(),
+    body: v.optional(v.string()),
+    transcript_source: v.optional(v.union(
+      v.literal("gemini-2.0-flash"),
+      v.literal("whisper-1"),
+      v.literal("manual"),
+    )),
+  },
+  handler: async (ctx, args) => {
+    const row = await ctx.db
+      .query("messages")
+      .withIndex("by_cdn_id", (q) => q.eq("cdnId", args.cdnId))
+      .filter((q) => q.eq(q.field("user_id"), args.user_id))
+      .first();
+    if (!row) return { not_found: true };
+    const patch: Record<string, unknown> = {};
+    if (args.body !== undefined) patch.body = args.body;
+    if (args.transcript_source !== undefined) patch.transcript_source = args.transcript_source;
+    if (Object.keys(patch).length === 0) {
+      return { _id: row._id, patched: false, reason: "no_fields" };
+    }
+    await ctx.db.patch(row._id, patch);
+    return { _id: row._id, patched: true, fields: Object.keys(patch) };
   },
 });
