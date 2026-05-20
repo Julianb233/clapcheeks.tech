@@ -97,6 +97,7 @@ test('status route names the current physical-ios readiness blocker', () => {
   assert.match(files.status, /device_control\.completion_audit/)
   assert.match(files.status, /const physicalIOSBlockers = latestPhysicalIOSBlockers\(latestCompletionAudit\)/)
   assert.match(files.status, /\.\.\.physicalIOSBlockers/)
+  assert.match(files.status, /transport_visibility: latestCompletionAudit\.transport_visibility/)
   assert.match(files.status, /latest_result: latestCompletionAudit/)
   assert.match(files.status, /sendbird: tokenHealth\.sendbird/)
   assert.match(files.devicePanel, /Hinge proxy capture/)

@@ -347,6 +347,7 @@ export async function GET() {
 
   return NextResponse.json({
     mode: 'observe_only_until_physical_iphone_screenshot_verified',
+    transport_visibility: latestCompletionAudit.transport_visibility,
     safety: {
       personal_line_blocked: true,
       live_swipes_require_approval: true,
