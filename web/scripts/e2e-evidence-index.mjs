@@ -18,6 +18,7 @@ const paths = {
   live_send_rehearsal: process.env.CLAPCHEEKS_LIVE_SEND_REHEARSAL || '/tmp/clapcheeks-live-send-rehearsal.json',
   approval_packet: process.env.CLAPCHEEKS_LIVE_SEND_APPROVAL_PACKET || '/tmp/clapcheeks-live-send-approval-packet-2026-05-18.json',
   approval_packet_markdown: process.env.CLAPCHEEKS_LIVE_SEND_APPROVAL_PACKET_MD || '/tmp/clapcheeks-live-send-approval-packet-2026-05-18.md',
+  production_cct: process.env.CLAPCHEEKS_PRODUCTION_CCT_LATEST || '/tmp/clapcheeks-production-cct-latest.json',
   completion: process.env.CLAPCHEEKS_COMPLETION_AUDIT || '/tmp/clapcheeks-completion-audit-2026-05-18.json',
   runbook: 'docs/e2e-live-send-runbook.md',
   audit_doc: 'docs/e2e-readiness-audit-2026-05-18.md',
@@ -60,6 +61,7 @@ const livePreflight = loadJson(paths.live_preflight)
 const sampleLivePreflight = loadJson(paths.sample_live_preflight)
 const liveSendRehearsal = loadJson(paths.live_send_rehearsal)
 const approvalPacket = loadJson(paths.approval_packet)
+const productionCct = loadJson(paths.production_cct)
 const sampleLivePreflightRaw = existsSync(paths.sample_live_preflight) ? readFileSync(paths.sample_live_preflight, 'utf8') : ''
 const approvalPacketMarkdownRaw = existsSync(paths.approval_packet_markdown) ? readFileSync(paths.approval_packet_markdown, 'utf8') : ''
 const sampleLivePreflightRawPhoneAbsent = !sampleLivePreflightRaw.includes(sampleRawPhone)
@@ -141,6 +143,7 @@ const requiredFreshArtifactKeys = [
   'live_send_rehearsal',
   'approval_packet',
   'approval_packet_markdown',
+  'production_cct',
   'completion',
 ]
 const requiredFreshArtifacts = [
@@ -251,6 +254,16 @@ const index = {
     local_browser_forbidden_fixture_present: localBrowser?.scheduled?.counts?.forbidden_fixture_present ?? null,
     local_browser_analytics_matches: localBrowser?.analytics?.summary?.matches ?? null,
     local_browser_analytics_conversations: localBrowser?.analytics?.summary?.conversations ?? null,
+    production_cct_ok: productionCct?.passed === productionCct?.total && Number(productionCct?.total || 0) > 0,
+    production_cct_checks_passed: productionCct?.passed ?? null,
+    production_cct_checks_total: productionCct?.total ?? null,
+    production_cct_no_live_send: productionCct?.noLiveOutboundSendPerformed === true,
+    production_cct_active_profiles: productionCct?.inventory?.total ?? null,
+    production_cct_hinge: productionCct?.inventory?.hinge ?? null,
+    production_cct_hinge_with_images: productionCct?.inventory?.hingeWithImages ?? null,
+    production_cct_generic_names: productionCct?.inventory?.genericNames ?? null,
+    production_cct_fixture_archived: productionCct?.fixture?.archiveStatus === 200,
+    production_cct_report_path: productionCct?.outDir ? `${productionCct.outDir}/report.json` : paths.production_cct,
     dashboard_navigation_integrity: browser?.checks?.dashboard_navigation_integrity === true,
     dashboard_health_blockers_quick_view: browser?.checks?.dashboard_health_blockers_quick_view === true,
     dashboard_health_blockers_expected: browser?.checks?.dashboard_health_blockers?.expected_blockers || [],
@@ -412,6 +425,28 @@ const index = {
       analytics_summary: localBrowser.analytics?.summary || null,
       assertions: localBrowser.assertions || null,
     } : null,
+    production_cct: productionCct ? {
+      evidence_path: paths.production_cct,
+      out_dir: productionCct.outDir || null,
+      base_url: productionCct.baseUrl || null,
+      ok: productionCct.passed === productionCct.total && Number(productionCct.total || 0) > 0,
+      passed: productionCct.passed ?? null,
+      total: productionCct.total ?? null,
+      no_live_outbound_send_performed: productionCct.noLiveOutboundSendPerformed === true,
+      inventory: productionCct.inventory || null,
+      fixture: productionCct.fixture ? {
+        id: productionCct.fixture.id || null,
+        status: productionCct.fixture.status ?? null,
+        patchStatus: productionCct.fixture.patchStatus ?? null,
+        archiveStatus: productionCct.fixture.archiveStatus ?? null,
+      } : null,
+      screenshots: Array.isArray(productionCct.pages)
+        ? productionCct.pages.filter((page) => page.screenshotPath).map((page) => page.screenshotPath)
+        : [],
+      failed_checks: Array.isArray(productionCct.checks)
+        ? productionCct.checks.filter((check) => check.pass !== true).map((check) => check.name)
+        : [],
+    } : null,
     live_preflight: livePreflight ? {
       ok_to_run_live_harness: livePreflight.ok_to_run_live_harness === true,
       no_send_performed: livePreflight.no_send_performed === true,
@@ -504,6 +539,7 @@ const index = {
     'npm run test:e2e:live:approval-packet',
     'npm run test:e2e:live:sample-preflight',
     'npm run test:e2e:live:rehearsal',
+    'npm run test:e2e:production-cct',
     'npm run test:e2e:status',
     'npm run test:e2e:audit',
     'npm exec -- node --test __tests__/*.test.mjs',
@@ -527,6 +563,9 @@ if (index.evidence_highlights.browser_screenshots) {
 }
 if (index.evidence_highlights.mobile_metrics) {
   console.log(`Mobile metrics: count=${index.evidence_highlights.mobile_metrics.count} overflow_free=${index.evidence_highlights.mobile_metrics.overflow_free}`)
+}
+if (index.evidence_highlights.production_cct) {
+  console.log(`Production CCT: ok=${index.evidence_highlights.production_cct.ok} checks=${index.evidence_highlights.production_cct.passed}/${index.evidence_highlights.production_cct.total} profiles=${index.evidence_highlights.production_cct.inventory?.total ?? 'n/a'} hinge_images=${index.evidence_highlights.production_cct.inventory?.hingeWithImages ?? 'n/a'}/${index.evidence_highlights.production_cct.inventory?.hinge ?? 'n/a'} generic=${index.evidence_highlights.production_cct.inventory?.genericNames ?? 'n/a'} no_send=${index.evidence_highlights.production_cct.no_live_outbound_send_performed}`)
 }
 if (index.evidence_highlights.scheduled_live_preflight_gate) {
   console.log(`Scheduled live gate: blocked_by_preflight=${index.evidence_highlights.scheduled_live_preflight_gate.ok} no_send=${index.evidence_highlights.scheduled_live_preflight_gate.no_send_performed} missing=${index.evidence_highlights.scheduled_live_preflight_gate.missing.length}`)

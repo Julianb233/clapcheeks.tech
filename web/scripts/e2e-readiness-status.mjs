@@ -14,6 +14,7 @@ const backendDoctorPath = process.env.CLAPCHEEKS_BACKEND_DOCTOR_EVIDENCE || '/tm
 const evidenceIndexPath = process.env.CLAPCHEEKS_EVIDENCE_INDEX || '/tmp/clapcheeks-e2e-evidence-index-2026-05-18.json'
 const approvalPacketPath = process.env.CLAPCHEEKS_LIVE_SEND_APPROVAL_PACKET || '/tmp/clapcheeks-live-send-approval-packet-2026-05-18.json'
 const approvalPacketMarkdownPath = process.env.CLAPCHEEKS_LIVE_SEND_APPROVAL_PACKET_MD || '/tmp/clapcheeks-live-send-approval-packet-2026-05-18.md'
+const productionCctPath = process.env.CLAPCHEEKS_PRODUCTION_CCT_LATEST || '/tmp/clapcheeks-production-cct-latest.json'
 const runbookPath = 'docs/e2e-live-send-runbook.md'
 const sampleRawPhone = '+17578312944'
 const sampleRawBody = 'Safe ClapCheeks no-send preflight for 757 sample. Do not reply.'
@@ -40,6 +41,7 @@ const inboundRepair = load(inboundRepairPath)
 const backendDoctor = load(backendDoctorPath)
 const evidenceIndex = load(evidenceIndexPath)
 const approvalPacket = load(approvalPacketPath)
+const productionCct = load(productionCctPath)
 const approvalPacketMarkdownRaw = existsSync(approvalPacketMarkdownPath) ? readFileSync(approvalPacketMarkdownPath, 'utf8') : ''
 const requirements = Array.isArray(audit?.requirements) ? audit.requirements : []
 const proved = requirements.filter((item) => item.status === 'proved')
@@ -162,6 +164,23 @@ const status = {
     messages_db_verified: live?.messages_db_verified === true,
     required_permission: live?.required_permission || 'SEND LIVE TO JULIAN',
     missing: live?.missing || [],
+  },
+  production_cct: {
+    evidence_path: productionCctPath,
+    ok: productionCct?.passed === productionCct?.total && Number(productionCct?.total || 0) > 0,
+    passed: productionCct?.passed ?? null,
+    total: productionCct?.total ?? null,
+    no_live_outbound_send_performed: productionCct?.noLiveOutboundSendPerformed === true,
+    inventory: productionCct?.inventory || null,
+    fixture: productionCct?.fixture ? {
+      id: productionCct.fixture.id || null,
+      status: productionCct.fixture.status ?? null,
+      patchStatus: productionCct.fixture.patchStatus ?? null,
+      archiveStatus: productionCct.fixture.archiveStatus ?? null,
+    } : null,
+    failed_checks: Array.isArray(productionCct?.checks)
+      ? productionCct.checks.filter((check) => check.pass !== true).map((check) => check.name)
+      : [],
   },
   live_preflight: {
     evidence_path: livePreflightPath,
@@ -437,6 +456,7 @@ console.log(`Runtime terminal proof: ok=${status.runtime_smoke.inbound_terminal_
 console.log(`Inbound repair harness: ok=${status.inbound_repair.ok} launchd_ready=${status.inbound_repair.launchd_ready} terminal=${status.inbound_repair.terminal_proof_ok} blocker=${status.inbound_repair.remaining_blocker ?? 'none'} no_send=${status.inbound_repair.no_send}`)
 console.log(`Inbound repair TCC: python_authorized=${status.inbound_repair.tcc_python_authorized} denied_or_off=${status.inbound_repair.tcc_python_denied_or_off} rows=${status.inbound_repair.tcc_python_row_count ?? 'n/a'} real_python=${status.inbound_repair.real_python ?? 'n/a'}`)
 console.log(`Live evidence: ${liveEvidencePath}`)
+console.log(`Production CCT: ok=${status.production_cct.ok} checks=${status.production_cct.passed ?? 'n/a'}/${status.production_cct.total ?? 'n/a'} profiles=${status.production_cct.inventory?.total ?? 'n/a'} hinge_images=${status.production_cct.inventory?.hingeWithImages ?? 'n/a'}/${status.production_cct.inventory?.hinge ?? 'n/a'} generic=${status.production_cct.inventory?.genericNames ?? 'n/a'} no_send=${status.production_cct.no_live_outbound_send_performed}`)
 console.log(`Runbook: ${runbookPath}`)
 console.log(`Next: ${status.next_required_action}`)
 console.log('')

@@ -6,6 +6,7 @@ import path from 'node:path'
 const baseUrl = (process.env.CLAPCHEEKS_PRODUCTION_CCT_BASE_URL || 'https://clapcheeks.tech').replace(/\/$/, '')
 const chromeDebugUrl = (process.env.CLAPCHEEKS_CCT_DEBUG_URL || 'http://127.0.0.1:9223').replace(/\/$/, '')
 const outputRoot = process.env.CLAPCHEEKS_PRODUCTION_CCT_OUTPUT_DIR || '/tmp'
+const latestReportPath = process.env.CLAPCHEEKS_PRODUCTION_CCT_LATEST || '/tmp/clapcheeks-production-cct-latest.json'
 const ts = new Date().toISOString().replace(/[:.]/g, '-')
 const outDir = path.join(outputRoot, `clapcheeks-prod-current-cct-${ts}`)
 const reportPath = path.join(outDir, 'report.json')
@@ -446,9 +447,11 @@ async function main() {
       noLiveOutboundSendPerformed: true,
     }
     writeFileSync(reportPath, JSON.stringify(report, null, 2))
+    writeFileSync(latestReportPath, JSON.stringify(report, null, 2))
 
     const summary = {
       reportPath,
+      latestReportPath,
       passed: report.passed,
       total: report.total,
       failed: checks.filter((check) => !check.pass),
@@ -471,10 +474,12 @@ async function main() {
 main().catch((error) => {
   const failure = {
     reportPath,
+    latestReportPath,
     error: error instanceof Error ? error.message : String(error),
     noLiveOutboundSendPerformed: true,
   }
   writeFileSync(reportPath, JSON.stringify(failure, null, 2))
+  writeFileSync(latestReportPath, JSON.stringify(failure, null, 2))
   console.error(JSON.stringify(failure, null, 2))
   process.exit(1)
 })
