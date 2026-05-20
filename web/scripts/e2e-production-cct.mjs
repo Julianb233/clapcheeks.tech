@@ -35,7 +35,7 @@ const routes = [
   '/support',
 ]
 
-const screenshotRoutes = new Set(['/dashboard', '/matches', '/leads', '/communications', '/device'])
+const screenshotRoutes = new Set(['/dashboard', '/matches', '/dashboard/roster', '/leads', '/communications', '/device'])
 const archivedStatuses = new Set(['archived', 'hidden', 'deleted', 'archived_cluster_dupe'])
 const imageFields = ['profile_image', 'profile_image_url', 'image_url', 'photo_url', 'primary_photo_url', 'avatar_url']
 const keyApis = {
@@ -106,6 +106,7 @@ function deviceStatusSummary(body) {
     latest_transport_diagnostics_status: physical.latest_transport_diagnostics?.status || null,
     latest_transport_diagnostics_source: physical.latest_transport_diagnostics?.source || null,
     telemetry_event_id: physical.latest_transport_diagnostics?.telemetry_event_id || null,
+    transport_blockers: Array.isArray(transport.blockers) ? transport.blockers : [],
   }
 }
 
@@ -257,6 +258,25 @@ async function pageProof(client, route) {
         internalLinks: anchors
           .filter((anchor) => anchor.href.startsWith(${JSON.stringify(baseUrl)}) && !anchor.href.includes('/api/') && !anchor.href.includes('/_next/'))
           .map((anchor) => ({ ...anchor, pathname: new URL(anchor.href).pathname })),
+        dashboardHealth: location.pathname === '/dashboard'
+          ? {
+              visible: text.includes('Health check'),
+              noRuntimeBlockers: text.includes('No runtime blockers found.'),
+              refreshButton: Boolean(document.querySelector('button[aria-label="Refresh health check"]')),
+              mentionsRuntime: text.includes('Live runtime, Convex, billing, and watcher status.'),
+            }
+          : null,
+        rosterControls: location.pathname === '/dashboard/roster'
+          ? {
+              searchInput: Boolean(document.querySelector('input[aria-label="Search roster"]')),
+              searchPlaceholder: Boolean(document.querySelector('input[placeholder*="Search roster"]')),
+              favoritesButton: [...document.querySelectorAll('button')].some((button) => (button.innerText || '').includes('Favorites')),
+              atRiskButton: [...document.querySelectorAll('button')].some((button) => (button.innerText || '').includes('At-risk health')),
+              clearButtonInitiallyHidden: ![...document.querySelectorAll('button')].some((button) => (button.innerText || '').trim() === 'Clear'),
+              cardCount: document.querySelectorAll('[data-testid="roster-card"]').length,
+              kanbanVisible: Boolean(document.querySelector('[data-testid="roster-kanban"]')),
+            }
+          : null,
         textExcerpt: text.slice(0, 1000),
       }
     })()`,
@@ -385,6 +405,11 @@ async function main() {
     })
 
     const deviceSummary = deviceStatusSummary(apis.device.body)
+    const dashboardPage = pages.find((page) => page.route === '/dashboard')
+    const rosterPage = pages.find((page) => page.route === '/dashboard/roster')
+    const dashboardHealth = dashboardPage?.dashboardHealth || {}
+    const rosterControls = rosterPage?.rosterControls || {}
+    const transportBlockers = deviceSummary.transport_blockers || []
     const checks = [
       {
         name: 'all target routes load authenticated',
@@ -429,11 +454,27 @@ async function main() {
         pass: Boolean(deviceSummary.topology) && Boolean(deviceSummary.blockers?.length),
       },
       {
-        name: 'device status uses fresh transport telemetry source',
+        name: 'device status uses latest transport telemetry source',
         pass: deviceSummary.latest_blockers_source === 'latest_transport_diagnostics_json' &&
           deviceSummary.latest_transport_diagnostics_status === 'loaded' &&
-          deviceSummary.ios_deploy_bound_udid_visible === true &&
-          !deviceSummary.blockers.includes('ios_deploy_no_bound_udid'),
+          Array.isArray(deviceSummary.blockers) &&
+          Array.isArray(transportBlockers) &&
+          transportBlockers.every((blocker) => deviceSummary.blockers.includes(blocker)),
+      },
+      {
+        name: 'dashboard health card renders live service status',
+        pass: dashboardHealth.visible === true &&
+          dashboardHealth.refreshButton === true &&
+          dashboardHealth.mentionsRuntime === true,
+      },
+      {
+        name: 'roster search and filter controls render',
+        pass: rosterControls.kanbanVisible === true &&
+          rosterControls.searchInput === true &&
+          rosterControls.searchPlaceholder === true &&
+          rosterControls.favoritesButton === true &&
+          rosterControls.atRiskButton === true &&
+          typeof rosterControls.cardCount === 'number',
       },
     ]
 

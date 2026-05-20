@@ -21,6 +21,7 @@ const files = {
   packageJson: readFileSync('package.json', 'utf8'),
   browserVisualScript: readFileSync('scripts/e2e-browser-visual-safe.sh', 'utf8'),
   browserVisualCctScript: readFileSync('scripts/e2e-browser-visual-cct.mjs', 'utf8'),
+  productionCctScript: readFileSync('scripts/e2e-production-cct.mjs', 'utf8'),
   completionAuditScript: readFileSync('scripts/e2e-completion-audit.mjs', 'utf8'),
   liveSendEvidenceScript: readFileSync('scripts/e2e-live-send-evidence.mjs', 'utf8'),
   liveSendApprovalPacketScript: readFileSync('scripts/e2e-live-send-approval-packet.mjs', 'utf8'),
@@ -1039,4 +1040,16 @@ test('browser visual proof records durable mobile viewport metrics', () => {
   assert.match(files.completionAuditScript, /mobile_metrics_overflow_free/)
   assert.match(files.completionAuditScript, /mobile_metrics/)
   assert.match(files.completionAuditScript, /dashboard_health_blockers_quick_view/)
+})
+
+test('production CCT proof covers dashboard health, roster controls, and current transport blockers', () => {
+  assert.match(files.productionCctScript, /dashboard health card renders live service status/)
+  assert.match(files.productionCctScript, /roster search and filter controls render/)
+  assert.match(files.productionCctScript, /Refresh health check/)
+  assert.match(files.productionCctScript, /Search roster/)
+  assert.match(files.productionCctScript, /Favorites/)
+  assert.match(files.productionCctScript, /At-risk health/)
+  assert.match(files.productionCctScript, /device status uses latest transport telemetry source/)
+  assert.match(files.productionCctScript, /transportBlockers\.every/)
+  assert.doesNotMatch(files.productionCctScript, /ios_deploy_bound_udid_visible === true/)
 })
