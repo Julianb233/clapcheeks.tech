@@ -97,12 +97,32 @@ export default defineSchema({
     // so message-level queries (e.g. cadence runner reading "last 30 messages with this person")
     // don't require a join.
     person_id: v.optional(v.id("people")),
+    // AI-10022 — back-link from a sent message to the scheduled_touch it came from.
+    // Set when commitPreview → fireOne records the outbound. Powers diff tracking +
+    // post-hoc voice-feedback ingestion.
+    source_touch_id: v.optional(v.id("scheduled_touches")),
+    // AI-10219 — Hinge voice-note transcription. For type=FILE SendBird messages
+    // mirrored into Convex, `cdnId` is the Cloudinary resource id parsed from the
+    // SendBird file.data ("cdnId":"<long-hex>/<short-id>"). A capture-file watcher
+    // pairs newly-captured signed URLs with the matching message row by cdnId,
+    // downloads via the Cloudinary __cld_token__, transcribes via Gemini 2.0
+    // Flash, then patches `body` with the transcript via messages:patchByCdnId.
+    cdnId: v.optional(v.string()),
+    transcript_source: v.optional(v.union(
+      v.literal("gemini-2.0-flash"),
+      v.literal("whisper-1"),
+      v.literal("manual"),
+    )),
+    // AI-10219 — voice-note duration in seconds, parsed from SendBird file.data.
+    voice_note_seconds: v.optional(v.number()),
   })
     .index("by_conversation", ["conversation_id", "sent_at"])
     .index("by_user_recent", ["user_id", "sent_at"])
     .index("by_line_recent", ["line", "sent_at"])              // AI-9409: per-line feed
     .index("by_external_guid", ["external_guid"])              // AI-9409: dedup lookup
-    .index("by_person_recent", ["person_id", "sent_at"]),      // AI-9449: cross-channel message feed
+    .index("by_person_recent", ["person_id", "sent_at"])       // AI-9449: cross-channel message feed
+    .index("by_source_touch", ["source_touch_id"])             // AI-10022: touch → sent-message lookup
+    .index("by_cdn_id", ["cdnId"]),                             // AI-10219: voice-note transcription pairing
 
   // Replaces public.clapcheeks_scheduled_messages on Postgres.
   scheduled_messages: defineTable({
@@ -826,6 +846,33 @@ export default defineSchema({
     // touch was scheduled (or "skipped" sentinel "-1") so the 6h sweep cron can
     // detect un-processed soft_no touches without re-querying scheduled_touches.
     recovery_scheduled_at: v.optional(v.number()),
+    // AI-10022 — closed-loop feedback learning.
+    // draft_original is the immutable first AI draft (preserved across edits).
+    // draft_insights is the "why this draft?" blob the daemon attaches when it drafts.
+    // operator_feedback is the freeform critique Julian gave before regenerating.
+    // edit_diff_chars is |edited - original| char count, computed at commitPreview.
+    draft_original: v.optional(v.string()),
+    draft_insights: v.optional(v.object({
+      time_gap_hours: v.optional(v.number()),
+      last_inbound_at: v.optional(v.number()),
+      last_outbound_at: v.optional(v.number()),
+      rag_citations: v.optional(v.array(v.object({
+        text: v.string(),
+        score: v.number(),
+      }))),
+      callback_topics: v.optional(v.array(v.string())),
+      cadence_rule_applied: v.optional(v.string()),
+      hard_rules_checked: v.optional(v.object({
+        callback: v.boolean(),
+        emotion_match: v.boolean(),
+        specific_question: v.boolean(),
+        no_pivot_to_julian: v.boolean(),
+      })),
+      template_reasoning: v.optional(v.string()),
+      voice_corpus_used: v.optional(v.number()),
+    })),
+    operator_feedback: v.optional(v.string()),
+    edit_diff_chars: v.optional(v.number()),
     created_at: v.number(),
     updated_at: v.number(),
   })
@@ -1621,4 +1668,38 @@ export default defineSchema({
   })
     .index("by_user_date", ["user_id", "date"])
     .index("by_user_category", ["user_id", "category"]),
+
+  // -----------------------------------------------------------------------
+  // AI-10022 — Closed-loop voice learning from operator edits.
+  // Every time Julian edits a draft before sending, the daemon ingests
+  // (draft_original, final_sent_body) into this table with an edit_kind
+  // classification + embedding. Future drafts query similar past edits
+  // to bias the system prompt toward Julian's actual voice trajectory.
+  // -----------------------------------------------------------------------
+  voice_feedback_corpus: defineTable({
+    user_id: v.string(),
+    text: v.string(),                                 // the final sent body
+    draft_original: v.string(),                       // what AI drafted first
+    edit_kind: v.union(
+      v.literal("minor"),
+      v.literal("tone_shift"),
+      v.literal("rewrite"),
+      v.literal("shortened"),
+      v.literal("lengthened"),
+    ),
+    recipient_class: v.string(),                      // "dating" | "platonic" | "professional" | etc.
+    source_touch_id: v.optional(v.id("scheduled_touches")),
+    operator_feedback: v.optional(v.string()),        // freeform critique recorded at regenerate time
+    sent_at: v.number(),
+    embedding: v.optional(v.array(v.float64())),      // 3072-dim, text-embedding-3-large
+    insights_snapshot: v.optional(v.any()),           // copy of draft_insights at commit time
+    created_at: v.number(),
+  })
+    .index("by_user_recent", ["user_id", "sent_at"])
+    .index("by_recipient_class", ["recipient_class", "sent_at"])
+    .vectorIndex("by_embedding", {
+      vectorField: "embedding",
+      dimensions: 3072,
+      filterFields: ["user_id", "recipient_class"],
+    }),
 });
