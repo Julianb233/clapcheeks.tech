@@ -74,6 +74,20 @@ type SendBirdReadiness = {
   capture_status: SendBirdCaptureStatus | null
 }
 
+type SendBirdTelemetryEvent = {
+  data?: Record<string, unknown>
+  occurred_at?: number
+  ts?: number
+}
+
+type SendBirdReadinessCandidate = {
+  readiness: SendBirdReadiness
+  updatedMs: number | null
+  ageMs: number | null
+  configured: boolean
+  fresh: boolean
+}
+
 function localSendBirdSessionPresent() {
   const appId = process.env.SENDBIRD_APP_ID
   const userId = process.env.SENDBIRD_USER_ID
@@ -219,68 +233,81 @@ async function remoteSendBirdReadiness(userId: string): Promise<SendBirdReadines
   const userIds = [userId, defaultTelemetryUserId()].filter(
     (value, index, all) => value && all.indexOf(value) === index,
   )
-  let staleReadiness: SendBirdReadiness | null = null
+  const candidates: SendBirdReadinessCandidate[] = []
   for (const telemetryUserId of userIds) {
     try {
-      const events = await convexQuery<Array<{ data?: Record<string, unknown>; occurred_at?: number; ts?: number }>>(
+      const events = await convexQuery<SendBirdTelemetryEvent[]>(
         'telemetry:listEventsForUser',
         {
           user_id: telemetryUserId,
           event_type: SENDBIRD_STATUS_EVENT_TYPE,
-          limit: 1,
+          limit: 10,
         },
       )
-      const event = Array.isArray(events) ? events[0] : null
-      const data = event?.data
-      if (!data || typeof data !== 'object') continue
-      const updatedMs = coerceUpdatedAt(data.updated_at_ms) || coerceUpdatedAt(event?.occurred_at) || coerceUpdatedAt(event?.ts)
-      const ageMs = updatedMs ? Date.now() - updatedMs : null
-      if (ageMs === null || ageMs > SENDBIRD_REMOTE_STALE_MS) {
-        staleReadiness = {
-          present: false,
-          mode: 'missing',
-          source: 'convex.telemetry',
-          updated_at: updatedMs ? new Date(updatedMs).toISOString() : null,
-          age_minutes: ageMs === null ? null : Math.round(ageMs / 600) / 100,
-          missing: ['Fresh SendBird runtime telemetry'],
-          capture_status: coerceSendBirdCaptureStatus(data.capture_status),
-        }
-        continue
-      }
-      const appIdPresent = data.app_id_present === true
-      const userIdPresent = data.user_id_present === true
-      const sessionKeyPresent = data.session_key_present === true
-      const apiTokenPresent = data.api_token_present === true
-      const hasApiToken = appIdPresent && apiTokenPresent
-      const hasClientSession = appIdPresent && userIdPresent && sessionKeyPresent
-      const mode = hasApiToken
-        ? 'api_token'
-        : hasClientSession
-          ? 'client_session'
-          : 'missing'
-      const missing = hasApiToken || hasClientSession
-        ? []
-        : apiTokenPresent
-          ? (appIdPresent ? [] : ['SENDBIRD_APP_ID'])
-          : [
-              appIdPresent ? null : 'SENDBIRD_APP_ID',
-              userIdPresent ? null : 'SENDBIRD_USER_ID',
-              sessionKeyPresent ? null : 'SENDBIRD_SESSION_KEY',
-            ].filter(Boolean) as string[]
-      return {
-        present: data.present === true || hasApiToken || hasClientSession,
-        mode,
-        source: 'convex.telemetry',
-        updated_at: updatedMs ? new Date(updatedMs).toISOString() : null,
-        age_minutes: ageMs === null ? null : Math.round(ageMs / 600) / 100,
-        missing: missing.length > 0 ? missing : ['SENDBIRD_API_TOKEN or captured SendBird client session'],
-        capture_status: coerceSendBirdCaptureStatus(data.capture_status),
+      for (const event of Array.isArray(events) ? events : []) {
+        const candidate = sendBirdReadinessFromTelemetryEvent(event)
+        if (candidate) candidates.push(candidate)
       }
     } catch {
       continue
     }
   }
-  return staleReadiness
+  return selectFreshConfiguredSendBirdReadiness(candidates)
+}
+
+function sendBirdReadinessFromTelemetryEvent(event: SendBirdTelemetryEvent): SendBirdReadinessCandidate | null {
+  const data = event.data
+  if (!data || typeof data !== 'object') return null
+  const updatedMs = coerceUpdatedAt(data.updated_at_ms) || coerceUpdatedAt(event.occurred_at) || coerceUpdatedAt(event.ts)
+  const ageMs = updatedMs ? Date.now() - updatedMs : null
+  const captureStatus = coerceSendBirdCaptureStatus(data.capture_status)
+  const appIdPresent = data.app_id_present === true
+  const userIdPresent = data.user_id_present === true
+  const sessionKeyPresent = data.session_key_present === true
+  const apiTokenPresent = data.api_token_present === true
+  const hasApiToken = appIdPresent && apiTokenPresent
+  const hasClientSession = appIdPresent && userIdPresent && sessionKeyPresent
+  const configured = hasApiToken || hasClientSession
+  const mode = hasApiToken
+    ? 'api_token'
+    : hasClientSession
+      ? 'client_session'
+      : 'missing'
+  const missing = configured
+    ? []
+    : apiTokenPresent
+      ? (appIdPresent ? [] : ['SENDBIRD_APP_ID'])
+      : [
+          appIdPresent ? null : 'SENDBIRD_APP_ID',
+          userIdPresent ? null : 'SENDBIRD_USER_ID',
+          sessionKeyPresent ? null : 'SENDBIRD_SESSION_KEY',
+        ].filter(Boolean) as string[]
+  const fresh = ageMs !== null && ageMs <= SENDBIRD_REMOTE_STALE_MS
+  return {
+    updatedMs,
+    ageMs,
+    configured,
+    fresh,
+    readiness: {
+      present: data.present === true || configured,
+      mode,
+      source: 'convex.telemetry',
+      updated_at: updatedMs ? new Date(updatedMs).toISOString() : null,
+      age_minutes: ageMs === null ? null : Math.round(ageMs / 600) / 100,
+      missing: fresh ? missing : ['Fresh SendBird runtime telemetry'],
+      capture_status: captureStatus,
+    },
+  }
+}
+
+function selectFreshConfiguredSendBirdReadiness(candidates: SendBirdReadinessCandidate[]): SendBirdReadiness | null {
+  if (candidates.length === 0) return null
+  const newestFirst = [...candidates].sort((a, b) => (b.updatedMs || 0) - (a.updatedMs || 0))
+  const configured = newestFirst.find((candidate) => candidate.fresh && candidate.configured)
+  if (configured) return configured.readiness
+  const fresh = newestFirst.find((candidate) => candidate.fresh)
+  if (fresh) return fresh.readiness
+  return newestFirst[0].readiness
 }
 
 function platformStatus(

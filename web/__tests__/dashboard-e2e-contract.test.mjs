@@ -460,6 +460,8 @@ test('safe readiness verifier checks dashboard runtime health contract without l
   assert.match(files.tokenHealthLib, /SendBird missing/)
   assert.match(files.tokenHealthLib, /runtime\.sendbird_status/)
   assert.match(files.tokenHealthLib, /telemetry:listEventsForUser/)
+  assert.match(files.tokenHealthLib, /limit: 10/)
+  assert.match(files.tokenHealthLib, /selectFreshConfiguredSendBirdReadiness/)
   assert.match(files.tokenHealthLib, /capture_status/)
   assert.match(files.tokenHealthLib, /waiting_for_hinge_chat/)
   assert.match(files.tokenHealthLib, /Hinge proxy is running and waiting for chat capture/)
