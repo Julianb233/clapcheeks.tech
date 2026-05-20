@@ -248,6 +248,10 @@ test('status route exposes the runtime line-2 physical-ios binding', () => {
   assert.match(files.status, /selected_line: 2/)
   assert.match(files.status, /selected_phone: '\+16199919355'/)
   assert.match(files.status, /selected_udid: '00008150-00093C9C3C7A401C'/)
+  assert.match(files.status, /device_topology/)
+  assert.match(files.status, /sender_device: 'secondary_iPhone'/)
+  assert.match(files.status, /operator_device: 'iPad_or_dashboard_browser'/)
+  assert.match(files.status, /Use the secondary iPhone with the other number/)
 })
 
 
@@ -324,6 +328,10 @@ test('device page renders observe-only physical proof controls without live acti
   assert.match(files.devicePanel, /physical_ios_live_actions_enabled/)
   assert.match(files.devicePanel, /physical_ios_appium_xcuitest/)
   assert.match(files.devicePanel, /Default:/)
+  assert.match(files.devicePanel, /Sender device topology/)
+  assert.match(files.devicePanel, /deviceTopology/)
+  assert.match(files.devicePanel, /review edit approve monitor/)
+  assert.match(files.devicePanel, /Secondary iPhone/)
   assert.doesNotMatch(files.devicePanel, /\/api\/device-control\/action/)
   assert.doesNotMatch(files.devicePanel, /confirm_live_action/)
 })

@@ -16,6 +16,15 @@ type DeviceControlStatus = {
     selected_phone?: string
     selected_udid?: string
     selected_device?: string
+    device_topology?: {
+      sender_device?: string
+      sender_device_label?: string
+      sender_number?: string
+      operator_device?: string
+      operator_role?: string
+      recommendation?: string
+      rationale?: string[]
+    }
     observed_connection?: string
     current_blocker?: string
     latest_known_blockers?: string[]
@@ -220,6 +229,7 @@ export function DeviceControlPanel() {
   const liveActionGate = status?.live_action_gate
   const liveActionGateEnabled = liveActionGate?.physical_ios_live_actions_enabled === true
   const transportVisibility = status?.physical_ios?.transport_visibility || status?.completion_audit?.latest_result?.transport_visibility
+  const deviceTopology = status?.physical_ios?.device_topology
   const sendBirdCapture = status?.sendbird?.capture_status
   const sendBirdCaptureReady = status?.sendbird?.present === true
   const sendBirdCaptureUpdated = sendBirdCapture?.snapshot_mtime_ms
@@ -335,6 +345,44 @@ export function DeviceControlPanel() {
                 <span className="min-w-0 break-words">{status?.physical_ios?.next_step || "Enable Developer Mode on the iPhone, approve restart, and confirm after boot."}</span>
               </div>
             </div>
+
+            {deviceTopology ? (
+              <div className="mt-3 min-w-0 rounded-lg border border-brand-300/20 bg-brand-300/10 p-3">
+                <div className="text-[10px] uppercase tracking-widest text-brand-100/70">Sender device topology</div>
+                <div className="mt-2 text-sm font-medium leading-relaxed text-white">
+                  {deviceTopology.recommendation || "Use the secondary iPhone for sending and the iPad/dashboard for review and approval."}
+                </div>
+                <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                  <div className="min-w-0 rounded-md bg-black/25 px-3 py-2">
+                    <div className="text-[10px] uppercase tracking-widest text-white/30">Sender</div>
+                    <div className="mt-1 break-words text-xs text-white/60">
+                      {deviceTopology.sender_device_label || status?.physical_ios?.selected_device || "Secondary iPhone"}
+                    </div>
+                    <div className="mt-1 break-words text-[11px] text-white/40">
+                      {deviceTopology.sender_number || status?.physical_ios?.selected_phone || "line 2"}
+                    </div>
+                  </div>
+                  <div className="min-w-0 rounded-md bg-black/25 px-3 py-2">
+                    <div className="text-[10px] uppercase tracking-widest text-white/30">Operator</div>
+                    <div className="mt-1 break-words text-xs text-white/60">
+                      {(deviceTopology.operator_device || "iPad or dashboard browser").replace(/_/g, " ")}
+                    </div>
+                    <div className="mt-1 break-words text-[11px] text-white/40">
+                      {(deviceTopology.operator_role || "review edit approve monitor").replace(/_/g, " ")}
+                    </div>
+                  </div>
+                </div>
+                {deviceTopology.rationale?.length ? (
+                  <div className="mt-3 grid gap-1.5">
+                    {deviceTopology.rationale.slice(0, 4).map((reason) => (
+                      <div key={reason} className="text-xs leading-relaxed text-white/50">
+                        {reason}
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
 
             {readinessBlockers.length > 0 ? (
               <div className="mt-3 min-w-0 rounded-lg border border-white/10 bg-white/[0.035] p-3">
