@@ -8,6 +8,7 @@ const files = {
   compat: readFileSync('lib/convex/compat-client.ts', 'utf8'),
   actions: readFileSync('app/auth/actions.ts', 'utf8'),
   mainLayout: readFileSync('app/(main)/layout.tsx', 'utf8'),
+  middleware: readFileSync('middleware.ts', 'utf8'),
 }
 
 test('server auth uses a signed operator session cookie instead of default user auth', () => {
@@ -39,4 +40,10 @@ test('Convex facade no longer treats password or OAuth auth as an automatic succ
   assert.match(files.compat, /Google app login is not configured/)
   assert.doesNotMatch(files.compat, /signInWithPassword: async \(_data: any\) => \(\{ data: \{ user: DEFAULT_USER \}/)
   assert.doesNotMatch(files.compat, /exchangeCodeForSession: async \(_code: string\) => \(\{ data: \{ session: \{ user: DEFAULT_USER \}/)
+})
+
+test('middleware leaves Vercel analytics internals alone', () => {
+  assert.match(files.middleware, /_vercel\/insights/)
+  assert.match(files.middleware, /_next\/static/)
+  assert.match(files.middleware, /_next\/image/)
 })
