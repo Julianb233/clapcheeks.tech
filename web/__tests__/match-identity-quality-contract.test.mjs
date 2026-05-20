@@ -34,3 +34,9 @@ test('production match surfaces render the Hinge initial-only review badge', () 
   assert.match(files.leadsBoard, /identityLabel/)
   assert.match(files.dashboard, /identity\.displayName/)
 })
+
+test('match detail consumes structured prompts from match_intel', () => {
+  assert.match(files.matchProfile, /function promptList/)
+  assert.match(files.matchProfile, /prompts\?: Prompt\[\]/)
+  assert.match(files.matchProfile, /match_intel as MatchIntel \| null\)\?\.prompts/)
+})

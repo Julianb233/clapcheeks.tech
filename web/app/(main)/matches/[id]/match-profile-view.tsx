@@ -48,6 +48,7 @@ type Prompt = { question?: string; answer?: string; prompt?: string; text?: stri
 type MatchIntel = Record<string, unknown> & {
   notes?: string
   tags?: string[]
+  prompts?: Prompt[]
   interests?: string[]
   topics?: string[]
   prompt_text?: string
@@ -107,6 +108,13 @@ const STAGE_OPTIONS: { value: string; label: string }[] = [
 function stringList(value: unknown): string[] {
   if (!Array.isArray(value)) return []
   return value.filter((v): v is string => typeof v === 'string')
+}
+
+function promptList(value: unknown): Prompt[] {
+  if (!Array.isArray(value)) return []
+  return value
+    .filter((v): v is Prompt => Boolean(v) && typeof v === 'object' && !Array.isArray(v))
+    .filter((p) => Boolean(p.answer || p.text || p.question || p.prompt))
 }
 
 function getNestedList(obj: unknown, key: string): string[] {
@@ -307,7 +315,11 @@ export default function MatchProfileView({
         .filter(Boolean)
     : []
 
-  const prompts = [...(m.prompts_jsonb ?? []), ...(m.prompts ?? [])].filter(
+  const prompts = [
+    ...(m.prompts_jsonb ?? []),
+    ...(m.prompts ?? []),
+    ...promptList((m.match_intel as MatchIntel | null)?.prompts),
+  ].filter(
     (p) => p && (p.answer || p.text)
   )
 
