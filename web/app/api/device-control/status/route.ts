@@ -134,6 +134,7 @@ const FALLBACK_PHYSICAL_IOS_BLOCKERS = [
 
 const PHYSICAL_IOS_LIVE_ACTION_ENV = 'CLAPCHEEKS_PHYSICAL_IOS_ENABLE_LIVE_ACTIONS'
 const COMPLETION_AUDIT_EVENT_TYPE = 'device_control.completion_audit'
+const TRANSPORT_DIAGNOSTICS_EVENT_TYPE = 'qa.transport_diagnostics_readiness_wiring'
 
 function readPhysicalIOSLiveActionGate() {
   const enabled = process.env[PHYSICAL_IOS_LIVE_ACTION_ENV] === '1'
@@ -186,6 +187,9 @@ type LatestTransportDiagnostics = {
   path: string
   blockers?: string[]
   transport_visibility?: Record<string, unknown> | null
+  source?: 'local_file' | 'convex_telemetry' | 'missing'
+  telemetry_event_id?: string | null
+  telemetry_occurred_at?: number | null
   error?: string
 }
 
@@ -253,6 +257,7 @@ function readLatestTransportDiagnostics(): LatestTransportDiagnostics {
       path: LATEST_TRANSPORT_DIAGNOSTICS_PATH,
       blockers: cleanStringArray(parsed.blockers),
       transport_visibility: cleanObject(parsed),
+      source: 'local_file',
     }
   } catch (error) {
     return {
@@ -261,6 +266,52 @@ function readLatestTransportDiagnostics(): LatestTransportDiagnostics {
       error: error instanceof Error ? error.message : String(error),
     }
   }
+}
+
+async function readLatestTransportDiagnosticsFromTelemetry(userId: string): Promise<LatestTransportDiagnostics | null> {
+  const userIds = [userId, defaultTelemetryUserId()].filter(
+    (value, index, all) => value && all.indexOf(value) === index,
+  )
+  for (const telemetryUserId of userIds) {
+    try {
+      const events = await convexQuery<Array<{ _id?: string; data?: Record<string, unknown>; occurred_at?: number; ts?: number }>>(
+        'telemetry:listEventsForUser',
+        {
+          user_id: telemetryUserId,
+          event_type: TRANSPORT_DIAGNOSTICS_EVENT_TYPE,
+          limit: 1,
+        },
+      )
+      const event = Array.isArray(events) ? events[0] : null
+      const data = event?.data
+      const transport = data?.latest_transport_diagnostics
+      if (!transport || typeof transport !== 'object' || Array.isArray(transport)) continue
+      return {
+        status: 'loaded',
+        path: typeof data?.latest_transport_diagnostics_path === 'string'
+          ? data.latest_transport_diagnostics_path
+          : 'convex_telemetry',
+        blockers: cleanStringArray((transport as Record<string, unknown>).blockers),
+        transport_visibility: cleanObject(transport),
+        source: 'convex_telemetry',
+        telemetry_event_id: typeof event?._id === 'string' ? event._id : null,
+        telemetry_occurred_at: typeof event?.occurred_at === 'number'
+          ? event.occurred_at
+          : typeof event?.ts === 'number'
+            ? event.ts
+            : null,
+      }
+    } catch {
+      continue
+    }
+  }
+  return null
+}
+
+async function latestTransportDiagnosticsForUser(userId: string): Promise<LatestTransportDiagnostics> {
+  const local = readLatestTransportDiagnostics()
+  if (local.status === 'loaded') return local
+  return await readLatestTransportDiagnosticsFromTelemetry(userId) || local
 }
 
 function defaultTelemetryUserId() {
@@ -388,8 +439,10 @@ export async function GET() {
   ])
   const runtimeHealth = getRuntimeHealth()
   const localLatestCompletionAudit = readLatestCompletionAudit()
-  const latestTransportDiagnostics = readLatestTransportDiagnostics()
-  const latestCompletionAudit = await latestCompletionAuditForUser(user.id)
+  const [latestCompletionAudit, latestTransportDiagnostics] = await Promise.all([
+    latestCompletionAuditForUser(user.id),
+    latestTransportDiagnosticsForUser(user.id),
+  ])
   const transportVisibility = latestTransportDiagnostics.transport_visibility || latestCompletionAudit.transport_visibility
   const physicalIOSBlockers = latestPhysicalIOSBlockers(latestCompletionAudit, latestTransportDiagnostics)
   const effectiveLatestCompletionAudit = {
