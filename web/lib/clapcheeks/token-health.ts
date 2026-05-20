@@ -5,6 +5,27 @@ import { join } from 'path'
 
 type Platform = 'tinder' | 'hinge' | 'instagram' | 'bumble'
 type SendBirdMode = 'api_token' | 'client_session' | 'missing'
+type SendBirdCaptureState = 'configured' | 'waiting_for_hinge_chat' | 'proxy_not_running' | 'unknown'
+
+export type SendBirdCaptureStatus = {
+  status: SendBirdCaptureState
+  proxy_host: string | null
+  proxy_port: number | null
+  proxy_listening: boolean
+  snapshot_exists: boolean
+  snapshot_app_id_present: boolean
+  snapshot_user_id_present: boolean
+  snapshot_session_key_present: boolean
+  snapshot_api_token_present: boolean
+  app_id_present: boolean
+  user_id_present: boolean
+  session_key_present: boolean
+  api_token_present: boolean
+  missing_fields: string[]
+  captured_at_ms: number | null
+  snapshot_mtime_ms: number | null
+  next_step: string | null
+}
 
 export type PlatformTokenHealth = {
   platform: Platform
@@ -28,6 +49,7 @@ export type TokenHealthSummary = {
     source: 'env' | 'local-session' | 'convex.telemetry' | 'missing'
     updated_at: string | null
     age_minutes: number | null
+    capture_status: SendBirdCaptureStatus | null
   }
   missing_required: number
   missing_required_services: Array<{
@@ -49,6 +71,7 @@ type SendBirdReadiness = {
   updated_at: string | null
   age_minutes: number | null
   missing: string[]
+  capture_status: SendBirdCaptureStatus | null
 }
 
 function localSendBirdSessionPresent() {
@@ -78,6 +101,7 @@ function localSendBirdReadiness(): SendBirdReadiness {
       updated_at: null,
       age_minutes: null,
       missing: [],
+      capture_status: null,
     }
   }
   if (localSendBirdSessionPresent()) {
@@ -88,6 +112,7 @@ function localSendBirdReadiness(): SendBirdReadiness {
       updated_at: null,
       age_minutes: null,
       missing: [],
+      capture_status: null,
     }
   }
   const sessionMissing = [
@@ -104,6 +129,7 @@ function localSendBirdReadiness(): SendBirdReadiness {
     missing: sessionMissing.length < 3
       ? sessionMissing
       : ['SENDBIRD_API_TOKEN or captured SendBird client session'],
+    capture_status: null,
   }
 }
 
@@ -149,6 +175,42 @@ function coerceUpdatedAt(value: unknown) {
   return null
 }
 
+function coerceNumber(value: unknown) {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
+
+function coerceSendBirdCaptureStatus(value: unknown): SendBirdCaptureStatus | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const data = value as Record<string, unknown>
+  const rawStatus = typeof data.status === 'string' ? data.status : 'unknown'
+  const status: SendBirdCaptureState = rawStatus === 'configured'
+    || rawStatus === 'waiting_for_hinge_chat'
+    || rawStatus === 'proxy_not_running'
+    ? rawStatus
+    : 'unknown'
+  return {
+    status,
+    proxy_host: typeof data.proxy_host === 'string' ? data.proxy_host : null,
+    proxy_port: coerceNumber(data.proxy_port),
+    proxy_listening: data.proxy_listening === true,
+    snapshot_exists: data.snapshot_exists === true,
+    snapshot_app_id_present: data.snapshot_app_id_present === true,
+    snapshot_user_id_present: data.snapshot_user_id_present === true,
+    snapshot_session_key_present: data.snapshot_session_key_present === true,
+    snapshot_api_token_present: data.snapshot_api_token_present === true,
+    app_id_present: data.app_id_present === true,
+    user_id_present: data.user_id_present === true,
+    session_key_present: data.session_key_present === true,
+    api_token_present: data.api_token_present === true,
+    missing_fields: Array.isArray(data.missing_fields)
+      ? data.missing_fields.filter((item): item is string => typeof item === 'string' && item.startsWith('SENDBIRD_'))
+      : [],
+    captured_at_ms: coerceNumber(data.captured_at_ms),
+    snapshot_mtime_ms: coerceNumber(data.snapshot_mtime_ms),
+    next_step: typeof data.next_step === 'string' ? data.next_step : null,
+  }
+}
+
 function defaultTelemetryUserId() {
   return process.env.CONVEX_FLEET_USER_ID || 'fleet-julian'
 }
@@ -181,6 +243,7 @@ async function remoteSendBirdReadiness(userId: string): Promise<SendBirdReadines
           updated_at: updatedMs ? new Date(updatedMs).toISOString() : null,
           age_minutes: ageMs === null ? null : Math.round(ageMs / 600) / 100,
           missing: ['Fresh SendBird runtime telemetry'],
+          capture_status: coerceSendBirdCaptureStatus(data.capture_status),
         }
         continue
       }
@@ -211,6 +274,7 @@ async function remoteSendBirdReadiness(userId: string): Promise<SendBirdReadines
         updated_at: updatedMs ? new Date(updatedMs).toISOString() : null,
         age_minutes: ageMs === null ? null : Math.round(ageMs / 600) / 100,
         missing: missing.length > 0 ? missing : ['SENDBIRD_API_TOKEN or captured SendBird client session'],
+        capture_status: coerceSendBirdCaptureStatus(data.capture_status),
       }
     } catch {
       continue
@@ -268,6 +332,11 @@ export async function getTokenHealth(userId: string): Promise<TokenHealthSummary
   const missingSendBird = sendBirdPresent
     ? []
     : sendBird.missing
+  const sendBirdMissingReason = sendBird.capture_status?.status === 'waiting_for_hinge_chat'
+    ? `SendBird missing ${missingSendBird.join(', ')}; Hinge proxy is running and waiting for chat capture`
+    : sendBird.capture_status?.status === 'proxy_not_running'
+      ? `SendBird missing ${missingSendBird.join(', ')}; Hinge proxy is not listening`
+      : `SendBird missing ${missingSendBird.join(', ')}`
   const missingRequiredServices = [
     ...platforms
       .filter((platform) => platform.required && !platform.present)
@@ -280,7 +349,7 @@ export async function getTokenHealth(userId: string): Promise<TokenHealthSummary
       ? [{
           type: 'service' as const,
           name: 'sendbird' as const,
-          reason: `SendBird missing ${missingSendBird.join(', ')}`,
+          reason: sendBirdMissingReason,
         }]
       : []),
   ]
@@ -297,6 +366,7 @@ export async function getTokenHealth(userId: string): Promise<TokenHealthSummary
       source: sendBird.source,
       updated_at: sendBird.updated_at,
       age_minutes: sendBird.age_minutes,
+      capture_status: sendBird.capture_status,
     },
     missing_required:
       platforms.filter((p) => p.required && !p.present).length +

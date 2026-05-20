@@ -711,6 +711,13 @@ function RuntimeStatusPanel({ status }: { status: RuntimeStatus }) {
   const missingTokens = status.tokenHealth?.missing_required ?? null
   const requiredPlatforms = status.tokenHealth?.platforms.filter((p) => p.required) ?? []
   const blocked = Boolean(status.error || missingTokens || !lastHeartbeatIso)
+  const sendBirdCapture = status.tokenHealth?.sendbird.capture_status
+  const sendBirdCaptureDate = sendBirdCapture?.snapshot_mtime_ms
+    ? new Date(sendBirdCapture.snapshot_mtime_ms).toLocaleString()
+    : null
+  const sendBirdDetail = sendBirdCapture?.next_step
+    ? `${sendBirdCapture.next_step}${sendBirdCaptureDate ? ` Last snapshot: ${sendBirdCaptureDate}` : ''}`
+    : status.tokenHealth?.sendbird.missing.join(', ') || 'Configured'
 
   return (
     <section className="max-w-5xl mx-auto px-6 pt-24">
@@ -746,7 +753,7 @@ function RuntimeStatusPanel({ status }: { status: RuntimeStatus }) {
           <StatusTile
             label="SendBird"
             value={status.tokenHealth?.sendbird.status ?? 'unknown'}
-            detail={status.tokenHealth?.sendbird.missing.join(', ') || 'Configured'}
+            detail={sendBirdDetail}
             ok={status.tokenHealth?.sendbird.present === true}
           />
         </div>

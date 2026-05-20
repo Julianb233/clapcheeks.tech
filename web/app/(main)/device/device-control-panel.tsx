@@ -31,6 +31,30 @@ type DeviceControlStatus = {
     current_state?: string
     note?: string
   }
+  sendbird?: {
+    present?: boolean
+    status?: string
+    missing?: string[]
+    mode?: string
+    source?: string
+    updated_at?: string | null
+    age_minutes?: number | null
+    capture_status?: {
+      status?: string
+      proxy_host?: string | null
+      proxy_port?: number | null
+      proxy_listening?: boolean
+      snapshot_exists?: boolean
+      app_id_present?: boolean
+      user_id_present?: boolean
+      session_key_present?: boolean
+      api_token_present?: boolean
+      missing_fields?: string[]
+      captured_at_ms?: number | null
+      snapshot_mtime_ms?: number | null
+      next_step?: string | null
+    } | null
+  }
   blockers?: string[]
   audit?: {
     screenshot_dir?: string
@@ -173,6 +197,13 @@ export function DeviceControlPanel() {
   const selectedLine = status?.physical_ios?.selected_line ?? 2
   const liveActionGate = status?.live_action_gate
   const liveActionGateEnabled = liveActionGate?.physical_ios_live_actions_enabled === true
+  const sendBirdCapture = status?.sendbird?.capture_status
+  const sendBirdCaptureReady = status?.sendbird?.present === true
+  const sendBirdCaptureUpdated = sendBirdCapture?.snapshot_mtime_ms
+    ? new Date(sendBirdCapture.snapshot_mtime_ms).toLocaleString()
+    : sendBirdCapture?.captured_at_ms
+      ? new Date(sendBirdCapture.captured_at_ms).toLocaleString()
+      : null
   const readinessBlockers = useMemo(() => {
     const blockers = status?.physical_ios?.latest_known_blockers?.length
       ? status.physical_ios.latest_known_blockers
@@ -287,6 +318,44 @@ export function DeviceControlPanel() {
                       {blocker.replace(/_/g, " ")}
                     </span>
                   ))}
+                </div>
+              </div>
+            ) : null}
+
+            {sendBirdCapture ? (
+              <div className="mt-3 min-w-0 rounded-lg border border-white/10 bg-white/[0.035] p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="text-[10px] uppercase tracking-widest text-white/35">Hinge proxy capture</div>
+                  <span className={`rounded-md px-2 py-1 text-[11px] font-semibold ${
+                    sendBirdCaptureReady
+                      ? "bg-emerald-400/15 text-emerald-200"
+                      : sendBirdCapture.proxy_listening
+                        ? "bg-amber-400/15 text-amber-100"
+                        : "bg-red-400/15 text-red-100"
+                  }`}>
+                    {(sendBirdCapture.status || "unknown").replace(/_/g, " ")}
+                  </span>
+                </div>
+                <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                  <div className="min-w-0 break-words rounded-md bg-black/25 px-3 py-2 text-xs text-white/50">
+                    Proxy: {sendBirdCapture.proxy_listening ? "listening" : "offline"} on {sendBirdCapture.proxy_host || "127.0.0.1"}:{sendBirdCapture.proxy_port || 8080}
+                  </div>
+                  <div className="min-w-0 break-words rounded-md bg-black/25 px-3 py-2 text-xs text-white/50">
+                    Session: {sendBirdCaptureReady ? "ready" : (sendBirdCapture.missing_fields || status?.sendbird?.missing || []).join(", ") || "missing"}
+                  </div>
+                  <div className="min-w-0 break-words rounded-md bg-black/25 px-3 py-2 text-xs text-white/50">
+                    Snapshot: {sendBirdCapture.snapshot_exists ? "present" : "missing"}
+                  </div>
+                  <div className="min-w-0 break-words rounded-md bg-black/25 px-3 py-2 text-xs text-white/50">
+                    Updated: {sendBirdCaptureUpdated || status?.sendbird?.updated_at || "unknown"}
+                  </div>
+                </div>
+                <div className={`mt-2 rounded-md border px-3 py-2 text-xs leading-relaxed ${
+                  sendBirdCaptureReady
+                    ? "border-emerald-400/20 bg-emerald-400/10 text-emerald-100"
+                    : "border-amber-400/20 bg-amber-400/10 text-amber-100"
+                }`}>
+                  {sendBirdCapture.next_step || "Open Hinge chat through the proxied device to refresh SendBird capture."}
                 </div>
               </div>
             ) : null}

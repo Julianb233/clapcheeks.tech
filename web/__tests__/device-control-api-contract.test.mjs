@@ -92,6 +92,13 @@ test('status route names the current physical-ios readiness blocker', () => {
   assert.match(files.status, /const physicalIOSBlockers = latestPhysicalIOSBlockers\(latestCompletionAudit\)/)
   assert.match(files.status, /\.\.\.physicalIOSBlockers/)
   assert.match(files.status, /latest_result: latestCompletionAudit/)
+  assert.match(files.status, /sendbird: tokenHealth\.sendbird/)
+  assert.match(files.devicePanel, /Hinge proxy capture/)
+  assert.match(files.devicePanel, /proxy_listening/)
+  assert.match(files.devicePanel, /missing_fields/)
+  assert.match(files.devicePanel, /Open Hinge chat through the proxied device/)
+  assert.match(files.devicePage, /sendBirdCapture/)
+  assert.match(files.devicePage, /Last snapshot/)
 })
 
 test('status route derives physical blockers from latest completion audit before fallback', () => {
