@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { existsSync, readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { createClient } from '@/lib/convex/server'
+import { convexQuery } from '@/lib/convex/http'
 import { getTokenHealth } from '@/lib/clapcheeks/token-health'
 import { getRuntimeHealth } from '@/lib/clapcheeks/runtime-health'
 import { getInboundWatcherHealth } from '@/lib/clapcheeks/inbound-watcher-health'
@@ -132,6 +133,7 @@ const FALLBACK_PHYSICAL_IOS_BLOCKERS = [
 ]
 
 const PHYSICAL_IOS_LIVE_ACTION_ENV = 'CLAPCHEEKS_PHYSICAL_IOS_ENABLE_LIVE_ACTIONS'
+const COMPLETION_AUDIT_EVENT_TYPE = 'device_control.completion_audit'
 
 function readPhysicalIOSLiveActionGate() {
   const enabled = process.env[PHYSICAL_IOS_LIVE_ACTION_ENV] === '1'
@@ -149,38 +151,121 @@ function readPhysicalIOSLiveActionGate() {
 const LATEST_COMPLETION_AUDIT_PATH = `${homedir()}/.clapcheeks-local/device-control/proof-runs/latest-completion-audit.json`
 const INBOUND_REPAIR_EVIDENCE_PATH = process.env.CLAPCHEEKS_INBOUND_REPAIR_EVIDENCE || '/tmp/clapcheeks-inbound-watcher-fda-repair-2026-05-18.json'
 
-function readLatestCompletionAudit() {
+type LatestCompletionAudit = {
+  status: 'missing' | 'unreadable' | 'passed' | 'failed'
+  timestamp?: string | null
+  line?: number | null
+  platform?: string | null
+  audit_log?: string | null
+  failed_checks?: string[]
+  blockers?: string[]
+  next_unblock_steps?: string[]
+  readiness_command?: string
+  transport_diagnostics_command?: string
+  completion_audit_command?: string
+  physical_png_required?: boolean
+  completion_rule?: string
+  path: string
+  source?: 'local_file' | 'convex_telemetry' | 'missing'
+  telemetry_event_id?: string | null
+  telemetry_occurred_at?: number | null
+  error?: string
+}
+
+function cleanStringArray(value: unknown) {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+    : []
+}
+
+function normalizeCompletionAudit(parsed: Record<string, unknown>, source: LatestCompletionAudit['source']): LatestCompletionAudit {
+  const rawStatus = parsed.completion_audit === 'passed' || parsed.status === 'passed' ? 'passed' : 'failed'
+  return {
+    status: rawStatus,
+    timestamp: typeof parsed.timestamp === 'string' ? parsed.timestamp : null,
+    line: typeof parsed.line === 'number' ? parsed.line : null,
+    platform: typeof parsed.platform === 'string' ? parsed.platform : null,
+    audit_log: typeof parsed.audit_log === 'string' ? parsed.audit_log : null,
+    failed_checks: cleanStringArray(parsed.failed_checks),
+    blockers: cleanStringArray(parsed.blockers),
+    next_unblock_steps: cleanStringArray(parsed.next_unblock_steps),
+    readiness_command: typeof parsed.readiness_command === 'string' ? parsed.readiness_command : COMPLETION_AUDIT.command,
+    transport_diagnostics_command: typeof parsed.transport_diagnostics_command === 'string'
+      ? parsed.transport_diagnostics_command
+      : 'cd ~/clapcheeks-local && scripts/run-device-control-transport-diagnostics.sh 2',
+    completion_audit_command: typeof parsed.completion_audit_command === 'string' ? parsed.completion_audit_command : COMPLETION_AUDIT.command,
+    physical_png_required: Boolean(parsed.physical_png_required),
+    completion_rule: typeof parsed.completion_rule === 'string' ? parsed.completion_rule : COMPLETION_AUDIT.decision_rule,
+    path: typeof parsed.path === 'string' ? parsed.path : COMPLETION_AUDIT.latest_result_path,
+    source,
+  }
+}
+
+function readLatestCompletionAudit(): LatestCompletionAudit {
   try {
     if (!existsSync(LATEST_COMPLETION_AUDIT_PATH)) {
-      return { status: 'missing', path: COMPLETION_AUDIT.latest_result_path }
+      return { status: 'missing', path: COMPLETION_AUDIT.latest_result_path, source: 'missing' }
     }
     const parsed = JSON.parse(readFileSync(LATEST_COMPLETION_AUDIT_PATH, 'utf8'))
-    return {
-      status: parsed.completion_audit === 'passed' ? 'passed' : 'failed',
-      timestamp: parsed.timestamp || null,
-      line: parsed.line || null,
-      platform: parsed.platform || null,
-      audit_log: parsed.audit_log || null,
-      failed_checks: Array.isArray(parsed.failed_checks) ? parsed.failed_checks : [],
-      blockers: Array.isArray(parsed.blockers) ? parsed.blockers : [],
-      next_unblock_steps: Array.isArray(parsed.next_unblock_steps) ? parsed.next_unblock_steps : [],
-      readiness_command: parsed.readiness_command || COMPLETION_AUDIT.command,
-      transport_diagnostics_command: parsed.transport_diagnostics_command || 'cd ~/clapcheeks-local && scripts/run-device-control-transport-diagnostics.sh 2',
-      completion_audit_command: parsed.completion_audit_command || COMPLETION_AUDIT.command,
-      physical_png_required: Boolean(parsed.physical_png_required),
-      completion_rule: parsed.completion_rule || COMPLETION_AUDIT.decision_rule,
-      path: COMPLETION_AUDIT.latest_result_path,
-    }
+    return normalizeCompletionAudit({ ...parsed, path: COMPLETION_AUDIT.latest_result_path }, 'local_file')
   } catch (error) {
     return {
       status: 'unreadable',
       path: COMPLETION_AUDIT.latest_result_path,
+      source: 'local_file',
       error: error instanceof Error ? error.message : String(error),
     }
   }
 }
 
-type LatestCompletionAudit = ReturnType<typeof readLatestCompletionAudit>
+function defaultTelemetryUserId() {
+  return process.env.CONVEX_FLEET_USER_ID || 'fleet-julian'
+}
+
+async function readLatestCompletionAuditFromTelemetry(userId: string): Promise<LatestCompletionAudit | null> {
+  const userIds = [userId, defaultTelemetryUserId()].filter(
+    (value, index, all) => value && all.indexOf(value) === index,
+  )
+  for (const telemetryUserId of userIds) {
+    try {
+      const events = await convexQuery<Array<{ _id?: string; data?: Record<string, unknown>; occurred_at?: number; ts?: number }>>(
+        'telemetry:listEventsForUser',
+        {
+          user_id: telemetryUserId,
+          event_type: COMPLETION_AUDIT_EVENT_TYPE,
+          limit: 1,
+        },
+      )
+      const event = Array.isArray(events) ? events[0] : null
+      const data = event?.data
+      if (!data || typeof data !== 'object') continue
+      const rawLatest = data.latest_result && typeof data.latest_result === 'object' && !Array.isArray(data.latest_result)
+        ? data.latest_result as Record<string, unknown>
+        : data
+      return {
+        ...normalizeCompletionAudit({
+          ...rawLatest,
+          path: typeof data.latest_result_path === 'string' ? data.latest_result_path : COMPLETION_AUDIT.latest_result_path,
+        }, 'convex_telemetry'),
+        telemetry_event_id: typeof event?._id === 'string' ? event._id : null,
+        telemetry_occurred_at: typeof event?.occurred_at === 'number'
+          ? event.occurred_at
+          : typeof event?.ts === 'number'
+            ? event.ts
+            : null,
+      }
+    } catch {
+      continue
+    }
+  }
+  return null
+}
+
+async function latestCompletionAuditForUser(userId: string): Promise<LatestCompletionAudit> {
+  const local = readLatestCompletionAudit()
+  if (local.status !== 'missing' && local.status !== 'unreadable') return local
+  return await readLatestCompletionAuditFromTelemetry(userId) || local
+}
 
 function latestPhysicalIOSBlockers(latestAudit: LatestCompletionAudit) {
   if (Array.isArray(latestAudit.blockers) && latestAudit.blockers.length > 0) {
@@ -245,7 +330,8 @@ export async function GET() {
     getInboundWatcherHealth(user.id),
   ])
   const runtimeHealth = getRuntimeHealth()
-  const latestCompletionAudit = readLatestCompletionAudit()
+  const localLatestCompletionAudit = readLatestCompletionAudit()
+  const latestCompletionAudit = await latestCompletionAuditForUser(user.id)
   const physicalIOSBlockers = latestPhysicalIOSBlockers(latestCompletionAudit)
   const inboundBlocker = inboundHealth.blocker || (
     inboundHealth.ok ? null : 'inbound_watcher_not_ready'
@@ -271,9 +357,12 @@ export async function GET() {
       screenshot_probe: 'capture.physical_ios_screenshot',
       current_blocker: currentPhysicalIOSBlocker(latestCompletionAudit, physicalIOSBlockers),
       latest_known_blockers: physicalIOSBlockers,
-      latest_blockers_source: latestCompletionAudit.status === 'missing' || latestCompletionAudit.status === 'unreadable'
+      latest_blockers_source: latestCompletionAudit.source === 'convex_telemetry'
+        ? 'convex_telemetry'
+        : latestCompletionAudit.status === 'missing' || latestCompletionAudit.status === 'unreadable'
         ? 'fallback_static_blockers'
         : 'latest_completion_audit_json',
+      local_latest_audit_status: localLatestCompletionAudit.status,
       next_step: 'Unlock and keep the iPhone nearby/on-network, then run the readiness command to clear transport visibility, Developer Mode, CoreDevice visibility, and physical PNG proof.',
     },
     lines: SECONDARY_LINES,

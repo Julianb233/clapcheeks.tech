@@ -294,7 +294,11 @@ export function DeviceControlPanel() {
                   Line {selectedLine} | {status?.physical_ios?.selected_phone || "+16199919355"} | {status?.physical_ios?.observed_connection || "wifi"}
                 </div>
                 <div className="mt-1 break-words text-[11px] text-white/35">
-                  Blockers: {status?.physical_ios?.latest_blockers_source === "latest_completion_audit_json" ? "latest audit JSON" : "fallback readiness map"}
+                  Blockers: {status?.physical_ios?.latest_blockers_source === "convex_telemetry"
+                    ? "Convex telemetry"
+                    : status?.physical_ios?.latest_blockers_source === "latest_completion_audit_json"
+                      ? "latest audit JSON"
+                      : "fallback readiness map"}
                 </div>
               </div>
               <div className={`w-fit rounded-full px-3 py-1 text-xs font-semibold sm:shrink-0 ${physicalReady ? "bg-emerald-400/15 text-emerald-200" : "bg-amber-400/15 text-amber-200"}`}>
