@@ -11,6 +11,7 @@ import {
   STATUS_COLORS,
   formatTimeAgo,
 } from '@/lib/matches/types'
+import { getMatchIdentityStatus } from '@/lib/matches/identity'
 import PhotoGallery from './PhotoGallery'
 import ScoringPanel from './ScoringPanel'
 import SocialGraphPanel from './SocialGraphPanel'
@@ -39,6 +40,7 @@ export default function MatchDetail({ match, messages, clusterRisk }: Props) {
 
   const visionSummary = match.vision_summary ?? null
   const instagramSummary = match.instagram_intel?.summary ?? null
+  const identity = getMatchIdentityStatus(current)
 
   async function updateStatus(next: MatchStatus) {
     setStatusBusy(next)
@@ -113,11 +115,17 @@ export default function MatchDetail({ match, messages, clusterRisk }: Props) {
               </span>
             </div>
             <h1 className="font-display text-4xl md:text-5xl uppercase leading-none">
-              {current.name ?? 'Unknown'}
+              {identity.displayName}
               {current.age && (
                 <span className="text-white/60 font-body text-2xl md:text-3xl ml-3">{current.age}</span>
               )}
             </h1>
+            {identity.needsReview && identity.label && (
+              <div className="mt-2 inline-flex max-w-full flex-col rounded-md border border-amber-400/25 bg-amber-400/10 px-2.5 py-1.5 text-xs text-amber-100">
+                <span className="font-semibold">{identity.label}</span>
+                {identity.helper && <span className="mt-0.5 text-amber-100/70">{identity.helper}</span>}
+              </div>
+            )}
             <div className="mt-2 text-sm text-white/50 flex gap-3 flex-wrap font-mono">
               {current.job && <span>{current.job}</span>}
               {current.school && <span>· {current.school}</span>}

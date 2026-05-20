@@ -19,6 +19,7 @@ import { DashboardCharts } from './components/dashboard-charts'
 import { calculateRizzScore, getRizzTrend } from '@/lib/rizz'
 import { calculateCPN, getCPNTrend } from '@/lib/cpn'
 import { ClapcheeksMatchRow, RosterStage, formatTimeAgo } from '@/lib/matches/types'
+import { getMatchIdentityStatus } from '@/lib/matches/identity'
 import { isDisplayableMatchProfile } from '@/lib/matches/visibility'
 
 export const metadata: Metadata = {
@@ -593,6 +594,7 @@ export default async function Dashboard() {
                 {priorityRoster.map((match) => {
                   const probability = closeProbability(match)
                   const stage = deriveRosterStage(match)
+                  const identity = getMatchIdentityStatus(match)
                   return (
                     <Link
                       key={match.id}
@@ -601,8 +603,13 @@ export default async function Dashboard() {
                     >
                       <div className="min-w-0">
                         <div className="flex items-baseline gap-2">
-                          <span className="text-white text-sm font-semibold truncate">{match.name ?? 'Unknown'}</span>
+                          <span className="text-white text-sm font-semibold truncate">{identity.displayName}</span>
                           {match.age && <span className="text-white/45 text-xs">{match.age}</span>}
+                          {identity.needsReview && identity.label && (
+                            <span className="hidden sm:inline-flex rounded border border-amber-400/25 bg-amber-400/10 px-1.5 py-0.5 text-[9px] text-amber-100">
+                              {identity.label}
+                            </span>
+                          )}
                         </div>
                         <div className="text-[11px] text-white/35 truncate">
                           {match.platform} · {formatTimeAgo(match.last_activity_at ?? match.updated_at)} · {match.bio ?? match.vision_summary ?? 'No profile hook yet'}
@@ -639,25 +646,33 @@ export default async function Dashboard() {
               </div>
               <div className="space-y-2">
                 {dateQueue.length > 0 ? (
-                  dateQueue.map((match) => (
-                    <Link
-                      key={match.id}
-                      href={`/conversation?matchName=${encodeURIComponent(match.name ?? '')}&platform=${encodeURIComponent(match.platform)}&goal=ask_date`}
-                      className="block bg-black/35 hover:bg-black/50 border border-white/10 rounded-lg p-3 transition-colors"
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-white text-sm font-semibold truncate">{match.name ?? 'Unknown'}</span>
-                        <span className="text-[10px] uppercase tracking-widest font-mono text-yellow-300">{stageLabel(deriveRosterStage(match))}</span>
-                      </div>
-                      <p className="text-[11px] text-white/40 mt-1">
-                        {deriveRosterStage(match) === 'date_booked'
-                          ? 'Prep or send a confirmation.'
-                          : deriveRosterStage(match) === 'date_proposed'
-                            ? 'Lock the time and place.'
-                            : 'Draft the date ask.'}
-                      </p>
-                    </Link>
-                  ))
+                  dateQueue.map((match) => {
+                    const identity = getMatchIdentityStatus(match)
+                    return (
+                      <Link
+                        key={match.id}
+                        href={`/conversation?matchName=${encodeURIComponent(identity.displayName)}&platform=${encodeURIComponent(match.platform)}&goal=ask_date`}
+                        className="block bg-black/35 hover:bg-black/50 border border-white/10 rounded-lg p-3 transition-colors"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-white text-sm font-semibold truncate">{identity.displayName}</span>
+                          <span className="text-[10px] uppercase tracking-widest font-mono text-yellow-300">{stageLabel(deriveRosterStage(match))}</span>
+                        </div>
+                        {identity.needsReview && identity.label && (
+                          <div className="mt-1 inline-flex rounded border border-amber-400/25 bg-amber-400/10 px-1.5 py-0.5 text-[9px] text-amber-100">
+                            {identity.label}
+                          </div>
+                        )}
+                        <p className="text-[11px] text-white/40 mt-1">
+                          {deriveRosterStage(match) === 'date_booked'
+                            ? 'Prep or send a confirmation.'
+                            : deriveRosterStage(match) === 'date_proposed'
+                              ? 'Lock the time and place.'
+                              : 'Draft the date ask.'}
+                        </p>
+                      </Link>
+                    )
+                  })
                 ) : (
                   <p className="text-xs text-white/35 bg-black/25 border border-white/10 rounded-lg p-3">
                     No date-ready matches in the current roster snapshot.

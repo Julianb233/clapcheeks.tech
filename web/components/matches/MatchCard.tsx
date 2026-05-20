@@ -8,6 +8,7 @@ import {
   formatTimeAgo,
 } from '@/lib/matches/types'
 import { getCoverPhoto } from '@/lib/matches/photos'
+import { getMatchIdentityStatus } from '@/lib/matches/identity'
 import MatchPhotoImage from './MatchPhotoImage'
 
 type Props = {
@@ -18,7 +19,8 @@ type Props = {
 export default function MatchCard({ match, lastMessage }: Props) {
   const matchAny = match as ClapcheeksMatchRow & { _id?: string; match_name?: string | null; photos?: Array<{ url?: string | null }> }
   const matchId = matchAny.id || matchAny._id
-  const displayName = matchAny.name || matchAny.match_name || 'Unknown'
+  const identity = getMatchIdentityStatus(matchAny)
+  const displayName = identity.displayName
   const primaryPhoto = getCoverPhoto(matchAny.photos_jsonb) ?? getCoverPhoto(matchAny.photos) ?? null
   const initials = displayName.slice(0, 1).toUpperCase()
   const score = typeof match.final_score === 'number' ? Math.round(match.final_score) : null
@@ -56,7 +58,7 @@ export default function MatchCard({ match, lastMessage }: Props) {
     needsReview
       ? {
           key: 'needs-review',
-          label: 'needs review',
+          label: identity.label ?? 'needs review',
           className: 'border-amber-400/25 bg-amber-400/10 text-amber-200',
         }
       : null,

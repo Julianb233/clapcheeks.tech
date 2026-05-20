@@ -7,6 +7,7 @@ import {
   formatTimeAgo,
 } from '@/lib/matches/types'
 import { getCoverPhoto } from '@/lib/matches/photos'
+import { getMatchIdentityStatus } from '@/lib/matches/identity'
 import MatchPhotoImage from '@/components/matches/MatchPhotoImage'
 
 type Props = {
@@ -21,8 +22,10 @@ type Props = {
  * photo, name+age, health bar, Julian rank stars, close-prob %, last-msg.
  */
 export default function RosterCard({ match, lastMessage, onDragStart, draggable = true }: Props) {
+  const identity = getMatchIdentityStatus(match)
+  const displayName = identity.displayName
   const primaryPhoto = getCoverPhoto(match.photos_jsonb) ?? getCoverPhoto(match.photos)
-  const initials = (match.name ?? '?').slice(0, 1).toUpperCase()
+  const initials = displayName.slice(0, 1).toUpperCase()
   const health = typeof match.health_score === 'number' ? match.health_score : null
   const rank = typeof match.julian_rank === 'number' ? match.julian_rank : null
   const closeProb =
@@ -53,7 +56,7 @@ export default function RosterCard({ match, lastMessage, onDragStart, draggable 
         <div className="relative aspect-[4/3] w-full bg-gradient-to-br from-zinc-800 to-zinc-900 overflow-hidden">
           <MatchPhotoImage
             src={primaryPhoto}
-            alt={match.name ?? 'Match'}
+            alt={displayName}
             initials={initials}
             className="w-full h-full object-cover"
             fallbackClassName="w-full h-full flex items-center justify-center text-white/30 text-3xl font-bold"
@@ -73,10 +76,15 @@ export default function RosterCard({ match, lastMessage, onDragStart, draggable 
           <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 to-transparent p-2">
             <div className="flex items-baseline gap-1.5">
               <span className="text-white font-semibold text-sm truncate">
-                {match.name ?? 'Unknown'}
+                {displayName}
               </span>
               {match.age && <span className="text-white/70 text-xs">{match.age}</span>}
             </div>
+            {identity.needsReview && identity.label && (
+              <div className="mt-1 max-w-full truncate rounded border border-amber-400/25 bg-amber-400/10 px-1.5 py-0.5 text-[9px] text-amber-100">
+                {identity.label}
+              </div>
+            )}
           </div>
         </div>
 

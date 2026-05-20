@@ -3,6 +3,7 @@ import { createClient } from '@/lib/convex/server'
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import MatchPhotoImage from '@/components/matches/MatchPhotoImage'
+import { getMatchIdentityStatus } from '@/lib/matches/identity'
 import { normalizeMatchPhotos } from '@/lib/matches/photos'
 import { isDisplayableMatchProfile } from '@/lib/matches/visibility'
 
@@ -104,7 +105,8 @@ export default async function MatchesPage() {
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
             {items.map((m) => {
-              const displayName = m.name || m.match_name || 'Unknown'
+              const identity = getMatchIdentityStatus(m)
+              const displayName = identity.displayName
               const photos = normalizeMatchPhotos([...(normalizeMatchPhotos(m.photos_jsonb)), ...(normalizeMatchPhotos(m.photos))])
               const photo = photos[0]?.url ?? null
               const nPhotos = photos.length
@@ -170,6 +172,14 @@ export default async function MatchesPage() {
                             {t}
                           </span>
                         ))}
+                      </div>
+                    )}
+                    {identity.needsReview && identity.label && (
+                      <div className="rounded border border-amber-400/25 bg-amber-400/10 px-2 py-1 text-[11px] text-amber-100">
+                        <div className="font-medium">{identity.label}</div>
+                        {identity.helper && (
+                          <div className="mt-0.5 text-amber-100/70">{identity.helper}</div>
+                        )}
                       </div>
                     )}
                     {m.instagram_handle && (

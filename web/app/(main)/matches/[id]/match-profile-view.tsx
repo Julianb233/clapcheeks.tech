@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 import { VoiceInput, VoiceTextarea } from '@/components/voice'
 import MatchPhotoImage from '@/components/matches/MatchPhotoImage'
+import { getMatchIdentityStatus } from '@/lib/matches/identity'
 import { normalizeMatchPhotos } from '@/lib/matches/photos'
 import ConversationThread, { type ChatMessage } from './conversation-thread'
 import MemoViewer from './memo-viewer'
@@ -263,7 +264,8 @@ export default function MatchProfileView({
   const [tab, setTab] = useState<TabKey>('profile')
   const [briefCopied, setBriefCopied] = useState(false)
 
-  const displayName = m.name || m.match_name || 'Unknown'
+  const identity = getMatchIdentityStatus(m)
+  const displayName = identity.displayName
   const photos = useMemo(() => {
     return normalizeMatchPhotos([...(m.photos_jsonb ?? []), ...(m.photos ?? [])])
   }, [m.photos, m.photos_jsonb])
@@ -634,6 +636,12 @@ export default function MatchProfileView({
                 <span className="font-normal text-white/70">, {m.age}</span>
               ) : null}
             </h1>
+            {identity.needsReview && identity.label && (
+              <div className="mt-2 inline-flex max-w-full flex-col rounded-md border border-amber-400/25 bg-amber-400/10 px-2.5 py-1.5 text-xs text-amber-100">
+                <span className="font-semibold">{identity.label}</span>
+                {identity.helper && <span className="mt-0.5 text-amber-100/70">{identity.helper}</span>}
+              </div>
+            )}
             <p className="text-sm text-white/50 mt-1 uppercase tracking-wide">
               {m.platform ?? 'unknown'}
               {m.zodiac && <> &middot; {m.zodiac}</>}

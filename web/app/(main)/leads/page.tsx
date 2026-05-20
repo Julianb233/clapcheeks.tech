@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import { createClient } from '@/lib/convex/server'
 import { redirect } from 'next/navigation'
+import { getMatchIdentityStatus } from '@/lib/matches/identity'
 import LeadsBoard, { type Lead } from './leads-board'
 
 export const metadata: Metadata = {
@@ -31,35 +32,40 @@ export default async function LeadsPage() {
       last_message_at, last_message_by, message_count, date_asked_at,
       date_slot_iso, date_booked_at, calendar_event_link, zodiac,
       interests, prompt_themes, tag, notes, outcome, drip_fired,
-      updated_at
+      match_intel, updated_at
     `)
     .eq('user_id', user.id)
     .order('last_message_at', { ascending: false, nullsFirst: false })
     .limit(500)
 
-  const leads: Lead[] = (data ?? []).map((row: any) => ({
-    id: row.id,
-    platform: row.platform,
-    match_id: row.match_id,
-    name: row.name,
-    age: row.age,
-    stage: row.stage,
-    stageEnteredAt: row.stage_entered_at,
-    lastMessageAt: row.last_message_at,
-    lastMessageBy: row.last_message_by,
-    messageCount: row.message_count ?? 0,
-    dateAskedAt: row.date_asked_at,
-    dateSlotIso: row.date_slot_iso,
-    dateBookedAt: row.date_booked_at,
-    calendarEventLink: row.calendar_event_link,
-    zodiac: row.zodiac,
-    interests: (row.interests as string[] | null) ?? [],
-    promptThemes: (row.prompt_themes as string[] | null) ?? [],
-    tag: row.tag,
-    notes: row.notes,
-    outcome: row.outcome,
-    dripFired: (row.drip_fired as Record<string, number> | null) ?? {},
-  }))
+  const leads: Lead[] = (data ?? []).map((row: any) => {
+    const identity = getMatchIdentityStatus(row)
+    return {
+      id: row.id,
+      platform: row.platform,
+      match_id: row.match_id,
+      name: row.name,
+      age: row.age,
+      stage: row.stage,
+      stageEnteredAt: row.stage_entered_at,
+      lastMessageAt: row.last_message_at,
+      lastMessageBy: row.last_message_by,
+      messageCount: row.message_count ?? 0,
+      dateAskedAt: row.date_asked_at,
+      dateSlotIso: row.date_slot_iso,
+      dateBookedAt: row.date_booked_at,
+      calendarEventLink: row.calendar_event_link,
+      zodiac: row.zodiac,
+      interests: (row.interests as string[] | null) ?? [],
+      promptThemes: (row.prompt_themes as string[] | null) ?? [],
+      tag: row.tag,
+      notes: row.notes,
+      outcome: row.outcome,
+      dripFired: (row.drip_fired as Record<string, number> | null) ?? {},
+      identityLabel: identity.label,
+      identityHelper: identity.helper,
+    }
+  })
 
   return (
     <div className="min-h-screen bg-black text-white p-6">

@@ -4,6 +4,7 @@ import { useMemo } from 'react'
 import Link from 'next/link'
 import { ClapcheeksMatchRow, formatTimeAgo } from '@/lib/matches/types'
 import { getCoverPhoto } from '@/lib/matches/photos'
+import { getMatchIdentityStatus } from '@/lib/matches/identity'
 import MatchPhotoImage from '@/components/matches/MatchPhotoImage'
 
 type Props = {
@@ -61,6 +62,7 @@ export default function DailyTopThree({ matches }: Props) {
               ? Math.round(m.close_probability * 100)
               : null
           const photo = getCoverPhoto(m.photos_jsonb) ?? getCoverPhoto(m.photos)
+          const identity = getMatchIdentityStatus(m)
           return (
             <li key={m.id}>
               <Link
@@ -70,16 +72,21 @@ export default function DailyTopThree({ matches }: Props) {
                 <span className="text-yellow-400 font-mono font-bold text-sm w-5">#{i + 1}</span>
                 <MatchPhotoImage
                   src={photo}
-                  alt={m.name ?? 'match'}
-                  initials={m.name ?? '?'}
+                  alt={identity.displayName}
+                  initials={identity.displayName}
                   className="w-8 h-8 rounded-full object-cover"
                   fallbackClassName="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center text-xs text-white/50"
                 />
                 <div className="flex-1 min-w-0">
                   <div className="flex items-baseline gap-1.5">
-                    <span className="text-white text-sm font-semibold truncate">{m.name ?? 'Unknown'}</span>
+                    <span className="text-white text-sm font-semibold truncate">{identity.displayName}</span>
                     {m.age && <span className="text-white/60 text-xs">{m.age}</span>}
                   </div>
+                  {identity.needsReview && identity.label && (
+                    <div className="mt-0.5 inline-flex max-w-full rounded border border-amber-400/25 bg-amber-400/10 px-1.5 py-0.5 text-[9px] text-amber-100">
+                      {identity.label}
+                    </div>
+                  )}
                   <div className="text-[10px] text-white/40 font-mono">
                     silent {formatTimeAgo(m.last_activity_at ?? m.updated_at)}
                   </div>

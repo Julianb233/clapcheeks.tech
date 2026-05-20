@@ -25,6 +25,8 @@ export type Lead = {
   notes: string | null
   outcome: string | null
   dripFired: Record<string, number>
+  identityLabel?: string | null
+  identityHelper?: string | null
 }
 
 type Stage = { key: string; label: string; hint: string }
@@ -189,6 +191,11 @@ function LeadCard({
             {lead.platform}
             {lead.zodiac ? ` · ${lead.zodiac}` : ''}
           </div>
+          {lead.identityLabel && (
+            <div className="mt-1 inline-flex max-w-full rounded border border-amber-400/25 bg-amber-400/10 px-1.5 py-0.5 text-[10px] text-amber-100">
+              {lead.identityLabel}
+            </div>
+          )}
         </div>
         {lead.tag && (
           <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/10 text-white/70">
@@ -269,6 +276,14 @@ function LeadDrawer({
               {' · '}
               {lead.messageCount} msg
             </div>
+            {lead.identityLabel && (
+              <div className="mt-2 rounded border border-amber-400/25 bg-amber-400/10 px-2.5 py-2 text-xs text-amber-100">
+                <div className="font-semibold">{lead.identityLabel}</div>
+                {lead.identityHelper && (
+                  <div className="mt-0.5 text-amber-100/70">{lead.identityHelper}</div>
+                )}
+              </div>
+            )}
           </div>
           <button
             onClick={onClose}
