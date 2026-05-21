@@ -66,13 +66,16 @@ async function checkStripe(): Promise<HealthCheckResult> {
 
 async function checkApiBackend(): Promise<HealthCheckResult> {
   const apiUrl = process.env.NEXT_PUBLIC_API_URL
+  const required = process.env.REQUIRE_API_BACKEND_HEALTH === '1'
   const start = Date.now()
-  if (!apiUrl) {
+  if (!apiUrl || !required) {
     return {
       service: 'api-backend',
       status: 'healthy',
       latencyMs: Date.now() - start,
-      message: 'skipped: Convex is the runtime source; NEXT_PUBLIC_API_URL is optional',
+      message: apiUrl
+        ? 'skipped: Convex is the runtime source; legacy NEXT_PUBLIC_API_URL health is optional'
+        : 'skipped: Convex is the runtime source; NEXT_PUBLIC_API_URL is optional',
       checkedAt: new Date().toISOString(),
     }
   }
