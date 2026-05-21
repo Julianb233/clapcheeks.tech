@@ -106,6 +106,8 @@ test('status route names the current physical-ios readiness blocker', () => {
   assert.match(files.status, /auditTime >= diagnosticsTime/)
   assert.match(files.status, /latest_completion_audit_telemetry/)
   assert.match(files.status, /effectiveLatestTransportDiagnostics/)
+  assert.match(files.status, /telemetry_event_id: effectiveTransport\.telemetry_event_id/)
+  assert.match(files.status, /telemetry_occurred_at: effectiveTransport\.telemetry_occurred_at/)
   assert.match(files.status, /blockers: cleanStringArray\(transportVisibility\?\.blockers\)/)
   assert.match(files.status, /latest_result: effectiveLatestCompletionAudit/)
   assert.match(files.status, /sendbird: tokenHealth\.sendbird/)

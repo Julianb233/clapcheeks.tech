@@ -105,7 +105,8 @@ function deviceStatusSummary(body) {
     coredevice_bound_udid_visible: transport.coredevice_bound_udid_visible ?? null,
     latest_transport_diagnostics_status: physical.latest_transport_diagnostics?.status || null,
     latest_transport_diagnostics_source: physical.latest_transport_diagnostics?.source || null,
-    telemetry_event_id: physical.latest_transport_diagnostics?.telemetry_event_id || null,
+    telemetry_event_id: physical.telemetry_event_id || physical.latest_transport_diagnostics?.telemetry_event_id || null,
+    telemetry_occurred_at: physical.telemetry_occurred_at || physical.latest_transport_diagnostics?.telemetry_occurred_at || null,
     transport_blockers: Array.isArray(transport.blockers) ? transport.blockers : [],
   }
 }

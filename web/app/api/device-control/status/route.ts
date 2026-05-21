@@ -418,6 +418,8 @@ function effectiveTransportVisibilitySource(
     return {
       transport_visibility: auditTransport,
       source: latestAudit.source === 'convex_telemetry' ? 'latest_completion_audit_telemetry' : 'latest_completion_audit_json',
+      telemetry_event_id: latestAudit.telemetry_event_id || null,
+      telemetry_occurred_at: latestAudit.telemetry_occurred_at || null,
     }
   }
   return {
@@ -429,6 +431,8 @@ function effectiveTransportVisibilitySource(
         : latestAudit.status === 'missing' || latestAudit.status === 'unreadable'
           ? 'fallback_static_blockers'
           : 'latest_completion_audit_json',
+    telemetry_event_id: latestTransport.telemetry_event_id || latestAudit.telemetry_event_id || null,
+    telemetry_occurred_at: latestTransport.telemetry_occurred_at || latestAudit.telemetry_occurred_at || null,
   }
 }
 
@@ -492,6 +496,9 @@ export async function GET() {
   const transportVisibility = effectiveTransport.transport_visibility
   const effectiveLatestTransportDiagnostics = {
     ...latestTransportDiagnostics,
+    source: effectiveTransport.source,
+    telemetry_event_id: effectiveTransport.telemetry_event_id,
+    telemetry_occurred_at: effectiveTransport.telemetry_occurred_at,
     blockers: cleanStringArray(transportVisibility?.blockers),
     transport_visibility: transportVisibility,
   }
@@ -544,6 +551,8 @@ export async function GET() {
       current_blocker: currentPhysicalIOSBlocker(latestCompletionAudit, physicalIOSBlockers),
       latest_known_blockers: physicalIOSBlockers,
       latest_blockers_source: effectiveTransport.source,
+      telemetry_event_id: effectiveTransport.telemetry_event_id,
+      telemetry_occurred_at: effectiveTransport.telemetry_occurred_at,
       transport_visibility: transportVisibility,
       latest_transport_diagnostics: effectiveLatestTransportDiagnostics,
       local_latest_audit_status: localLatestCompletionAudit.status,

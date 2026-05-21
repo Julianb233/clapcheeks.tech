@@ -1088,6 +1088,8 @@ test('production CCT proof covers dashboard health, roster controls, and current
   assert.match(files.productionCctScript, /Date proposed/)
   assert.match(files.productionCctScript, /device status uses latest transport telemetry source/)
   assert.match(files.productionCctScript, /latest_completion_audit_telemetry/)
+  assert.match(files.productionCctScript, /physical\.telemetry_event_id/)
+  assert.match(files.productionCctScript, /physical\.telemetry_occurred_at/)
   assert.match(files.productionCctScript, /deviceStatus: deviceSummary/)
   assert.match(files.productionCctScript, /transportBlockers\.every/)
   assert.doesNotMatch(files.productionCctScript, /ios_deploy_bound_udid_visible === true/)
