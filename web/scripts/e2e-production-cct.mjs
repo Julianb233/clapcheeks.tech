@@ -146,6 +146,31 @@ function summarizeInventory(profileBody) {
   }
 }
 
+function sanitizedFixtureEvidence(fixture) {
+  const leadIntel = fixture.leadEditBody?.match?.match_intel || {}
+  return {
+    status: fixture.status,
+    id: fixture.id,
+    patchStatus: fixture.patchStatus,
+    enrichStatus: fixture.enrichStatus,
+    enrichSuccess: fixture.enrichBody?.success === true,
+    detail: {
+      hasQaNote: fixture.detail?.hasQaNote === true,
+      hasDatePlanned: fixture.detail?.hasDatePlanned === true,
+      brokenImages: fixture.detail?.brokenImages ?? null,
+    },
+    leadEditStatus: fixture.leadEditStatus,
+    leadEdit: {
+      lead_stage: leadIntel.lead_stage || null,
+      lead_tag_present: typeof leadIntel.lead_tag === 'string' && leadIntel.lead_tag.length > 0,
+      lead_notes_present: typeof leadIntel.lead_notes === 'string' && leadIntel.lead_notes.length > 0,
+      lead_outcome: leadIntel.lead_outcome || null,
+      lead_stage_entered_at_present: typeof leadIntel.lead_stage_entered_at === 'string' && leadIntel.lead_stage_entered_at.length > 0,
+    },
+    archiveStatus: fixture.archiveStatus,
+  }
+}
+
 class CdpClient {
   constructor(wsUrl) {
     this.ws = new WebSocket(wsUrl)
@@ -376,6 +401,8 @@ async function runSafeFixture(client) {
     enrichStatus: null,
     enrichBody: null,
     detail: null,
+    leadEditStatus: null,
+    leadEditBody: null,
     archiveStatus: null,
   }
   if (!fixtureId) return result
@@ -416,6 +443,23 @@ async function runSafeFixture(client) {
       }
     })()`,
   )
+
+  const leadEditStamp = new Date().toISOString()
+  const leadEdit = await api(client, 'PATCH', `/api/matches/${encodeURIComponent(fixtureId)}`, {
+    stage: 'date_planned',
+    status: 'active',
+    match_intel_patch: {
+      qa_fixture: true,
+      qa_stamp: fixtureStamp,
+      lead_stage: 'date_booked',
+      lead_stage_entered_at: leadEditStamp,
+      lead_tag: `CCT lead edit ${fixtureStamp}`,
+      lead_notes: `CCT lead drawer note ${fixtureStamp}`,
+      lead_outcome: 'production_cct_verified',
+    },
+  })
+  result.leadEditStatus = leadEdit.status
+  result.leadEditBody = leadEdit.body
 
   const archive = await api(client, 'DELETE', `/api/matches/${encodeURIComponent(fixtureId)}`)
   result.archiveStatus = archive.status
@@ -525,6 +569,13 @@ async function main() {
           fixture.archiveStatus === 200,
       },
       {
+        name: 'lead edit persists through match patch API',
+        pass: fixture.leadEditStatus === 200 &&
+          fixture.leadEditBody?.match?.match_intel?.lead_stage === 'date_booked' &&
+          fixture.leadEditBody?.match?.match_intel?.lead_tag === `CCT lead edit ${fixture.leadEditBody?.match?.match_intel?.qa_stamp || ''}` &&
+          fixture.leadEditBody?.match?.match_intel?.lead_outcome === 'production_cct_verified',
+      },
+      {
         name: 'autonomy settings roundtrip save',
         pass: autonomySave.status === 200 && Boolean(autonomySave.body?.config),
       },
@@ -593,6 +644,24 @@ async function main() {
     const apiSummary = Object.fromEntries(Object.entries(apis).map(([key, response]) => {
       let summary = response.body
       if (key === 'profile') summary = { rowCount: inventory.rowCount, inventory }
+      if (key === 'scheduled') {
+        const rows = Array.isArray(response.body?.messages)
+          ? response.body.messages
+          : Array.isArray(response.body?.scheduled_messages)
+            ? response.body.scheduled_messages
+            : Array.isArray(response.body)
+              ? response.body
+              : []
+        summary = {
+          total: rows.length,
+          by_status: rows.reduce((acc, row) => {
+            const status = String(row?.status || 'unknown')
+            acc[status] = (acc[status] || 0) + 1
+            return acc
+          }, {}),
+          redacted: true,
+        }
+      }
       if (key === 'device') {
         summary = deviceStatusSummary(response.body)
       }
@@ -601,6 +670,7 @@ async function main() {
     }))
     const screenshots = pages.filter((page) => page.screenshotPath).map((page) => page.screenshotPath)
 
+    const fixtureEvidence = sanitizedFixtureEvidence(fixture)
     const report = {
       ts,
       outDir,
@@ -612,7 +682,7 @@ async function main() {
       apis: apiSummary,
       inventory,
       deviceStatus: deviceSummary,
-      fixture,
+      fixture: fixtureEvidence,
       autonomySave: { status: autonomySave.status, ok: autonomySave.ok },
       suggest: {
         status: suggest.status,
@@ -634,13 +704,7 @@ async function main() {
       total: report.total,
       failed: checks.filter((check) => !check.pass),
       inventory,
-      fixture: {
-        status: fixture.status,
-        id: fixture.id,
-        patchStatus: fixture.patchStatus,
-        enrichStatus: fixture.enrichStatus,
-        archiveStatus: fixture.archiveStatus,
-      },
+      fixture: fixtureEvidence,
       screenshots,
     }
     console.log(JSON.stringify(summary, null, 2))
