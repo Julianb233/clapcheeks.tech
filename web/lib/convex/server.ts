@@ -1,10 +1,12 @@
-// AI-9535 — Shared Convex HTTP client for Next.js server-side routes.
-//
-// Auth still resolves user_id via Supabase in the calling route. This helper
-// is just the wire to talk to Convex from API handlers.
 import { ConvexHttpClient } from 'convex/browser'
+import { createServerClient } from "@/lib/convex/compat-client"
+import { getCurrentOperatorUser } from "@/lib/auth/operator-session"
 
 let cached: ConvexHttpClient | null = null
+
+export async function createClient() {
+  return createServerClient({ user: await getCurrentOperatorUser() })
+}
 
 export function getConvexServerClient(): ConvexHttpClient {
   if (cached) return cached

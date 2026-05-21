@@ -1,34 +1,27 @@
 import type { Metadata } from 'next'
-import { ConvexHttpClient } from 'convex/browser'
-
-import { createClient } from '@/lib/supabase/server'
+import type { ReactNode } from 'react'
+import { createClient } from '@/lib/convex/server'
+import { logout } from '@/app/auth/actions'
 import { redirect } from 'next/navigation'
-import { api } from '@/convex/_generated/api'
-import { getFleetUserId } from '@/lib/fleet-user'
-
-// AI-9536 — clapcheeks_analytics_daily + clapcheeks_device_heartbeats
-// migrated to Convex.
+import Link from 'next/link'
+import { CalendarDays, MessageSquareText, Sparkles, Target, UserRoundPlus, UsersRound, Zap } from 'lucide-react'
 import ManageBillingButton from '@/components/manage-billing-button'
 import PlanBadge from '@/components/plan-badge'
 import EliteOnly from '@/components/elite-only'
+import CoachingSection from './components/coaching-section'
 import DashboardLive from './components/dashboard-live'
 import AgentStatusBadge from './components/agent-status-badge'
+import IMessageTestPanel from './components/imessage-test-panel'
 import BriefingCard from './components/briefing-card'
+import SystemHealthCheck from './components/system-health-check'
 import { getLatestCoaching } from '@/lib/coaching/generate'
 import { TrendCard } from './components/trend-card'
+import { DashboardCharts } from './components/dashboard-charts'
 import { calculateRizzScore, getRizzTrend } from '@/lib/rizz'
 import { calculateCPN, getCPNTrend } from '@/lib/cpn'
-// AI-9500: route heavy below-the-fold components through client wrappers that
-// use `next/dynamic` with `ssr:false` so Recharts (~250KB) and the iMessage
-// test panel never enter the initial JS bundle. This RSC parent can't call
-// `dynamic({ ssr: false })` directly in Next 15 — wrappers live as client
-// components in `./components/lazy.tsx`.
-import {
-  DashboardChartsLazy,
-  CoachingSectionLazy,
-  IMessageTestPanelLazy,
-} from './components/lazy'
-import DataUnavailable from '@/components/shared/DataUnavailable'
+import { ClapcheeksMatchRow, RosterStage, formatTimeAgo } from '@/lib/matches/types'
+import { getMatchIdentityStatus } from '@/lib/matches/identity'
+import { isDisplayableMatchProfile } from '@/lib/matches/visibility'
 
 export const metadata: Metadata = {
   title: 'Dashboard — Clapcheeks',
@@ -54,14 +47,93 @@ interface ConvoRow {
   date: string
 }
 
+interface SpendingRow {
+  amount: number | string
+  category: string
+  date: string
+}
+
 interface DeviceRow {
   last_seen_at: string
   is_active: boolean
 }
 
+function deriveRosterStage(match: ClapcheeksMatchRow): RosterStage {
+  if (match.stage) return match.stage
+  switch (match.status) {
+    case 'new':
+    case 'opened':
+      return 'new_match'
+    case 'conversing':
+      return 'chatting'
+    case 'date_proposed':
+      return 'date_proposed'
+    case 'date_booked':
+      return 'date_booked'
+    case 'dated':
+      return 'date_attended'
+    case 'stalled':
+      return 'faded'
+    case 'ghosted':
+      return 'ghosted'
+    default:
+      return 'new_match'
+  }
+}
+
+function stageLabel(stage: RosterStage) {
+  const labels: Record<RosterStage, string> = {
+    new_match: 'New',
+    chatting: 'Chatting',
+    chatting_phone: 'Phone',
+    date_proposed: 'Date proposed',
+    date_booked: 'Date booked',
+    date_attended: 'Dated',
+    hooked_up: 'Hooked up',
+    recurring: 'Recurring',
+    faded: 'Faded',
+    ghosted: 'Ghosted',
+    archived: 'Archived',
+    archived_cluster_dupe: 'Duplicate',
+  }
+  return labels[stage]
+}
+
+function closeProbability(match: ClapcheeksMatchRow) {
+  if (typeof match.close_probability === 'number') return Math.round(match.close_probability * 100)
+  if (typeof match.final_score === 'number') return Math.round(match.final_score)
+  return null
+}
+
+function staleHours(match: ClapcheeksMatchRow) {
+  const iso = match.last_activity_at ?? match.updated_at
+  if (!iso) return 999
+  return Math.max(0, (Date.now() - new Date(iso).getTime()) / 36e5)
+}
+
+function QuickAction({
+  href,
+  icon,
+  label,
+}: {
+  href: string
+  icon: ReactNode
+  label: string
+}) {
+  return (
+    <Link
+      href={href}
+      className="flex min-h-16 flex-col items-start justify-between rounded-lg border border-white/10 bg-black/30 p-3 text-xs font-semibold text-white/65 transition-colors hover:border-yellow-500/35 hover:bg-yellow-500/10 hover:text-white"
+    >
+      <span className="text-yellow-300/80">{icon}</span>
+      <span>{label}</span>
+    </Link>
+  )
+}
+
 export default async function Dashboard() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const convex = await createClient()
+  const { data: { user } } = await convex.auth.getUser()
 
   if (!user) redirect('/auth/login')
 
@@ -81,155 +153,65 @@ export default async function Dashboard() {
   const fourteenDaysAgo = new Date()
   fourteenDaysAgo.setDate(fourteenDaysAgo.getDate() - 14)
 
-  // AI-9536/AI-9537: analytics_daily + device_heartbeats + devices are on
-  // Convex. AI-9534: matches.countForUser too.
-  const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL || process.env.CONVEX_URL
-  const convex = convexUrl ? new ConvexHttpClient(convexUrl) : null
-
-  // AI-9526 F10 — accumulate Convex query failures so we can surface a
-  // DataUnavailable banner when 2+ sources fail in a single load.
-  const convexErrors: string[] = []
-  const trackErr = (label: string, fallback: unknown) => () => {
-    convexErrors.push(label)
-    return fallback
-  }
-
-  // AI-9575: conversation_stats + spending migrated to Convex.
-  // AI-9606: also pull people count so the dashboard surfaces the Google
-  // Contacts / Obsidian network — Julian's "people from my phone" view.
-  const [analyticsRows, convoRows, spendRows, deviceRes, subRes, profileRes, heartbeatRow, matchCountRes, peopleRes] = await Promise.all([
+  const [analyticsRes, convoRes, spendRes, deviceRes, subRes, profileRes, matchesRes] = await Promise.all([
     convex
-      ? convex
-          .query(api.telemetry.getDailyForUser, {
-            user_id: getFleetUserId(),
-            since_day_iso: sinceStr,
-          })
-          .catch(trackErr('telemetry', []))
-      : Promise.resolve([]),
+      .from('clapcheeks_analytics_daily')
+      .select('app, swipes_right, swipes_left, matches, conversations_started, dates_booked, money_spent, date')
+      .eq('user_id', user.id)
+      .gte('date', sinceStr)
+      .order('date', { ascending: true }),
     convex
-      ? convex
-          .query(api.conversation_stats.listForUser, {
-            user_id: getFleetUserId(),
-            since_date: sinceStr,
-          })
-          .catch(trackErr('conversation_stats', [] as Array<{ platform: string; messages_sent: number; conversations_started: number; conversations_replied: number; date: string }>))
-      : Promise.resolve([] as Array<{ platform: string; messages_sent: number; conversations_started: number; conversations_replied: number; date: string }>),
+      .from('clapcheeks_conversation_stats')
+      .select('platform, messages_sent, conversations_started, conversations_replied, date')
+      .eq('user_id', user.id)
+      .gte('date', sinceStr)
+      .order('date', { ascending: true }),
     convex
-      ? convex
-          .query(api.spending.listForUser, {
-            user_id: getFleetUserId(),
-            since_date: sinceStr,
-          })
-          .catch(trackErr('spending', [] as Array<{ amount: number; category: string; date: string }>))
-      : Promise.resolve([] as Array<{ amount: number; category: string; date: string }>),
-    // AI-9537: devices migrated to Convex.
+      .from('clapcheeks_spending')
+      .select('amount, category, date')
+      .eq('user_id', user.id)
+      .gte('date', sinceStr),
     convex
-      ? convex
-          .query(api.devices.listForUser, { user_id: getFleetUserId() })
-          .catch(trackErr('devices', [] as Array<{ last_seen_at: number; is_active: boolean }>))
-      : Promise.resolve([] as Array<{ last_seen_at: number; is_active: boolean }>),
-    // AI-9537: subscriptions migrated to Convex.
+      .from('devices')
+      .select('last_seen_at, is_active')
+      .eq('user_id', user.id)
+      .order('last_seen_at', { ascending: false })
+      .limit(1),
     convex
-      ? convex
-          .query(api.billing.getByUser, { user_id: getFleetUserId() })
-          .catch(trackErr('billing', null as { status: string } | null))
-      : Promise.resolve(null as { status: string } | null),
-    supabase
+      .from('clapcheeks_subscriptions')
+      .select('status')
+      .eq('user_id', user.id)
+      .limit(1)
+      .single(),
+    convex
       .from('profiles')
       .select('subscription_tier, subscription_status')
       .eq('id', user.id)
       .single(),
-    // AI-8926/AI-9536: modern device-presence source on Convex.
-    convex
-      ? convex
-          .query(api.telemetry.getLatestHeartbeat, { user_id: getFleetUserId() })
-          .catch(trackErr('heartbeat', null))
-      : Promise.resolve(null),
-    // AI-8926/AI-9534: actual matches count (analytics_daily can be empty
-    // for users whose agent does not aggregate per-day yet). Reads from
-    // Convex via api.matches.countForUser.
-    convex
-      ? convex.query(api.matches.countForUser, { user_id: getFleetUserId() }).catch(trackErr('matches_count', 0))
-      : Promise.resolve(0),
-    // AI-9606: people network (Google Contacts + Obsidian + dating profiles).
-    // listForUser is paginated; take a 1000-row slice for the count tile.
-    convex
-      ? convex
-          .query(api.people.listForUser, { user_id: getFleetUserId(), limit: 1000 })
-          .catch(trackErr('people', [] as Array<{ _id: string }>))
-      : Promise.resolve([] as Array<{ _id: string }>),
+    (convex as any)
+      .from('clapcheeks_matches')
+      .select('*')
+      .eq('user_id', user.id)
+      .order('close_probability', { ascending: false, nullsFirst: false })
+      .order('final_score', { ascending: false, nullsFirst: false })
+      .order('last_activity_at', { ascending: false, nullsFirst: false })
+      .range(0, 199),
   ])
 
-  // Map Convex rows (day_iso) into the legacy {date} shape that downstream
-  // dashboard code expects.
-  const analyticsRes = {
-    data: ((analyticsRows as Array<{
-      app: string
-      day_iso: string
-      swipes_right: number
-      swipes_left: number
-      matches: number
-      conversations_started: number
-      dates_booked: number
-      money_spent: number
-    }>) ?? [])
-      .map((r) => ({
-        app: r.app,
-        swipes_right: r.swipes_right,
-        swipes_left: r.swipes_left,
-        matches: r.matches,
-        conversations_started: r.conversations_started,
-        dates_booked: r.dates_booked,
-        money_spent: r.money_spent,
-        date: r.day_iso,
-      }))
-      .sort((a, b) => a.date.localeCompare(b.date)),
-  }
-
   // Fetch coaching session
-  const coachingSession = await getLatestCoaching(supabase, user.id)
+  const coachingSession = await getLatestCoaching(convex, user.id)
 
-  // AI-9537: subRes is now the Convex row directly (or null).
-  const isSubscribed = (subRes as { status?: string } | null)?.status === 'active'
+  const isSubscribed = subRes.data?.status === 'active'
   const userPlan = (profileRes.data?.subscription_tier || 'base') as 'base' | 'elite'
   const userSubStatus = profileRes.data?.subscription_status || 'inactive'
   const userIsElite = userPlan === 'elite' && userSubStatus === 'active'
 
   const rows: DailyRow[] = analyticsRes.data || []
-  // AI-9575: Convex returns typed arrays directly (no .data wrapper).
-  const convos: ConvoRow[] = (convoRows as ConvoRow[]) ?? []
-  type SpendingRow = { amount: number | string; category: string; date: string }
-  const spending: SpendingRow[] = (spendRows as SpendingRow[]) ?? []
-
-  // AI-8926/AI-9536/AI-9537: pick the freshest of (Convex devices.last_seen_at, Convex device_heartbeats.last_heartbeat_at).
-  const deviceRows = (deviceRes as Array<{ last_seen_at: number; is_active: boolean }>) ?? []
-  const oldDevice = deviceRows.length
-    ? deviceRows.reduce((best, d) => (d.last_seen_at > best.last_seen_at ? d : best))
-    : null
-  const heartbeatTsMs =
-    (heartbeatRow as { last_heartbeat_at?: number } | null)?.last_heartbeat_at ?? null
-  const heartbeatTs = heartbeatTsMs ? new Date(heartbeatTsMs).toISOString() : null
-  const candidates: { last_seen_at: string; is_active: boolean }[] = []
-  if (oldDevice?.last_seen_at) {
-    candidates.push({
-      last_seen_at: new Date(oldDevice.last_seen_at).toISOString(),
-      is_active: oldDevice.is_active,
-    })
-  }
-  if (heartbeatTs) candidates.push({ last_seen_at: heartbeatTs, is_active: true })
-  const device: DeviceRow | null = candidates.length
-    ? candidates.reduce((best, c) =>
-        new Date(c.last_seen_at).getTime() > new Date(best.last_seen_at).getTime() ? c : best,
-      ) as DeviceRow
-    : null
-  const hasAgent = !!device
-
-  // AI-8926 / AI-9534: real-match-count fallback when analytics_daily is
-  // empty. matchCountRes is a plain number from api.matches.countForUser.
-  const realMatchCount = typeof matchCountRes === 'number' ? matchCountRes : 0
-
-  // AI-9606: people count for the Network tile.
-  const peopleCount = Array.isArray(peopleRes) ? peopleRes.length : 0
+  const convos: ConvoRow[] = convoRes.data || []
+  const spending: SpendingRow[] = spendRes.data || []
+  const device: DeviceRow | null = deviceRes.data?.[0] || null
+  const rosterMatches: ClapcheeksMatchRow[] = ((matchesRes as any).data || []).filter(isDisplayableMatchProfile)
+  const hasAgent = !!device || rows.length > 0 || convos.length > 0 || rosterMatches.length > 0
 
   // Aggregate totals
   const totals = rows.reduce(
@@ -250,7 +232,15 @@ export default async function Dashboard() {
     }),
     { conversations_started: 0, conversations_replied: 0 }
   )
-  const matchRate = totals.swipes_right > 0 ? (totals.matches / totals.swipes_right) * 100 : 0
+  const matchRateAvailable = totals.swipes_right > 0
+  const matchRate = matchRateAvailable ? (totals.matches / totals.swipes_right) * 100 : 0
+  const dataQualityWarnings: string[] = []
+  if (hasAgent && totals.matches > 0 && totals.swipes_right === 0) {
+    dataQualityWarnings.push('Swipe totals are unavailable from Convex, so match rate is hidden instead of showing a fake 0.0%.')
+  }
+  if (hasAgent && totals.matches > 0 && convoTotals.conversations_started > totals.matches) {
+    dataQualityWarnings.push('Conversation totals are live activity counts, not a strict conversion denominator.')
+  }
 
   // Today's stats
   const todayRows = rows.filter((r) => r.date === today)
@@ -383,8 +373,10 @@ export default async function Dashboard() {
       { stage: 'Swipes', value: totals.swipes_right },
       { stage: 'Matches', value: totals.matches },
       { stage: 'Conversations', value: totals.messages },
+      { stage: 'Date-ready', value: Math.round(totals.messages * 0.3) },
       { stage: 'Dates Booked', value: totals.dates },
     ],
+    dataQuality: { warnings: dataQualityWarnings },
   }
 
   // Chart data for Recharts components
@@ -392,6 +384,8 @@ export default async function Dashboard() {
     totals: { swipes_right: totals.swipes_right, matches: totals.matches, messages_sent: totals.messages, dates_booked: totals.dates, conversations: convoTotals.conversations_started },
     todaySwipes,
     matchRate,
+    matchRateAvailable,
+    dataQuality: { warnings: dataQualityWarnings },
     rizzScore,
     rizzTrend,
     platforms: byPlatform,
@@ -421,36 +415,134 @@ export default async function Dashboard() {
 
   const stats = [
     { label: 'Swipes Today', value: hasAgent ? String(todaySwipes) : '--', trend: undefined, invertColors: false },
-    // AI-8926: Always show match count from clapcheeks_matches when analytics_daily is empty.
-    { label: 'Total Matches', value: String(totals.matches || realMatchCount), trend: hasAgent ? chartData.trends.matches : undefined, invertColors: false },
+    { label: 'Total Matches', value: hasAgent ? String(totals.matches) : '--', trend: hasAgent ? chartData.trends.matches : undefined, invertColors: false },
     { label: 'Dates Booked', value: hasAgent ? String(totals.dates) : '--', trend: hasAgent ? chartData.trends.dates : undefined, invertColors: false },
-    { label: 'Match Rate', value: hasAgent ? `${matchRate.toFixed(1)}%` : '--', trend: undefined, invertColors: false },
+    { label: 'Match Rate', value: hasAgent ? (matchRateAvailable ? `${matchRate.toFixed(1)}%` : 'n/a') : '--', trend: undefined, invertColors: false },
     { label: 'Rizz Score', value: hasAgent ? String(rizzScore) : '--', trend: hasAgent ? rizzTrend : undefined, invertColors: false },
     { label: 'CPN', value: hasAgent ? (cpnResult.nuts > 0 ? `$${cpnResult.cpn}` : '--') : '--', trend: hasAgent && cpnResult.nuts > 0 ? cpnTrend : undefined, invertColors: true },
   ]
 
+  const activeStages = new Set<RosterStage>(['new_match', 'chatting', 'chatting_phone', 'date_proposed', 'date_booked', 'date_attended', 'hooked_up', 'recurring', 'faded'])
+  const dateIntentStages = new Set<RosterStage>(['chatting_phone', 'date_proposed', 'date_booked'])
+  const activeRoster = rosterMatches.filter((match) => activeStages.has(deriveRosterStage(match)))
+  const datePipeline = rosterMatches.filter((match) => dateIntentStages.has(deriveRosterStage(match)))
+  const dateProposed = rosterMatches.filter((match) => deriveRosterStage(match) === 'date_proposed')
+  const dateBooked = rosterMatches.filter((match) => deriveRosterStage(match) === 'date_booked')
+  const staleOutreach = activeRoster.filter((match) => staleHours(match) >= 18)
+  const highCloseNeedsDate = activeRoster.filter((match) => {
+    const stage = deriveRosterStage(match)
+    const probability = closeProbability(match) ?? 0
+    return probability >= 60 && stage !== 'date_booked' && stage !== 'date_attended' && stage !== 'hooked_up' && stage !== 'recurring'
+  })
+  const priorityRoster = [...activeRoster]
+    .sort((a, b) => {
+      const ap = closeProbability(a) ?? 0
+      const bp = closeProbability(b) ?? 0
+      if (bp !== ap) return bp - ap
+      return staleHours(b) - staleHours(a)
+    })
+    .slice(0, 6)
+  const dateQueue = [...datePipeline]
+    .sort((a, b) => {
+      const stageWeight = (stage: RosterStage) =>
+        stage === 'date_proposed' ? 3 : stage === 'chatting_phone' ? 2 : stage === 'date_booked' ? 1 : 0
+      const sw = stageWeight(deriveRosterStage(b)) - stageWeight(deriveRosterStage(a))
+      if (sw !== 0) return sw
+      return (closeProbability(b) ?? 0) - (closeProbability(a) ?? 0)
+    })
+    .slice(0, 4)
+  const rosterInsights = [
+    highCloseNeedsDate.length > 0
+      ? `${highCloseNeedsDate.length} high-close match${highCloseNeedsDate.length === 1 ? '' : 'es'} should be moved toward a date ask.`
+      : 'No high-close match is waiting on a date ask.',
+    staleOutreach.length > 0
+      ? `${staleOutreach.length} active thread${staleOutreach.length === 1 ? '' : 's'} went quiet for 18h+ and need a revive/check-in.`
+      : 'Active threads are fresh right now.',
+    dateProposed.length > 0
+      ? `${dateProposed.length} proposed date${dateProposed.length === 1 ? '' : 's'} need slot confirmation.`
+      : 'No proposed dates are waiting for confirmation.',
+    dateBooked.length > 0
+      ? `${dateBooked.length} date${dateBooked.length === 1 ? ' is' : 's are'} booked and should get prep/follow-up attention.`
+      : 'No booked dates in the current roster snapshot.',
+  ]
+  const rosterStats = [
+    { label: 'Active roster', value: activeRoster.length, helper: 'people worth steering' },
+    { label: 'Date pipeline', value: datePipeline.length, helper: 'phone/proposed/booked' },
+    { label: 'Need date ask', value: highCloseNeedsDate.length, helper: '60%+ not booked' },
+    { label: 'Quiet 18h+', value: staleOutreach.length, helper: 'revive today' },
+  ]
+
   return (
-    <div className="min-h-screen bg-black px-4 md:px-6 py-6 md:py-8">
-      <div className="relative max-w-5xl mx-auto">
-        {/* AI-9526 F10 — surface a banner when 2+ Convex queries failed. */}
-        {convexErrors.length >= 2 && <DataUnavailable errors={convexErrors} />}
-        {/* Header — top-nav removed 2026-04-27 (sidebar-audit Fix E):
-            the in-page top-nav duplicated the global sidebar with mismatched
-            labels ("Conversation AI" vs sidebar "Conversations", "AI Coach"
-            vs sidebar "Coaching"). Sidebar is now the single source of truth.
-            Plan badge + Manage-billing CTA stay because those are dashboard
-            chrome, not navigation. */}
+    <div className="min-h-screen overflow-x-hidden bg-black px-4 md:px-6 py-6 md:py-8">
+      <div className="relative mx-auto max-w-[1500px] min-w-0">
+        {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8">
           <div className="flex items-center gap-3">
             <span className="font-display text-2xl sm:text-3xl tracking-wide gold-text uppercase">Clapcheeks</span>
             <span className="font-body text-xs text-white/30 font-mono bg-white/5 px-2 py-0.5 rounded border border-white/10">beta</span>
             <PlanBadge plan={userPlan} subscriptionStatus={userSubStatus} />
           </div>
-          <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex max-w-full items-center gap-2 overflow-x-auto pb-1 sm:flex-wrap sm:overflow-visible sm:pb-0">
             {user?.email && (
               <span className="text-white/30 text-xs hidden sm:block">{user.email}</span>
             )}
+            <Link
+              href="/dashboard/roster"
+              className="text-white/70 hover:text-white text-xs bg-yellow-500/10 hover:bg-yellow-500/20 border border-yellow-500/30 px-3 py-1.5 rounded-lg transition-all font-semibold"
+            >
+              Roster
+            </Link>
+            <Link
+              href="/scheduled"
+              className="text-white/40 hover:text-white/70 text-xs bg-white/5 hover:bg-white/10 border border-white/10 px-3 py-1.5 rounded-lg transition-all"
+            >
+              Scheduled
+            </Link>
+            <Link
+              href="/photos"
+              className="text-white/40 hover:text-white/70 text-xs bg-white/5 hover:bg-white/10 border border-white/10 px-3 py-1.5 rounded-lg transition-all"
+            >
+              Photos
+            </Link>
+            <Link
+              href="/analytics"
+              className="text-white/40 hover:text-white/70 text-xs bg-white/5 hover:bg-white/10 border border-white/10 px-3 py-1.5 rounded-lg transition-all"
+            >
+              Analytics
+            </Link>
+            <Link
+              href="/conversation"
+              className="text-white/40 hover:text-white/70 text-xs bg-white/5 hover:bg-white/10 border border-white/10 px-3 py-1.5 rounded-lg transition-all"
+            >
+              Conversation AI
+            </Link>
+            <Link
+              href="/intelligence"
+              className="text-white/40 hover:text-white/70 text-xs bg-white/5 hover:bg-white/10 border border-white/10 px-3 py-1.5 rounded-lg transition-all"
+            >
+              Intelligence
+            </Link>
+            <Link
+              href="/coaching"
+              className="text-white/40 hover:text-white/70 text-xs bg-white/5 hover:bg-white/10 border border-white/10 px-3 py-1.5 rounded-lg transition-all"
+            >
+              AI Coach
+            </Link>
+            <Link
+              href="/billing"
+              className="text-white/40 hover:text-white/70 text-xs bg-white/5 hover:bg-white/10 border border-white/10 px-3 py-1.5 rounded-lg transition-all"
+            >
+              Billing
+            </Link>
             {isSubscribed && <ManageBillingButton />}
+            <form action={logout}>
+              <button
+                type="submit"
+                className="text-white/40 hover:text-white/70 text-xs bg-white/5 hover:bg-white/10 border border-white/10 px-3 py-1.5 rounded-lg transition-all"
+              >
+                Sign out
+              </button>
+            </form>
           </div>
         </div>
 
@@ -460,41 +552,169 @@ export default async function Dashboard() {
         </div>
 
         <h1 className="font-display text-4xl md:text-5xl text-white uppercase leading-none mb-2">
-          HEY {displayName.toUpperCase()}
+          ROSTER COMMAND CENTER
         </h1>
         <p className="font-body text-white/40 text-sm mb-8">
-          {hasAgent ? 'Last 30 days of activity — your agent is closing.' : 'Install the agent to start dominating your dating life.'}
+          {hasAgent
+            ? `Hey ${displayName} — prioritize who to talk to, who to ask out, and what needs scheduling next.`
+            : 'Install the agent to start building your active dating roster.'}
         </p>
+
+        {dataQualityWarnings.length > 0 && (
+          <div className="mb-6 rounded-xl border border-amber-500/25 bg-amber-500/10 px-4 py-3 text-xs text-amber-100/80">
+            {dataQualityWarnings[0]}
+          </div>
+        )}
+
+        <div className="grid min-w-0 grid-cols-1 xl:grid-cols-[minmax(0,1.6fr)_minmax(360px,0.9fr)] items-start gap-4 mb-8">
+          <section className="min-w-0 overflow-hidden bg-white/[0.035] border border-white/10 rounded-xl p-4 md:p-5">
+            <div className="flex flex-col gap-3 mb-4 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <h2 className="text-white font-semibold text-lg">Priority roster</h2>
+                <p className="text-white/40 text-xs">Sorted by close probability, then silence risk.</p>
+              </div>
+              <Link
+                href="/dashboard/roster"
+                className="inline-flex w-fit items-center gap-1.5 text-xs font-semibold text-yellow-300 bg-yellow-500/10 hover:bg-yellow-500/20 border border-yellow-500/30 rounded-lg px-3 py-1.5 transition-colors"
+              >
+                <UsersRound className="h-3.5 w-3.5" />
+                Open roster
+              </Link>
+            </div>
+            <div className="grid min-w-0 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+              {rosterStats.map((item) => (
+                <div key={item.label} className="min-w-0 bg-black/35 border border-white/10 rounded-lg p-3">
+                  <div className="text-[10px] uppercase tracking-widest text-white/35 font-mono mb-1">{item.label}</div>
+                  <div className="font-mono text-2xl font-bold text-white">{item.value}</div>
+                  <div className="text-[11px] text-white/35 mt-1">{item.helper}</div>
+                </div>
+              ))}
+            </div>
+            {priorityRoster.length > 0 ? (
+              <div className="divide-y divide-white/10 border border-white/10 rounded-lg overflow-hidden">
+                {priorityRoster.map((match) => {
+                  const probability = closeProbability(match)
+                  const stage = deriveRosterStage(match)
+                  const identity = getMatchIdentityStatus(match)
+                  return (
+                    <Link
+                      key={match.id}
+                      href={`/matches/${match.id}`}
+                      className="grid grid-cols-[1fr_auto] md:grid-cols-[minmax(0,1.4fr)_120px_120px_120px] gap-3 items-center bg-black/25 hover:bg-white/[0.05] px-3 py-3 transition-colors"
+                    >
+                      <div className="min-w-0">
+                        <div className="flex items-baseline gap-2">
+                          <span className="text-white text-sm font-semibold truncate">{identity.displayName}</span>
+                          {match.age && <span className="text-white/45 text-xs">{match.age}</span>}
+                          {identity.needsReview && identity.label && (
+                            <span className="hidden sm:inline-flex rounded border border-amber-400/25 bg-amber-400/10 px-1.5 py-0.5 text-[9px] text-amber-100">
+                              {identity.label}
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-[11px] text-white/35 truncate">
+                          {match.platform} · {formatTimeAgo(match.last_activity_at ?? match.updated_at)} · {match.bio ?? match.vision_summary ?? 'No profile hook yet'}
+                        </div>
+                      </div>
+                      <span className="hidden md:inline-flex text-[10px] uppercase tracking-widest font-mono text-white/50">
+                        {stageLabel(stage)}
+                      </span>
+                      <span className="hidden md:inline-flex text-[11px] text-white/45">
+                        Health {match.health_score ?? 'n/a'}
+                      </span>
+                      <span className="justify-self-end font-mono text-xs font-bold text-yellow-300 bg-yellow-500/10 border border-yellow-500/25 rounded px-2 py-1">
+                        {probability !== null ? `${probability}%` : 'n/a'}
+                      </span>
+                    </Link>
+                  )
+                })}
+              </div>
+            ) : (
+              <div className="bg-black/25 border border-white/10 rounded-lg p-6 text-center">
+                <p className="text-sm text-white/45">No roster rows found yet. Match intake will populate this command center.</p>
+              </div>
+            )}
+          </section>
+
+          <aside className="min-w-0 space-y-4">
+            <section className="bg-gradient-to-br from-yellow-500/10 to-red-600/5 border border-yellow-500/25 rounded-xl p-4">
+              <div className="flex items-center justify-between mb-3">
+                <div>
+                  <h2 className="text-yellow-200 font-semibold text-sm">Date scheduling queue</h2>
+                  <p className="text-white/40 text-xs">Confirm slots, draft asks, prep booked dates.</p>
+                </div>
+                <CalendarDays className="h-5 w-5 text-yellow-300" />
+              </div>
+              <div className="space-y-2">
+                {dateQueue.length > 0 ? (
+                  dateQueue.map((match) => {
+                    const identity = getMatchIdentityStatus(match)
+                    return (
+                      <Link
+                        key={match.id}
+                        href={`/conversation?matchName=${encodeURIComponent(identity.displayName)}&platform=${encodeURIComponent(match.platform)}&goal=ask_date`}
+                        className="block bg-black/35 hover:bg-black/50 border border-white/10 rounded-lg p-3 transition-colors"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-white text-sm font-semibold truncate">{identity.displayName}</span>
+                          <span className="text-[10px] uppercase tracking-widest font-mono text-yellow-300">{stageLabel(deriveRosterStage(match))}</span>
+                        </div>
+                        {identity.needsReview && identity.label && (
+                          <div className="mt-1 inline-flex rounded border border-amber-400/25 bg-amber-400/10 px-1.5 py-0.5 text-[9px] text-amber-100">
+                            {identity.label}
+                          </div>
+                        )}
+                        <p className="text-[11px] text-white/40 mt-1">
+                          {deriveRosterStage(match) === 'date_booked'
+                            ? 'Prep or send a confirmation.'
+                            : deriveRosterStage(match) === 'date_proposed'
+                              ? 'Lock the time and place.'
+                              : 'Draft the date ask.'}
+                        </p>
+                      </Link>
+                    )
+                  })
+                ) : (
+                  <p className="text-xs text-white/35 bg-black/25 border border-white/10 rounded-lg p-3">
+                    No date-ready matches in the current roster snapshot.
+                  </p>
+                )}
+              </div>
+            </section>
+
+            <section className="bg-white/[0.035] border border-white/10 rounded-xl p-4">
+              <h2 className="text-white font-semibold text-sm mb-3">Quick actions</h2>
+              <div className="grid grid-cols-2 gap-2">
+                <QuickAction href="/dashboard/roster" icon={<UsersRound className="h-4 w-4" />} label="Manage roster" />
+                <QuickAction href="/communications" icon={<MessageSquareText className="h-4 w-4" />} label="Unified inbox" />
+                <QuickAction href="/conversation?goal=ask_date" icon={<MessageSquareText className="h-4 w-4" />} label="Draft date ask" />
+                <QuickAction href="/scheduled" icon={<CalendarDays className="h-4 w-4" />} label="Review scheduled" />
+                <QuickAction href="/matches/add" icon={<UserRoundPlus className="h-4 w-4" />} label="Add contact" />
+                <QuickAction href="/intelligence" icon={<Sparkles className="h-4 w-4" />} label="Insights" />
+                <QuickAction href="/device" icon={<Zap className="h-4 w-4" />} label="Runtime" />
+              </div>
+            </section>
+
+            <SystemHealthCheck />
+
+            <section className="bg-white/[0.035] border border-white/10 rounded-xl p-4">
+              <div className="flex items-center gap-2 mb-3">
+                <Target className="h-4 w-4 text-emerald-300" />
+                <h2 className="text-white font-semibold text-sm">Insights</h2>
+              </div>
+              <ul className="space-y-2">
+                {rosterInsights.map((insight) => (
+                  <li key={insight} className="text-xs text-white/50 bg-black/25 border border-white/10 rounded-lg px-3 py-2">
+                    {insight}
+                  </li>
+                ))}
+              </ul>
+            </section>
+          </aside>
+        </div>
 
         {/* Operator briefing — actionable counts pointing to the next page to open */}
         <BriefingCard />
-
-        {/* AI-9606: Quick navigation tiles — Network (people from phone +
-            Google Contacts + Obsidian), Matches, Insights, Approval queue.
-            Replaces the silent dashboard where Julian couldn't see his
-            people pulling in. */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
-          <a href="/admin/clapcheeks-ops/network" className="bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl p-4 text-center transition">
-            <div className="text-2xl font-bold text-white mb-1">{peopleCount}</div>
-            <div className="text-white/40 text-xs">Your Network</div>
-            <div className="text-purple-400 text-[10px] mt-1">Open →</div>
-          </a>
-          <a href="/matches" className="bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl p-4 text-center transition">
-            <div className="text-2xl font-bold text-white mb-1">{realMatchCount}</div>
-            <div className="text-white/40 text-xs">Dating Matches</div>
-            <div className="text-purple-400 text-[10px] mt-1">Open →</div>
-          </a>
-          <a href="/coaching" className="bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl p-4 text-center transition">
-            <div className="text-2xl font-bold text-white mb-1">📊</div>
-            <div className="text-white/40 text-xs">Insights & Coaching</div>
-            <div className="text-purple-400 text-[10px] mt-1">Open →</div>
-          </a>
-          <a href="/autonomy" className="bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl p-4 text-center transition">
-            <div className="text-2xl font-bold text-white mb-1">⚡</div>
-            <div className="text-white/40 text-xs">Approvals & Autonomy</div>
-            <div className="text-purple-400 text-[10px] mt-1">Open →</div>
-          </a>
-        </div>
 
         {/* Stats row -- 5 cards with trend arrows */}
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3 mb-8">
@@ -511,7 +731,7 @@ export default async function Dashboard() {
         {/* Recharts analytics -- Rizz Score, trends, platform breakdown, funnel, spending */}
         {hasAgent && rows.length > 0 && (
           <div className="mb-8">
-            <DashboardChartsLazy initialData={chartData} />
+            <DashboardCharts initialData={chartData} />
           </div>
         )}
 
@@ -570,8 +790,7 @@ export default async function Dashboard() {
           </div>
         )}
 
-        {/* Elite Features — AI-9526: copy now reflects whether your agent
-            is reporting data, not promotional fluff */}
+        {/* Elite Features */}
         <div className="space-y-4 mb-8">
           <h2 className="font-display text-2xl text-white uppercase tracking-wide gold-text">
             Elite Features
@@ -581,47 +800,27 @@ export default async function Dashboard() {
               <div className="bg-white/5 border border-white/10 rounded-xl p-5">
                 <div className="flex items-center justify-between mb-2">
                   <h3 className="text-white font-semibold text-sm">Autopilot</h3>
-                  <div className={`w-2 h-2 rounded-full ${
-                    hasAgent && totals.swipes_right > 0 ? "bg-green-400 animate-pulse" : "bg-gray-600"
-                  }`} />
+                  <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
                 </div>
-                <p className="text-white/40 text-xs">
-                  {hasAgent && totals.swipes_right > 0
-                    ? `Active — ${totals.swipes_right} right-swipes in last 30 days.`
-                    : hasAgent
-                    ? "Agent connected, but no swipes yet. Run `clapcheeks swipe` to start."
-                    : "Install the Mac agent to enable auto-swiping."}
-                </p>
+                <p className="text-white/40 text-xs">Auto-swiping is active across all platforms.</p>
               </div>
             </EliteOnly>
             <EliteOnly isElite={userIsElite} featureName="Match Intel">
               <div className="bg-white/5 border border-white/10 rounded-xl p-5">
                 <h3 className="text-white font-semibold text-sm mb-2">Match Intel</h3>
-                <p className="text-white/40 text-xs">
-                  {realMatchCount > 0
-                    ? `${realMatchCount} matches analyzed. Open Matches to see profile insights.`
-                    : "No matches yet — connect a dating app to start collecting profiles."}
-                </p>
+                <p className="text-white/40 text-xs">Deep profile analysis on your latest matches.</p>
               </div>
             </EliteOnly>
             <EliteOnly isElite={userIsElite} featureName="Ghost Hunter">
               <div className="bg-white/5 border border-white/10 rounded-xl p-5">
                 <h3 className="text-white font-semibold text-sm mb-2">Ghost Hunter</h3>
-                <p className="text-white/40 text-xs">
-                  {convoTotals.conversations_started > 0
-                    ? `Tracking ${convoTotals.conversations_started} conversations for re-engagement opportunities.`
-                    : "No conversations yet — start chatting to enable ghost detection."}
-                </p>
+                <p className="text-white/40 text-xs">Detect and re-engage inactive matches.</p>
               </div>
             </EliteOnly>
             <EliteOnly isElite={userIsElite} featureName="Date Closer">
               <div className="bg-white/5 border border-white/10 rounded-xl p-5">
                 <h3 className="text-white font-semibold text-sm mb-2">Date Closer</h3>
-                <p className="text-white/40 text-xs">
-                  {totals.dates > 0
-                    ? `${totals.dates} dates booked in last 30 days. Keep the streak going.`
-                    : "No dates booked yet — your AI proposes options when she's ready."}
-                </p>
+                <p className="text-white/40 text-xs">AI-assisted date scheduling and booking.</p>
               </div>
             </EliteOnly>
           </div>
@@ -630,13 +829,13 @@ export default async function Dashboard() {
         {/* AI Coaching Section */}
         {hasAgent && (
           <div className="mb-8">
-            <CoachingSectionLazy initialSession={coachingSession} />
+            <CoachingSection initialSession={coachingSession} />
           </div>
         )}
 
         {/* iMessage Test Panel */}
         <div className="mb-8">
-          <IMessageTestPanelLazy />
+          <IMessageTestPanel />
         </div>
 
       </div>

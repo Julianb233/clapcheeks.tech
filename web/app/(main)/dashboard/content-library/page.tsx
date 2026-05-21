@@ -99,7 +99,7 @@ export default async function ContentLibraryPage() {
           .storage
           .from('julian-content')
           .createSignedUrl(row.media_path, 3600)
-        return { ...row, signed_url: data?.signedUrl ?? null }
+        return { ...row, signed_url: (data as { signedUrl?: string } | null)?.signedUrl ?? null }
       } catch {
         return { ...row, signed_url: null }
       }

@@ -1,76 +1,117 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import {
+  getClapCheeksUserSettings,
+  upsertClapCheeksUserSettings,
+} from '@/lib/clapcheeks/user-settings'
 import * as Sentry from '@sentry/nextjs'
-import { getConvexServerClient } from '@/lib/convex/server'
-import { api } from '@/convex/_generated/api'
-import { getFleetUserId } from '@/lib/fleet-user'
 
-// Whitelist of columns that exist on `clapcheeks_autonomy_config`
-// (see supabase/migrations/20260420450000_autonomy_engine.sql).
-//
-// The dashboard sometimes sends fields that don't exist as real columns
-// (legacy field names like `global_level`, `notify_on_auto_send`, etc.).
-// We translate the well-known legacy aliases here, then drop anything
-// else that isn't in the schema so a stray field can't 500 the call.
-const ALLOWED_COLUMNS = new Set([
-  'autonomy_level',
-  'auto_swipe_enabled',
-  'auto_respond_enabled',
-  'auto_reengage_enabled',
-  'auto_swipe_confidence_min',
-  'auto_respond_confidence_min',
-  'max_auto_swipes_per_hour',
-  'max_auto_replies_per_hour',
-  'stale_hours_threshold',
-  'notify_on_auto_action',
-  'require_approval_for_first_message',
-])
+const VALID_AUTONOMY_LEVELS = new Set(['supervised', 'semi_auto', 'full_auto', 'custom'])
 
-const VALID_AUTONOMY_LEVELS = new Set(['supervised', 'semi_auto', 'full_auto'])
+function levelPatch(level: string): Record<string, boolean> {
+  if (level === 'supervised') {
+    return {
+      approve_openers: true,
+      approve_replies: true,
+      approve_date_asks: true,
+      approve_bookings: true,
+    }
+  }
+  if (level === 'semi_auto') {
+    return {
+      approve_openers: true,
+      approve_replies: false,
+      approve_date_asks: true,
+      approve_bookings: true,
+    }
+  }
+  if (level === 'full_auto') {
+    return {
+      approve_openers: false,
+      approve_replies: false,
+      approve_date_asks: false,
+      approve_bookings: true,
+    }
+  }
+  return {}
+}
 
-// Normalize legacy/alias field names from older dashboard versions.
+function configFromSettings(row: Record<string, unknown> | null) {
+  const approveOpeners = Boolean(row?.approve_openers)
+  const approveReplies = row?.approve_replies !== undefined ? Boolean(row.approve_replies) : true
+  const approveDateAsks = row?.approve_date_asks !== undefined ? Boolean(row.approve_date_asks) : true
+  const approveBookings = row?.approve_bookings !== undefined ? Boolean(row.approve_bookings) : true
+
+  let globalLevel: 'supervised' | 'semi_auto' | 'full_auto' | 'custom' = 'custom'
+  if (approveOpeners && approveReplies && approveDateAsks && approveBookings) globalLevel = 'supervised'
+  if (approveOpeners && !approveReplies && approveDateAsks && approveBookings) globalLevel = 'semi_auto'
+  if (!approveOpeners && !approveReplies && !approveDateAsks && approveBookings) globalLevel = 'full_auto'
+
+  return {
+    source: 'clapcheeks_user_settings',
+    global_level: globalLevel,
+    approve_openers: approveOpeners,
+    approve_replies: approveReplies,
+    approve_date_asks: approveDateAsks,
+    approve_bookings: approveBookings,
+    auto_respond_enabled: !approveReplies,
+    require_approval_for_first_message: approveOpeners,
+    ai_active: row?.ai_active ?? null,
+    ai_paused_until: row?.ai_paused_until ?? null,
+    ai_paused_reason: row?.ai_paused_reason ?? null,
+    updated_at: row?.updated_at ?? null,
+  }
+}
+
 function normalizePayload(input: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = {}
 
-  // global_level -> autonomy_level (some legacy callers use 'semi'/'full' shorthand)
-  if (input.global_level !== undefined && input.autonomy_level === undefined) {
+  if (input.global_level !== undefined || input.autonomy_level !== undefined) {
     let level = String(input.global_level)
+    if (input.autonomy_level !== undefined) level = String(input.autonomy_level)
     if (level === 'semi') level = 'semi_auto'
     if (level === 'full') level = 'full_auto'
-    out.autonomy_level = level
-  }
-  if (input.autonomy_level !== undefined) {
-    out.autonomy_level = input.autonomy_level
-  }
-
-  // notify_on_auto_send -> notify_on_auto_action
-  if (input.notify_on_auto_send !== undefined && input.notify_on_auto_action === undefined) {
-    out.notify_on_auto_action = input.notify_on_auto_send
-  }
-  if (input.notify_on_auto_action !== undefined) {
-    out.notify_on_auto_action = input.notify_on_auto_action
+    if (!VALID_AUTONOMY_LEVELS.has(level)) {
+      throw new Error('Invalid autonomy_level')
+    }
+    Object.assign(out, levelPatch(level))
   }
 
-  // Pass through anything else that maps to a real column
-  for (const [k, v] of Object.entries(input)) {
-    if (ALLOWED_COLUMNS.has(k) && out[k] === undefined) {
-      out[k] = v
+  if (input.auto_respond_enabled !== undefined) {
+    out.approve_replies = !Boolean(input.auto_respond_enabled)
+  }
+  if (input.require_approval_for_first_message !== undefined) {
+    out.approve_openers = Boolean(input.require_approval_for_first_message)
+  }
+
+  for (const key of [
+    'approve_openers',
+    'approve_replies',
+    'approve_date_asks',
+    'approve_bookings',
+    'ai_active',
+  ]) {
+    if (input[key] !== undefined) {
+      out[key] = Boolean(input[key])
     }
   }
 
   return out
 }
 
-// PUT /api/autonomy-config — upsert the caller's autonomy config row
+export async function GET() {
+  try {
+    const { row } = await getClapCheeksUserSettings()
+    return NextResponse.json({ config: configFromSettings(row) })
+  } catch (err) {
+    console.error('autonomy-config GET error:', err)
+    Sentry.captureException(err)
+    return NextResponse.json({ error: 'Internal error' }, { status: 500 })
+  }
+}
+
+// PUT /api/autonomy-config — update the runtime approval gates the workers read.
 export async function PUT(request: NextRequest) {
   try {
-    const supabase = await createClient()
-    const { data: { user } } = await supabase.auth.getUser()
-
-    if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
-
     let body: Record<string, unknown>
     try {
       body = await request.json()
@@ -82,56 +123,28 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: 'Body must be an object' }, { status: 400 })
     }
 
-    const updates = normalizePayload(body as Record<string, unknown>)
+    const rawBody = body as Record<string, unknown>
+    const configBody =
+      rawBody.config && typeof rawBody.config === 'object' && !Array.isArray(rawBody.config)
+        ? { ...(rawBody.config as Record<string, unknown>), ...rawBody }
+        : rawBody
+    delete (configBody as Record<string, unknown>).config
+
+    const updates = normalizePayload(configBody)
 
     if (Object.keys(updates).length === 0) {
-      return NextResponse.json({ error: 'No valid fields provided' }, { status: 400 })
+      return NextResponse.json({ error: 'No persisted runtime fields provided' }, { status: 400 })
     }
 
-    if (
-      updates.autonomy_level !== undefined &&
-      !VALID_AUTONOMY_LEVELS.has(String(updates.autonomy_level))
-    ) {
-      return NextResponse.json({ error: 'Invalid autonomy_level' }, { status: 400 })
-    }
-
-    const { data, error } = await supabase
-      .from('clapcheeks_autonomy_config')
-      .upsert({ user_id: user.id, ...updates }, { onConflict: 'user_id' })
-      .select()
-      .single()
-
-    if (error) {
-      console.error('autonomy-config upsert error:', error)
-      Sentry.captureException(error)
-      return NextResponse.json({ error: error.message }, { status: 500 })
-    }
-
-    // AI-9526 Q18 — mirror autonomy_level to the Convex autonomy_config
-    // table so touches.fireOne and the rest of the Convex side read from
-    // a single source of truth. Best-effort: failure does NOT fail the
-    // primary Supabase write (we already returned 200 on the row).
-    try {
-      const supabaseLevel = (data?.autonomy_level as string | undefined) ?? null
-      let convexLevel: 'supervised' | 'semi_auto' | 'auto_send' | 'full_auto' | null = null
-      if (supabaseLevel === 'supervised') convexLevel = 'supervised'
-      else if (supabaseLevel === 'semi_auto') convexLevel = 'semi_auto'
-      else if (supabaseLevel === 'full_auto') convexLevel = 'full_auto'
-      if (convexLevel) {
-        await getConvexServerClient().mutation(api.touches.upsertAutonomyConfig, {
-          user_id: getFleetUserId(),
-          global_level: convexLevel,
-        })
-      }
-    } catch (mirrorErr) {
-      console.warn('autonomy-config Convex mirror failed:', mirrorErr)
-      Sentry.captureException(mirrorErr, { tags: { mirror: 'convex_autonomy_config' } })
-    }
-
-    return NextResponse.json({ config: data })
+    const row = await upsertClapCheeksUserSettings(updates)
+    return NextResponse.json({ config: configFromSettings(row) })
   } catch (err) {
     console.error('autonomy-config PUT error:', err)
     Sentry.captureException(err)
-    return NextResponse.json({ error: 'Internal error' }, { status: 500 })
+    const isBadRequest = err instanceof Error && err.message === 'Invalid autonomy_level'
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : 'Internal error' },
+      { status: isBadRequest ? 400 : 500 },
+    )
   }
 }

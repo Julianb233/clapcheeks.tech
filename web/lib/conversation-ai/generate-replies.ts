@@ -1,5 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk'
-import { SupabaseClient } from '@supabase/supabase-js'
+import { ConvexCompatClient } from '@/lib/convex/compat-client'
 
 interface ReplySuggestion {
   text: string
@@ -8,7 +8,7 @@ interface ReplySuggestion {
   confidence: number
 }
 
-// PHASE-E (AI-8319) — platform tones rewritten to avoid em-dashes (banned glyph).
+// PHASE-E (AI-8319) and Julian voice gate.
 const PLATFORM_TONE: Record<string, string> = {
   Tinder: 'Keep it playful and fun. Tinder conversations are lighter, humor works best.',
   Bumble: 'Be slightly more direct and confident. Bumble users appreciate straightforwardness.',
@@ -16,20 +16,23 @@ const PLATFORM_TONE: Record<string, string> = {
   iMessage: 'Match their energy. iMessage is personal, mirror their texting style closely.',
 }
 
-// PHASE-E (AI-8319) — unicode -> ASCII sanitizer to mirror agent/clapcheeks/ai/sanitizer.py.
+// PHASE-E (AI-8319) mirrors local agent clapcheeks/ai/sanitizer.py.
 const BANNED_CHARS: Record<string, string> = {
-  '\u2014': '-',      // em-dash
-  '\u2013': '-',      // en-dash
-  '\u2026': '...',    // ellipsis
-  '\u201c': '"',      // left curly double quote
-  '\u201d': '"',      // right curly double quote
+  '\u2014': ' ',      // em dash
+  '\u2013': ' ',      // en dash
+  '\u2212': ' ',      // minus sign
+  '-': ' ',           // ASCII hyphen
+  '\u2026': '',       // ellipsis
+  '\u201c': '',       // left curly double quote
+  '\u201d': '',       // right curly double quote
   '\u2018': "'",      // left curly single quote
   '\u2019': "'",      // right curly single quote
   '\u00a0': ' ',      // non-breaking space
-  '\u2022': '*',      // bullet
-  '\u00b7': '*',      // middle dot
-  '\u2192': '->',     // rightward arrow
+  '\u2022': '',       // bullet
+  '\u00b7': '',       // middle dot
+  '\u2192': ' ',      // rightward arrow
 }
+const HARD_REJECT_CHARS = [';', ':', '(', ')', '/', '"', '*', '_', '[', ']', '{', '}', '-']
 
 const CORNY_CLOSERS = [
   'looking forward to hearing from you',
@@ -47,8 +50,7 @@ function sanitizeDraft(text: string): string {
   for (const [bad, good] of Object.entries(BANNED_CHARS)) {
     out = out.split(bad).join(good)
   }
-  // Collapse runs of 3+ dashes (from em-dash replacements).
-  out = out.replace(/-{3,}/g, '-')
+  out = out.replace(/[ \t]{2,}/g, ' ')
   return out.trim()
 }
 
@@ -64,6 +66,9 @@ function validateDraft(
   }
   for (const bad of Object.keys(BANNED_CHARS)) {
     if (text.includes(bad)) errors.push(`banned unicode punctuation: ${bad}`)
+  }
+  for (const bad of HARD_REJECT_CHARS) {
+    if (text.includes(bad)) errors.push(`banned punctuation: ${bad}`)
   }
   if (text.includes(';')) errors.push('semicolon (banned)')
   const low = text.toLowerCase()
@@ -110,7 +115,7 @@ function renderPersonaBlock(persona: Record<string, unknown> | null): string {
   lines.push('')
   lines.push('CRITICAL VOICE RULES (hard constraints):')
   lines.push('- Short, sweet, to the point. Lowercase-first is natural and good.')
-  lines.push('- No em-dashes, en-dashes, semicolons, ellipsis, curly quotes ever.')
+  lines.push('- No hyphens, dashes, em dashes, en dashes, semicolons, ellipsis, curly quotes ever.')
   lines.push('- If you have 2+ thoughts, write separate sentences so they can be split.')
   lines.push('- Zero to one emoji max. Zero in the first 1-2 messages.')
   lines.push('- Reference something specific from HER profile in every draft.')
@@ -119,36 +124,24 @@ function renderPersonaBlock(persona: Record<string, unknown> | null): string {
 }
 
 export async function generateReplies(
-  supabase: SupabaseClient,
+  convex: ConvexCompatClient,
   userId: string,
   conversationContext: string,
   matchName: string,
   platform: string,
-  profileContext?: string
+  profileContext?: unknown
 ): Promise<ReplySuggestion[]> {
-  // Fetch voice profile (AI-9537: now Convex voice_profiles).
-  let voiceProfile: { style_summary?: string; sample_phrases?: unknown; tone?: string; profile_data?: Record<string, unknown> } | null = null
-  try {
-    const { getConvexServerClient } = await import('@/lib/convex/server')
-    const { api } = await import('@/convex/_generated/api')
-    const convex = getConvexServerClient()
-    const row = await convex.query(api.voice.getProfile, { user_id: userId })
-    if (row) {
-      voiceProfile = {
-        style_summary: row.style_summary,
-        sample_phrases: row.sample_phrases,
-        tone: row.tone,
-        profile_data: (row.profile_data as Record<string, unknown>) ?? {},
-      }
-    }
-  } catch {
-    voiceProfile = null
-  }
+  // Fetch voice profile
+  const { data: voiceProfile } = await convex
+    .from('clapcheeks_voice_profiles')
+    .select('style_summary, sample_phrases, tone, profile_data')
+    .eq('user_id', userId)
+    .single()
 
   // PHASE-E (AI-8319) — also load persona from clapcheeks_user_settings so the
   // persona.message_formatting_rules / banned_words / signature_phrases get
   // injected verbatim into the system prompt.
-  const { data: settingsRow } = await supabase
+  const { data: settingsRow } = await convex
     .from('clapcheeks_user_settings')
     .select('persona')
     .eq('user_id', userId)
@@ -167,11 +160,24 @@ Style details: ${JSON.stringify(voiceProfile.profile_data || {})}`
   const platformTone = PLATFORM_TONE[platform] || ''
   const personaBlock = renderPersonaBlock(persona) // PHASE-E
 
-  const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+  const anthropicApiKey = process.env.ANTHROPIC_API_KEY
 
   const profileSection = profileContext
-    ? `\nProfile context about the user: ${profileContext}`
+    ? `\nProfile context about the user: ${
+        typeof profileContext === 'string'
+          ? profileContext
+          : JSON.stringify(profileContext)
+      }`
     : ''
+
+  const fallbackReplies = buildFallbackReplies(conversationContext, matchName, platform, profileContext)
+
+  if (!anthropicApiKey) {
+    await storeReplySuggestions(convex, userId, conversationContext, fallbackReplies)
+    return fallbackReplies
+  }
+
+  const anthropic = new Anthropic({ apiKey: anthropicApiKey })
 
   // PHASE-E — persona block leads, so voice + formatting rules set the floor
   // before any other instruction.
@@ -202,29 +208,36 @@ Style details: ${JSON.stringify(voiceProfile.profile_data || {})}`
     '- Consider conversation context and momentum',
     '- If the other person asked a question, answer it',
     '- Each reply max 160 characters',
-    '- ABSOLUTELY no em-dashes, en-dashes, semicolons, ellipsis, curly quotes',
+    '- ABSOLUTELY no hyphens, dashes, em dashes, en dashes, semicolons, ellipsis, curly quotes',
     '',
     'Return ONLY a JSON array of 3 suggestions, no other text.',
   ]
     .filter(Boolean)
     .join('\n')
 
-  const message = await anthropic.messages.create({
-    model: 'claude-sonnet-4-6',
-    max_tokens: 768,
-    system: systemPrompt,
-    messages: [
-      {
-        role: 'user',
-        content: `Conversation on ${platform} with ${matchName}:
+  let message
+  try {
+    message = await anthropic.messages.create({
+      model: process.env.ANTHROPIC_REPLY_MODEL || 'claude-sonnet-4-6',
+      max_tokens: 768,
+      system: systemPrompt,
+      messages: [
+        {
+          role: 'user',
+          content: `Conversation on ${platform} with ${matchName}:
 
 ${conversationContext}${profileSection}
 
 Generate 3 reply options.
 Return JSON: [{ "text": "reply", "tone": "witty|warm|direct", "reasoning": "why this works", "confidence": 0.0-1.0 }]`,
-      },
-    ],
-  })
+        },
+      ],
+    })
+  } catch (error) {
+    console.error('Anthropic reply generation failed, using local fallback:', error)
+    await storeReplySuggestions(convex, userId, conversationContext, fallbackReplies)
+    return fallbackReplies
+  }
 
   const responseText = message.content[0].type === 'text' ? message.content[0].text : ''
   let suggestions: ReplySuggestion[]
@@ -247,7 +260,7 @@ Return JSON: [{ "text": "reply", "tone": "witty|warm|direct", "reasoning": "why 
     if (ok) {
       cleaned.push({ ...s, text: sanitized })
     }
-    // Bad drafts are dropped silently here; agent/drafter.py logs discards to Supabase.
+    // Bad drafts are dropped silently here; agent/drafter.py logs discards to Convex.
   }
 
   // If everything got dropped, keep the originals with sanitize applied as a
@@ -256,12 +269,102 @@ Return JSON: [{ "text": "reply", "tone": "witty|warm|direct", "reasoning": "why 
     ? cleaned
     : suggestions.map((s) => ({ ...s, text: sanitizeDraft(s.text).slice(0, 160) }))
 
-  // Store suggestions
-  await supabase.from('clapcheeks_reply_suggestions').insert({
-    user_id: userId,
-    conversation_context: conversationContext,
-    suggestions: finalList,
-  })
+  await storeReplySuggestions(convex, userId, conversationContext, finalList)
 
   return finalList
+}
+
+function latestInboundLine(conversationContext: string) {
+  const lines = conversationContext
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+  const inbound = [...lines].reverse().find((line) => /^(them|her):/i.test(line))
+  return (inbound || lines[lines.length - 1] || '')
+    .replace(/^(them|her|you|me|julian):\s*/i, '')
+    .trim()
+}
+
+function buildFallbackReplies(
+  conversationContext: string,
+  matchName: string,
+  platform: string,
+  profileContext?: unknown
+): ReplySuggestion[] {
+  const inbound = latestInboundLine(conversationContext)
+  const inboundLower = inbound.toLowerCase()
+  const profileText =
+    typeof profileContext === 'string'
+      ? profileContext
+      : profileContext
+        ? JSON.stringify(profileContext)
+        : ''
+  const combined = `${inboundLower} ${profileText.toLowerCase()} ${platform.toLowerCase()}`
+
+  let specificQuestion = 'what was the best part?'
+  let warmReply = 'okay that sounds fun'
+  let directReply = 'we should compare notes over drinks this week'
+
+  if (/(hike|hiking|trail|joshua tree|desert)/i.test(combined)) {
+    specificQuestion = 'what was the best part of the hike?'
+    warmReply = 'that sounds sick'
+    directReply = 'we should compare hike stories over drinks this week'
+  } else if (/(food|restaurant|dinner|cook|cooking|taco|sushi|coffee)/i.test(combined)) {
+    specificQuestion = 'what spot should i try first?'
+    warmReply = 'okay your taste sounds dangerous'
+    directReply = 'we should compare food takes over drinks this week'
+  } else if (/(music|concert|show|song|playlist|dj)/i.test(combined)) {
+    specificQuestion = 'what song is on repeat right now?'
+    warmReply = 'okay i respect the music taste'
+    directReply = 'we should trade playlists over drinks this week'
+  } else if (/(dog|cat|puppy|pet)/i.test(combined)) {
+    specificQuestion = 'what is their name?'
+    warmReply = 'that is very cute'
+    directReply = 'i need the pet lore over drinks this week'
+  } else if (inbound) {
+    const clean = inbound.replace(/[^\w\s?']/g, ' ').replace(/\s+/g, ' ').trim()
+    if (clean.length <= 36) warmReply = `okay ${clean.toLowerCase()} is funny`
+  }
+
+  const raw: ReplySuggestion[] = [
+    {
+      text: specificQuestion,
+      tone: 'witty',
+      reasoning: 'Local fallback asks one specific, short follow up in Julian voice.',
+      confidence: 0.62,
+    },
+    {
+      text: warmReply,
+      tone: 'warm',
+      reasoning: 'Short warm acknowledgement without overcommitting.',
+      confidence: 0.68,
+    },
+    {
+      text: directReply,
+      tone: 'direct',
+      reasoning: 'Direct option moves toward a date while staying casual.',
+      confidence: 0.64,
+    },
+  ]
+  return raw.map((s) => ({ ...s, text: sanitizeDraft(s.text).slice(0, 160) }))
+}
+
+async function storeReplySuggestions(
+  convex: ConvexCompatClient,
+  userId: string,
+  conversationContext: string,
+  suggestions: ReplySuggestion[]
+) {
+  try {
+    const { error } = await convex.from('clapcheeks_reply_suggestions').insert({
+      user_id: userId,
+      conversation_context: conversationContext,
+      suggestions,
+    })
+    if (error) {
+      console.warn('Reply suggestion persistence skipped:', error.message)
+    }
+  } catch (error) {
+    console.warn('Reply suggestion persistence failed:', error)
+  }
 }

@@ -1,5 +1,4 @@
 import Anthropic from '@anthropic-ai/sdk'
-import { SupabaseClient } from '@supabase/supabase-js'
 import { ConvexHttpClient } from 'convex/browser'
 
 import { api } from '@/convex/_generated/api'
@@ -35,7 +34,7 @@ function getWeekStart(): string {
   return monday.toISOString().split('T')[0]
 }
 
-export async function getLatestCoaching(_supabase: SupabaseClient, userId: string) {
+export async function getLatestCoaching(_client: unknown, userId: string) {
   // AI-9537: coaching_sessions + tip_feedback migrated to Convex.
   const weekStart = getWeekStart()
   const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL || process.env.CONVEX_URL
@@ -63,7 +62,7 @@ export async function getLatestCoaching(_supabase: SupabaseClient, userId: strin
         priority: string
       }>,
       generated_at: new Date(session.generated_at).toISOString(),
-      feedback: (feedback || []).map((f) => ({
+    feedback: (feedback || []).map((f: any) => ({
         tip_index: f.tip_index,
         helpful: f.helpful,
       })),
@@ -73,11 +72,11 @@ export async function getLatestCoaching(_supabase: SupabaseClient, userId: strin
   }
 }
 
-export async function generateCoaching(supabase: SupabaseClient, userId: string) {
+export async function generateCoaching(client: unknown, userId: string) {
   const weekStart = getWeekStart()
 
   // Check if we already have coaching for this week
-  const existing = await getLatestCoaching(supabase, userId)
+  const existing = await getLatestCoaching(client, userId)
   if (existing) return existing
 
   // Fetch last 30 days of analytics from Convex

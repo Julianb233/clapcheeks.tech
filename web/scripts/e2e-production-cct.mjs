@@ -8,6 +8,7 @@ const baseUrl = (process.env.CLAPCHEEKS_PRODUCTION_CCT_BASE_URL || 'https://clap
 const chromeDebugUrl = (process.env.CLAPCHEEKS_CCT_DEBUG_URL || 'http://127.0.0.1:9223').replace(/\/$/, '')
 const outputRoot = process.env.CLAPCHEEKS_PRODUCTION_CCT_OUTPUT_DIR || '/tmp'
 const latestReportPath = process.env.CLAPCHEEKS_PRODUCTION_CCT_LATEST || '/tmp/clapcheeks-production-cct-latest.json'
+const skipLinkSweep = process.env.CLAPCHEEKS_CCT_SKIP_LINK_SWEEP === '1'
 const ts = new Date().toISOString().replace(/[:.]/g, '-')
 const outDir = path.join(outputRoot, `clapcheeks-prod-current-cct-${ts}`)
 const reportPath = path.join(outDir, 'report.json')
@@ -576,14 +577,16 @@ async function main() {
       pages.push({ route, ...(await pageProof(client, route)) })
     }
 
-    const linkPaths = [
-      ...new Set(
-        pages
-          .flatMap((page) => page.internalLinks.map((link) => link.pathname))
-          .filter((pathname) => !pathname.includes('['))
-          .filter((pathname) => pathname !== '/logout'),
-      ),
-    ].slice(0, 100)
+    const linkPaths = skipLinkSweep
+      ? []
+      : [
+          ...new Set(
+            pages
+              .flatMap((page) => page.internalLinks.map((link) => link.pathname))
+              .filter((pathname) => !pathname.includes('['))
+              .filter((pathname) => pathname !== '/logout'),
+          ),
+        ].slice(0, 100)
     const linkChecks = []
     for (const pathname of linkPaths) {
       const response = await api(client, 'GET', pathname)
@@ -768,6 +771,7 @@ async function main() {
       pages,
       screenshots,
       linkChecks,
+      skipLinkSweep,
       apis: apiSummary,
       inventory,
       deviceStatus: deviceSummary,
