@@ -335,8 +335,8 @@ async function pageProof(client, route) {
           ? {
               searchInput: Boolean(document.querySelector('input[aria-label="Search roster"]')),
               searchPlaceholder: Boolean(document.querySelector('input[placeholder*="Search roster"]')),
-              favoritesButton: [...document.querySelectorAll('button')].some((button) => (button.innerText || '').includes('Favorites')),
-              atRiskButton: [...document.querySelectorAll('button')].some((button) => (button.innerText || '').includes('At-risk health')),
+              favoritesButton: [...document.querySelectorAll('button')].some((button) => (button.innerText || '').toLowerCase().includes('favorites')),
+              atRiskButton: [...document.querySelectorAll('button')].some((button) => (button.innerText || '').toLowerCase().includes('at-risk health')),
               clearButtonInitiallyHidden: ![...document.querySelectorAll('button')].some((button) => (button.innerText || '').trim() === 'Clear'),
               cardCount: document.querySelectorAll('[data-testid="roster-card"]').length,
               kanbanVisible: Boolean(document.querySelector('[data-testid="roster-kanban"]')),
