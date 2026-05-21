@@ -234,15 +234,21 @@ async function pageProof(client, route) {
           routeReady: text.length > 80,
           dashboardHealthReady: location.pathname !== '/dashboard' || text.includes('Health check'),
           rosterReady: location.pathname !== '/dashboard/roster' || Boolean(document.querySelector('[data-testid="roster-kanban"]')),
+          aiSettingsReady: location.pathname !== '/settings/ai' || text.includes('Approval gates'),
+          settingsReady: location.pathname !== '/settings' || text.includes('Weekly Reports'),
+          leadsReady: location.pathname !== '/leads' || text.includes('Every match, every stage'),
         }
       })()`,
     )
     if (
-      settled.appError ||
+        settled.appError ||
       (settled.readyState === 'complete' &&
         settled.routeReady &&
         settled.dashboardHealthReady &&
-        settled.rosterReady)
+        settled.rosterReady &&
+        settled.aiSettingsReady &&
+        settled.settingsReady &&
+        settled.leadsReady)
     ) {
       break
     }
@@ -306,6 +312,38 @@ async function pageProof(client, route) {
               kanbanVisible: Boolean(document.querySelector('[data-testid="roster-kanban"]')),
             }
           : null,
+        settingsControls: location.pathname === '/settings'
+          ? {
+              weeklyReports: lower.includes('weekly reports'),
+              emailReportsCheckbox: Boolean(document.querySelector('input[type="checkbox"]')),
+              reportDaySelect: Boolean(document.querySelector('select')),
+              savePreferencesButton: [...document.querySelectorAll('button')].some((button) => (button.innerText || '').includes('Save preferences')),
+              integrationsSection: lower.includes('integrations'),
+            }
+          : null,
+        aiSettingsControls: location.pathname === '/settings/ai'
+          ? {
+              personaTab: [...document.querySelectorAll('button')].some((button) => (button.innerText || '').includes('Persona')),
+              dripTab: [...document.querySelectorAll('button')].some((button) => (button.innerText || '').includes('Drip rules')),
+              datesTab: [...document.querySelectorAll('button')].some((button) => (button.innerText || '').includes('Dates & calendar')),
+              approvalTab: [...document.querySelectorAll('button')].some((button) => (button.innerText || '').includes('Approval gates')),
+              voiceStyleInput: lower.includes('voice style'),
+              attractionHooks: lower.includes('attraction hooks'),
+              saveButton: [...document.querySelectorAll('button')].some((button) => (button.innerText || '').trim() === 'Save'),
+            }
+          : null,
+        leadsControls: location.pathname === '/leads'
+          ? {
+              heading: text.includes('Leads'),
+              boardCopy: text.includes('Every match, every stage'),
+              matchedColumn: text.includes('Matched'),
+              openedColumn: text.includes('Opened'),
+              replyingColumn: text.includes('Replying'),
+              dateProposedColumn: text.includes('Date proposed'),
+              dateBookedColumn: text.includes('Date booked'),
+              archivedColumn: text.includes('Archived'),
+            }
+          : null,
         textExcerpt: text.slice(0, 1000),
       }
     })()`,
@@ -335,6 +373,8 @@ async function runSafeFixture(client) {
     id: fixtureId,
     patchStatus: null,
     patchBody: null,
+    enrichStatus: null,
+    enrichBody: null,
     detail: null,
     archiveStatus: null,
   }
@@ -354,6 +394,12 @@ async function runSafeFixture(client) {
   })
   result.patchStatus = patch.status
   result.patchBody = patch.body
+
+  const enrich = await api(client, 'POST', '/api/match-profile/enrich', {
+    profile_id: fixtureId,
+  })
+  result.enrichStatus = enrich.status
+  result.enrichBody = enrich.body
 
   await client.send('Page.navigate', { url: routeUrl(`/matches/${encodeURIComponent(fixtureId)}`) })
   await new Promise((resolve) => setTimeout(resolve, 1800))
@@ -436,8 +482,14 @@ async function main() {
     const deviceSummary = deviceStatusSummary(apis.device.body)
     const dashboardPage = pages.find((page) => page.route === '/dashboard')
     const rosterPage = pages.find((page) => page.route === '/dashboard/roster')
+    const settingsPage = pages.find((page) => page.route === '/settings')
+    const aiSettingsPage = pages.find((page) => page.route === '/settings/ai')
+    const leadsPage = pages.find((page) => page.route === '/leads')
     const dashboardHealth = dashboardPage?.dashboardHealth || {}
     const rosterControls = rosterPage?.rosterControls || {}
+    const settingsControls = settingsPage?.settingsControls || {}
+    const aiSettingsControls = aiSettingsPage?.aiSettingsControls || {}
+    const leadsControls = leadsPage?.leadsControls || {}
     const transportBlockers = deviceSummary.transport_blockers || []
     const checks = [
       {
@@ -465,6 +517,8 @@ async function main() {
         pass: fixture.status === 201 &&
           Boolean(fixture.id) &&
           fixture.patchStatus === 200 &&
+          fixture.enrichStatus === 200 &&
+          fixture.enrichBody?.success === true &&
           fixture.detail?.hasQaNote === true &&
           fixture.detail?.hasDatePlanned === true &&
           fixture.detail?.brokenImages === 0 &&
@@ -504,6 +558,35 @@ async function main() {
           rosterControls.favoritesButton === true &&
           rosterControls.atRiskButton === true &&
           typeof rosterControls.cardCount === 'number',
+      },
+      {
+        name: 'settings report controls render',
+        pass: settingsControls.weeklyReports === true &&
+          settingsControls.emailReportsCheckbox === true &&
+          settingsControls.reportDaySelect === true &&
+          settingsControls.savePreferencesButton === true &&
+          settingsControls.integrationsSection === true,
+      },
+      {
+        name: 'AI settings voice and approval controls render',
+        pass: aiSettingsControls.personaTab === true &&
+          aiSettingsControls.dripTab === true &&
+          aiSettingsControls.datesTab === true &&
+          aiSettingsControls.approvalTab === true &&
+          aiSettingsControls.voiceStyleInput === true &&
+          aiSettingsControls.attractionHooks === true &&
+          aiSettingsControls.saveButton === true,
+      },
+      {
+        name: 'leads stage board renders funnel controls',
+        pass: leadsControls.heading === true &&
+          leadsControls.boardCopy === true &&
+          leadsControls.matchedColumn === true &&
+          leadsControls.openedColumn === true &&
+          leadsControls.replyingColumn === true &&
+          leadsControls.dateProposedColumn === true &&
+          leadsControls.dateBookedColumn === true &&
+          leadsControls.archivedColumn === true,
       },
     ]
 
@@ -554,6 +637,7 @@ async function main() {
         status: fixture.status,
         id: fixture.id,
         patchStatus: fixture.patchStatus,
+        enrichStatus: fixture.enrichStatus,
         archiveStatus: fixture.archiveStatus,
       },
       screenshots,
