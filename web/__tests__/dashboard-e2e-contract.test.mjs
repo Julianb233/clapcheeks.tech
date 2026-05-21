@@ -873,6 +873,8 @@ test('readiness status reporter summarizes remaining live-send gate without muta
   assert.match(files.readinessStatusScript, /CLAPCHEEKS_DEVICE_BLOCKER_CCT_LATEST/)
   assert.match(files.readinessStatusScript, /deviceControlStatusFromProductionCct/)
   assert.match(files.readinessStatusScript, /production_cct_device_status/)
+  assert.match(files.readinessStatusScript, /on_device_developer_mode_confirmation/)
+  assert.match(files.readinessStatusScript, /Developer Mode menu was revealed/)
   assert.match(files.readinessStatusScript, /deviceBlockerCct/)
   assert.match(files.readinessStatusScript, /latest_blockers_source/)
   assert.match(files.readinessStatusScript, /transport_telemetry_event_id/)

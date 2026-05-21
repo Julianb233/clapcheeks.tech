@@ -149,6 +149,10 @@ function finalGateSummary() {
 
 function nextRequiredAction() {
   if (audit?.complete === true) return 'Goal can be marked complete after final evidence is reviewed.'
+  const productionBlockers = Array.isArray(productionDeviceStatus?.blockers) ? productionDeviceStatus.blockers : []
+  if (productionBlockers.includes('on_device_developer_mode_confirmation')) {
+    return 'Finish the physical iPhone step now: Developer Mode menu was revealed on Julian Bradley’s iPhone (2). Pick up and unlock the iPhone, enable Settings > Privacy & Security > Developer Mode, approve the restart, confirm Developer Mode after boot, connect over USB and tap Trust This Computer, then run cd ~/clapcheeks-local && scripts/watch-device-control-physical-proof.sh 2 followed by cd ~/clapcheeks-local && scripts/run-device-control-completion-audit.sh 2 hinge.'
+  }
   if (physicalDeviceAudit?.completion_audit && physicalDeviceAudit.completion_audit !== 'passed') {
     const latestTransportBlockers = Array.isArray(physicalTransportDiagnostics?.blockers) ? physicalTransportDiagnostics.blockers : []
     const auditBlockers = Array.isArray(physicalDeviceAudit.blockers) ? physicalDeviceAudit.blockers : []
