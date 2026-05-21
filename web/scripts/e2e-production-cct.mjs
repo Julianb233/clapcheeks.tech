@@ -611,6 +611,7 @@ async function main() {
       linkChecks,
       apis: apiSummary,
       inventory,
+      deviceStatus: deviceSummary,
       fixture,
       autonomySave: { status: autonomySave.status, ok: autonomySave.ok },
       suggest: {
