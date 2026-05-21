@@ -135,6 +135,7 @@ const FALLBACK_PHYSICAL_IOS_BLOCKERS = [
 const PHYSICAL_IOS_LIVE_ACTION_ENV = 'CLAPCHEEKS_PHYSICAL_IOS_ENABLE_LIVE_ACTIONS'
 const COMPLETION_AUDIT_EVENT_TYPE = 'device_control.completion_audit'
 const TRANSPORT_DIAGNOSTICS_EVENT_TYPE = 'qa.transport_diagnostics_readiness_wiring'
+const PHYSICAL_BLOCKER_REFRESH_EVENT_TYPE = 'qa.physical_sender_iphone_blocker_refresh'
 
 function readPhysicalIOSLiveActionGate() {
   const enabled = process.env[PHYSICAL_IOS_LIVE_ACTION_ENV] === '1'
@@ -205,6 +206,12 @@ function cleanObject(value: unknown) {
     : null
 }
 
+function telemetryTimestamp(event: { occurred_at?: number; ts?: number } | null | undefined) {
+  if (typeof event?.occurred_at === 'number') return event.occurred_at
+  if (typeof event?.ts === 'number') return event.ts
+  return 0
+}
+
 function normalizeCompletionAudit(parsed: Record<string, unknown>, source: LatestCompletionAudit['source']): LatestCompletionAudit {
   const rawStatus = parsed.completion_audit === 'passed' || parsed.status === 'passed' ? 'passed' : 'failed'
   return {
@@ -272,40 +279,45 @@ async function readLatestTransportDiagnosticsFromTelemetry(userId: string): Prom
   const userIds = [userId, defaultTelemetryUserId()].filter(
     (value, index, all) => value && all.indexOf(value) === index,
   )
+  const candidates: Array<{ event: { _id?: string; data?: Record<string, unknown>; occurred_at?: number; ts?: number }; diagnostics: LatestTransportDiagnostics }> = []
   for (const telemetryUserId of userIds) {
-    try {
-      const events = await convexQuery<Array<{ _id?: string; data?: Record<string, unknown>; occurred_at?: number; ts?: number }>>(
-        'telemetry:listEventsForUser',
-        {
-          user_id: telemetryUserId,
-          event_type: TRANSPORT_DIAGNOSTICS_EVENT_TYPE,
-          limit: 1,
-        },
-      )
-      const event = Array.isArray(events) ? events[0] : null
-      const data = event?.data
-      const transport = data?.latest_transport_diagnostics || data?.transport_visibility
-      if (!transport || typeof transport !== 'object' || Array.isArray(transport)) continue
-      return {
-        status: 'loaded',
-        path: typeof data?.latest_transport_diagnostics_path === 'string'
-          ? data.latest_transport_diagnostics_path
-          : 'convex_telemetry',
-        blockers: cleanStringArray((transport as Record<string, unknown>).blockers),
-        transport_visibility: cleanObject(transport),
-        source: 'convex_telemetry',
-        telemetry_event_id: typeof event?._id === 'string' ? event._id : null,
-        telemetry_occurred_at: typeof event?.occurred_at === 'number'
-          ? event.occurred_at
-          : typeof event?.ts === 'number'
-            ? event.ts
-            : null,
+    for (const eventType of [TRANSPORT_DIAGNOSTICS_EVENT_TYPE, PHYSICAL_BLOCKER_REFRESH_EVENT_TYPE]) {
+      try {
+        const events = await convexQuery<Array<{ _id?: string; data?: Record<string, unknown>; occurred_at?: number; ts?: number }>>(
+          'telemetry:listEventsForUser',
+          {
+            user_id: telemetryUserId,
+            event_type: eventType,
+            limit: 1,
+          },
+        )
+        const event = Array.isArray(events) ? events[0] : null
+        const data = event?.data
+        const transport = data?.latest_transport_diagnostics || data?.transport_visibility
+        if (!event || !transport || typeof transport !== 'object' || Array.isArray(transport)) continue
+        candidates.push({
+          event,
+          diagnostics: {
+            status: 'loaded',
+            path: typeof data?.latest_transport_diagnostics_path === 'string'
+              ? data.latest_transport_diagnostics_path
+              : typeof data?.transport_diagnostics_json === 'string'
+                ? data.transport_diagnostics_json
+                : 'convex_telemetry',
+            blockers: cleanStringArray((transport as Record<string, unknown>).blockers),
+            transport_visibility: cleanObject(transport),
+            source: 'convex_telemetry',
+            telemetry_event_id: typeof event._id === 'string' ? event._id : null,
+            telemetry_occurred_at: telemetryTimestamp(event) || null,
+          },
+        })
+      } catch {
+        continue
       }
-    } catch {
-      continue
     }
   }
-  return null
+  candidates.sort((a, b) => telemetryTimestamp(b.event) - telemetryTimestamp(a.event))
+  return candidates[0]?.diagnostics || null
 }
 
 async function latestTransportDiagnosticsForUser(userId: string): Promise<LatestTransportDiagnostics> {
@@ -322,39 +334,46 @@ async function readLatestCompletionAuditFromTelemetry(userId: string): Promise<L
   const userIds = [userId, defaultTelemetryUserId()].filter(
     (value, index, all) => value && all.indexOf(value) === index,
   )
+  const candidates: Array<{ event: { _id?: string; data?: Record<string, unknown>; occurred_at?: number; ts?: number }; audit: LatestCompletionAudit }> = []
   for (const telemetryUserId of userIds) {
-    try {
-      const events = await convexQuery<Array<{ _id?: string; data?: Record<string, unknown>; occurred_at?: number; ts?: number }>>(
-        'telemetry:listEventsForUser',
-        {
-          user_id: telemetryUserId,
-          event_type: COMPLETION_AUDIT_EVENT_TYPE,
-          limit: 1,
-        },
-      )
-      const event = Array.isArray(events) ? events[0] : null
-      const data = event?.data
-      if (!data || typeof data !== 'object') continue
-      const rawLatest = data.latest_result && typeof data.latest_result === 'object' && !Array.isArray(data.latest_result)
-        ? data.latest_result as Record<string, unknown>
-        : data
-      return {
-        ...normalizeCompletionAudit({
-          ...rawLatest,
-          path: typeof data.latest_result_path === 'string' ? data.latest_result_path : COMPLETION_AUDIT.latest_result_path,
-        }, 'convex_telemetry'),
-        telemetry_event_id: typeof event?._id === 'string' ? event._id : null,
-        telemetry_occurred_at: typeof event?.occurred_at === 'number'
-          ? event.occurred_at
-          : typeof event?.ts === 'number'
-            ? event.ts
-            : null,
+    for (const eventType of [COMPLETION_AUDIT_EVENT_TYPE, PHYSICAL_BLOCKER_REFRESH_EVENT_TYPE]) {
+      try {
+        const events = await convexQuery<Array<{ _id?: string; data?: Record<string, unknown>; occurred_at?: number; ts?: number }>>(
+          'telemetry:listEventsForUser',
+          {
+            user_id: telemetryUserId,
+            event_type: eventType,
+            limit: 1,
+          },
+        )
+        const event = Array.isArray(events) ? events[0] : null
+        const data = event?.data
+        if (!event || !data || typeof data !== 'object') continue
+        const rawLatest = data.latest_result && typeof data.latest_result === 'object' && !Array.isArray(data.latest_result)
+          ? data.latest_result as Record<string, unknown>
+          : data
+        candidates.push({
+          event,
+          audit: {
+            ...normalizeCompletionAudit({
+              ...rawLatest,
+              path: typeof data.latest_result_path === 'string'
+                ? data.latest_result_path
+                : typeof data.completion_audit_json === 'string'
+                  ? data.completion_audit_json
+                  : COMPLETION_AUDIT.latest_result_path,
+            }, 'convex_telemetry'),
+            telemetry_event_id: typeof event._id === 'string' ? event._id : null,
+            telemetry_occurred_at: telemetryTimestamp(event) || null,
+          },
+        })
+      } catch {
+        continue
       }
-    } catch {
-      continue
     }
   }
-  return null
+  candidates.sort((a, b) => telemetryTimestamp(b.event) - telemetryTimestamp(a.event))
+  return candidates[0]?.audit || null
 }
 
 async function latestCompletionAuditForUser(userId: string): Promise<LatestCompletionAudit> {
@@ -453,6 +472,9 @@ export async function GET() {
   const inboundBlocker = inboundHealth.blocker || (
     inboundHealth.ok ? null : 'inbound_watcher_not_ready'
   )
+  const exactPhysicalUnblock = effectiveLatestCompletionAudit.next_unblock_steps?.length
+    ? effectiveLatestCompletionAudit.next_unblock_steps.join(' ')
+    : 'Unlock and keep the iPhone nearby/on-network, then run the readiness command to clear transport visibility, Developer Mode, CoreDevice visibility, and physical PNG proof.'
 
   return NextResponse.json({
     mode: 'observe_only_until_physical_iphone_screenshot_verified',
@@ -499,7 +521,7 @@ export async function GET() {
       transport_visibility: transportVisibility,
       latest_transport_diagnostics: latestTransportDiagnostics,
       local_latest_audit_status: localLatestCompletionAudit.status,
-      next_step: 'Unlock and keep the iPhone nearby/on-network, then run the readiness command to clear transport visibility, Developer Mode, CoreDevice visibility, and physical PNG proof.',
+      next_step: exactPhysicalUnblock,
     },
     lines: SECONDARY_LINES,
     platforms: tokenHealth.platforms.map((platform) => ({
