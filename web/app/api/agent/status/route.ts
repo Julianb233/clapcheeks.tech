@@ -5,6 +5,8 @@ import { createClient } from '@/lib/supabase/server'
 import { api } from '@/convex/_generated/api'
 import { getFleetUserId } from '@/lib/fleet-user'
 
+const ONLINE_THRESHOLD_MS = 5 * 60 * 1000
+
 export async function GET() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -67,6 +69,13 @@ export async function GET() {
     : null
 
   const agentToken = agentTokenRes.data?.[0] || null
+  const lastSeen = device?.last_seen_at || null
+  const online = Boolean(lastSeen && Date.now() - new Date(lastSeen).getTime() < ONLINE_THRESHOLD_MS)
 
-  return NextResponse.json({ device, agentToken })
+  return NextResponse.json({
+    device,
+    agentToken,
+    lastSeen,
+    status: lastSeen ? (online ? 'online' : 'stale') : 'no_convex_heartbeat',
+  })
 }
