@@ -41,13 +41,36 @@ export default function RosterKanban({ initialMatches, lastMessages }: Props) {
   const [matches, setMatches] = useState<ClapcheeksMatchRow[]>(initialMatches)
   const [dragTarget, setDragTarget] = useState<RosterStage | null>(null)
   const [persistError, setPersistError] = useState<string | null>(null)
+  const [search, setSearch] = useState('')
+  const [favoritesOnly, setFavoritesOnly] = useState(false)
+  const [atRiskOnly, setAtRiskOnly] = useState(false)
   const convex = useConvex()
+
+  const filteredMatches = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    return matches.filter((match) => {
+      const haystack = [
+        match.name,
+        match.platform,
+        match.status,
+        match.stage,
+        match.bio,
+        match.instagram_handle,
+      ].filter(Boolean).join(' ').toLowerCase()
+      const isFavorite = Boolean((match as any).is_favorite || (match as any).favorite || (match as any).match_intel?.favorite)
+      const health = typeof match.health_score === 'number' ? match.health_score : 100
+      if (q && !haystack.includes(q)) return false
+      if (favoritesOnly && !isFavorite) return false
+      if (atRiskOnly && health > 45) return false
+      return true
+    })
+  }, [matches, search, favoritesOnly, atRiskOnly])
 
   const grouped = useMemo(() => {
     const by: Record<RosterStage, ClapcheeksMatchRow[]> = {} as never
     for (const s of ROSTER_STAGES) by[s.key] = []
     const stageKeys = new Set(ROSTER_STAGES.map((s) => s.key))
-    for (const m of matches) {
+    for (const m of filteredMatches) {
       const stage = deriveStage(m)
       // Don't surface archived/cluster-dupe rows in the kanban columns.
       if (!stageKeys.has(stage)) continue
@@ -63,7 +86,7 @@ export default function RosterKanban({ initialMatches, lastMessages }: Props) {
       })
     }
     return by
-  }, [matches])
+  }, [filteredMatches])
 
   async function moveMatch(matchId: string, nextStage: RosterStage) {
     setPersistError(null)
@@ -96,6 +119,48 @@ export default function RosterKanban({ initialMatches, lastMessages }: Props) {
           {persistError}
         </div>
       )}
+      <div className="mb-4 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+        <div className="flex flex-1 items-center gap-2">
+          <input
+            aria-label="Search roster"
+            placeholder="Search roster"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            className="w-full md:max-w-sm rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2 text-sm text-white placeholder:text-white/30 focus:border-yellow-500/50 focus:outline-none"
+          />
+          {search.trim() && (
+            <button
+              type="button"
+              onClick={() => setSearch('')}
+              className="rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2 text-xs font-mono uppercase tracking-wide text-white/60 hover:text-white"
+            >
+              Clear
+            </button>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            aria-pressed={favoritesOnly}
+            onClick={() => setFavoritesOnly((value) => !value)}
+            className={`rounded-lg border px-3 py-2 text-xs font-mono uppercase tracking-wide transition-colors ${
+              favoritesOnly ? 'border-yellow-500/50 bg-yellow-500/15 text-yellow-100' : 'border-white/10 bg-white/[0.04] text-white/60 hover:text-white'
+            }`}
+          >
+            Favorites
+          </button>
+          <button
+            type="button"
+            aria-pressed={atRiskOnly}
+            onClick={() => setAtRiskOnly((value) => !value)}
+            className={`rounded-lg border px-3 py-2 text-xs font-mono uppercase tracking-wide transition-colors ${
+              atRiskOnly ? 'border-rose-500/50 bg-rose-500/15 text-rose-100' : 'border-white/10 bg-white/[0.04] text-white/60 hover:text-white'
+            }`}
+          >
+            At-risk health
+          </button>
+        </div>
+      </div>
       <div
         data-testid="roster-kanban"
         className="flex gap-3 overflow-x-auto pb-4 snap-x"

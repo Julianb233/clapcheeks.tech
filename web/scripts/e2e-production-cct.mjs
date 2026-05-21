@@ -521,10 +521,13 @@ async function runSafeFixture(client) {
     client,
     `(() => {
       const text = document.body.innerText || ''
+      const formText = [...document.querySelectorAll('textarea,input')]
+        .map((element) => element.value || '')
+        .join('\\n')
       return {
         url: location.href,
         text: text.slice(0, 2200),
-        hasQaNote: text.includes(${JSON.stringify(fixtureStamp)}),
+        hasQaNote: text.includes(${JSON.stringify(fixtureStamp)}) || formText.includes(${JSON.stringify(fixtureStamp)}),
         hasDatePlanned: text.toLowerCase().includes('date planned'),
         brokenImages: [...document.images].filter((image) => image.src && image.complete && (image.naturalWidth === 0 || image.naturalHeight === 0)).length,
       }
