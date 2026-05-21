@@ -183,12 +183,21 @@ type LatestCompletionAudit = {
   error?: string
 }
 
+type DeviceStatusTransportSource =
+  | 'local_file'
+  | 'convex_telemetry'
+  | 'missing'
+  | 'latest_transport_diagnostics_json'
+  | 'latest_completion_audit_telemetry'
+  | 'latest_completion_audit_json'
+  | 'fallback_static_blockers'
+
 type LatestTransportDiagnostics = {
   status: 'missing' | 'unreadable' | 'loaded'
   path: string
   blockers?: string[]
   transport_visibility?: Record<string, unknown> | null
-  source?: 'local_file' | 'convex_telemetry' | 'missing'
+  source?: DeviceStatusTransportSource
   telemetry_event_id?: string | null
   telemetry_occurred_at?: number | null
   error?: string
@@ -409,7 +418,12 @@ function currentPhysicalIOSBlocker(latestAudit: LatestCompletionAudit, blockers:
 function effectiveTransportVisibilitySource(
   latestAudit: LatestCompletionAudit,
   latestTransport: LatestTransportDiagnostics,
-) {
+): {
+  transport_visibility: Record<string, unknown> | null
+  source: DeviceStatusTransportSource
+  telemetry_event_id: string | null
+  telemetry_occurred_at: number | null
+} {
   const auditTransport = latestAudit.transport_visibility || null
   const diagnosticsTransport = latestTransport.transport_visibility || null
   const auditTime = latestAudit.telemetry_occurred_at || 0
