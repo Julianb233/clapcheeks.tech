@@ -73,6 +73,7 @@ type Prompt = { question?: string; answer?: string; prompt?: string; text?: stri
 
 type MatchIntel = Record<string, unknown> & {
   notes?: string
+  operator_notes?: string
   tags?: string[]
   interests?: string[]
   topics?: string[]
@@ -356,7 +357,11 @@ export default function MatchProfileView({
     () => stringList((m.match_intel as MatchIntel | null)?.tags),
     [m.match_intel]
   )
-  const existingNotes = (m.match_intel as MatchIntel | null)?.notes ?? ''
+  const intel = m.match_intel as MatchIntel | null
+  const existingNotes =
+    (typeof intel?.notes === 'string' && intel.notes.trim())
+      ? intel.notes
+      : (typeof intel?.operator_notes === 'string' ? intel.operator_notes : '')
 
   const lastMessage = useMemo(() => {
     return [...conversation]

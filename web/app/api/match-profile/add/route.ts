@@ -3,6 +3,7 @@ import { api } from '@/convex/_generated/api'
 import { getConvexServerClient } from '@/lib/convex/server'
 import { createClient } from '@/lib/supabase/server'
 import { getFleetUserId } from '@/lib/fleet-user'
+import { isDisplayableMatchProfile } from '@/lib/matches/visibility'
 
 /**
  * POST /api/match-profile/add — create a manually-added match profile.
@@ -156,7 +157,7 @@ export async function GET() {
     )
   }
 
-  const profiles = data.map((row) => {
+  const profiles = data.filter((row) => isDisplayableMatchProfile(row as any)).map((row) => {
     const mi = ((row.match_intel as Record<string, unknown> | null) ?? {}) as Record<string, unknown>
     const ii = ((row.instagram_intel as Record<string, unknown> | null) ?? {}) as Record<string, unknown>
     return {
