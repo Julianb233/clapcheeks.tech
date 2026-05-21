@@ -17,6 +17,7 @@ const evidenceIndexPath = process.env.CLAPCHEEKS_EVIDENCE_INDEX || '/tmp/clapche
 const approvalPacketPath = process.env.CLAPCHEEKS_LIVE_SEND_APPROVAL_PACKET || '/tmp/clapcheeks-live-send-approval-packet-2026-05-18.json'
 const approvalPacketMarkdownPath = process.env.CLAPCHEEKS_LIVE_SEND_APPROVAL_PACKET_MD || '/tmp/clapcheeks-live-send-approval-packet-2026-05-18.md'
 const productionCctPath = process.env.CLAPCHEEKS_PRODUCTION_CCT_LATEST || '/tmp/clapcheeks-production-cct-latest.json'
+const deviceBlockerCctPath = process.env.CLAPCHEEKS_DEVICE_BLOCKER_CCT_LATEST || '/tmp/clapcheeks-prod-device-blocker-cct-latest.json'
 const physicalDeviceAuditPath = process.env.CLAPCHEEKS_PHYSICAL_DEVICE_AUDIT || `${process.env.HOME || ''}/.clapcheeks-local/device-control/proof-runs/latest-completion-audit.json`
 const physicalTransportDiagnosticsPath = process.env.CLAPCHEEKS_PHYSICAL_TRANSPORT_DIAGNOSTICS || `${process.env.HOME || ''}/.clapcheeks-local/device-control/proof-runs/latest-transport-diagnostics.json`
 const runbookPath = 'docs/e2e-live-send-runbook.md'
@@ -65,6 +66,7 @@ const backendDoctor = load(backendDoctorPath)
 const evidenceIndex = load(evidenceIndexPath)
 const approvalPacket = load(approvalPacketPath)
 const productionCct = load(productionCctPath)
+const deviceBlockerCct = load(deviceBlockerCctPath)
 const physicalDeviceAudit = load(physicalDeviceAuditPath)
 const physicalTransportDiagnostics = load(physicalTransportDiagnosticsPath)
 const approvalPacketMarkdownRaw = existsSync(approvalPacketMarkdownPath) ? readFileSync(approvalPacketMarkdownPath, 'utf8') : ''
@@ -389,8 +391,21 @@ const status = {
     dashboard_imessage_dry_run_click: evidenceIndex?.summary?.dashboard_imessage_dry_run_click === true,
     dashboard_imessage_dry_run: evidenceIndex?.evidence_highlights?.browser?.dashboard_imessage_dry_run || null,
     device_mobile_quick_view: evidenceIndex?.summary?.device_mobile_quick_view === true,
-    device_control_safety_surface: evidenceIndex?.summary?.device_control_safety_surface === true,
-    device_control_status: evidenceIndex?.evidence_highlights?.browser?.device_control_status || null,
+    device_control_safety_surface: deviceBlockerCct?.ok === true || evidenceIndex?.summary?.device_control_safety_surface === true,
+    device_control_status: deviceBlockerCct?.ok === true
+      ? {
+          selected_line: 2,
+          current_blocker: deviceBlockerCct.current_blocker,
+          latest_blockers_source: deviceBlockerCct.latest_blockers_source,
+          latest_known_blockers: Array.isArray(deviceBlockerCct.latest_known_blockers)
+            ? deviceBlockerCct.latest_known_blockers
+            : [],
+          transport_telemetry_event_id: deviceBlockerCct.transport_telemetry_event_id || null,
+          completion_telemetry_event_id: deviceBlockerCct.completion_telemetry_event_id || null,
+          no_live_action_performed: deviceBlockerCct.no_live_action === true && deviceBlockerCct.no_live_outbound_send_performed === true,
+          evidence_path: deviceBlockerCct.reportPath || deviceBlockerCctPath,
+        }
+      : evidenceIndex?.evidence_highlights?.browser?.device_control_status || null,
     mobile_metric_count: evidenceIndex?.summary?.mobile_metric_count ?? null,
     mobile_metrics_overflow_free: evidenceIndex?.summary?.mobile_metrics_overflow_free === true,
     scheduled_ui_matches_api: evidenceIndex?.summary?.scheduled_ui_matches_api === true,
@@ -499,7 +514,7 @@ console.log(`Dashboard blocker quick view: ok=${status.visual_evidence.dashboard
 console.log(`Dashboard iMessage self-test: ok=${status.visual_evidence.dashboard_imessage_self_test_surface} dry_run=${status.visual_evidence.dashboard_imessage_self_test?.dry_run_default ?? 'n/a'} last4=${status.visual_evidence.dashboard_imessage_self_test?.self_test_recipient_last4 ?? 'n/a'}`)
 console.log(`Dashboard live-send gate: ready=${status.visual_evidence.dashboard_live_send_gate_ready} missing=${status.visual_evidence.dashboard_live_send_gate_missing.length}`)
 console.log(`Dashboard iMessage dry-run click: ok=${status.visual_evidence.dashboard_imessage_dry_run_click} no_queue_delta=${status.visual_evidence.dashboard_imessage_dry_run?.no_queue_delta ?? 'n/a'} success=${status.visual_evidence.dashboard_imessage_dry_run?.success_message_present ?? 'n/a'}`)
-console.log(`Device control safety: ok=${status.visual_evidence.device_control_safety_surface} mobile=${status.visual_evidence.device_mobile_quick_view} line=${status.visual_evidence.device_control_status?.selected_line ?? 'n/a'} blocker=${status.visual_evidence.device_control_status?.current_blocker ?? 'n/a'} no_live_action=${status.visual_evidence.device_control_status?.no_live_action_performed ?? 'n/a'}`)
+console.log(`Device control safety: ok=${status.visual_evidence.device_control_safety_surface} mobile=${status.visual_evidence.device_mobile_quick_view} line=${status.visual_evidence.device_control_status?.selected_line ?? 'n/a'} blocker=${status.visual_evidence.device_control_status?.current_blocker ?? 'n/a'} source=${status.visual_evidence.device_control_status?.latest_blockers_source ?? 'n/a'} no_live_action=${status.visual_evidence.device_control_status?.no_live_action_performed ?? 'n/a'}`)
 console.log(`Mobile metrics: pages=${status.visual_evidence.mobile_metric_count ?? 'n/a'} overflow_free=${status.visual_evidence.mobile_metrics_overflow_free}`)
 console.log(`Scheduled UI/API: match=${status.visual_evidence.scheduled_ui_matches_api} total=${status.visual_evidence.scheduled_api_binding?.total_messages ?? 'n/a'} pending=${status.visual_evidence.scheduled_api_binding?.expected_counts?.pending ?? 'n/a'} approved=${status.visual_evidence.scheduled_api_binding?.expected_counts?.approved ?? 'n/a'}`)
 console.log(`Scheduled mobile form: filled=${status.visual_evidence.scheduled_mobile_form_filled} no_submit=${status.visual_evidence.scheduled_mobile_form_no_submit} sample_last4=${status.visual_evidence.scheduled_mobile_form?.sample_last4 ?? 'n/a'}`)

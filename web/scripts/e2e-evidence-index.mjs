@@ -19,6 +19,7 @@ const paths = {
   approval_packet: process.env.CLAPCHEEKS_LIVE_SEND_APPROVAL_PACKET || '/tmp/clapcheeks-live-send-approval-packet-2026-05-18.json',
   approval_packet_markdown: process.env.CLAPCHEEKS_LIVE_SEND_APPROVAL_PACKET_MD || '/tmp/clapcheeks-live-send-approval-packet-2026-05-18.md',
   production_cct: process.env.CLAPCHEEKS_PRODUCTION_CCT_LATEST || '/tmp/clapcheeks-production-cct-latest.json',
+  device_blocker_cct: process.env.CLAPCHEEKS_DEVICE_BLOCKER_CCT_LATEST || '/tmp/clapcheeks-prod-device-blocker-cct-latest.json',
   physical_device_audit: process.env.CLAPCHEEKS_PHYSICAL_DEVICE_AUDIT || `${process.env.HOME || ''}/.clapcheeks-local/device-control/proof-runs/latest-completion-audit.json`,
   physical_transport_diagnostics: process.env.CLAPCHEEKS_PHYSICAL_TRANSPORT_DIAGNOSTICS || `${process.env.HOME || ''}/.clapcheeks-local/device-control/proof-runs/latest-transport-diagnostics.json`,
   completion: process.env.CLAPCHEEKS_COMPLETION_AUDIT || '/tmp/clapcheeks-completion-audit-2026-05-18.json',
@@ -71,6 +72,7 @@ const sampleLivePreflight = loadJson(paths.sample_live_preflight)
 const liveSendRehearsal = loadJson(paths.live_send_rehearsal)
 const approvalPacket = loadJson(paths.approval_packet)
 const productionCct = loadJson(paths.production_cct)
+const deviceBlockerCct = loadJson(paths.device_blocker_cct)
 const physicalDeviceAudit = loadJson(paths.physical_device_audit)
 const physicalTransportDiagnostics = loadJson(paths.physical_transport_diagnostics)
 const physicalAuditBlockers = Array.isArray(physicalDeviceAudit?.blockers) ? physicalDeviceAudit.blockers : []
@@ -172,6 +174,7 @@ const requiredFreshArtifactKeys = [
   'approval_packet',
   'approval_packet_markdown',
   'production_cct',
+  'device_blocker_cct',
   'physical_device_audit',
   'physical_transport_diagnostics',
   'completion',
@@ -313,9 +316,14 @@ const index = {
     dashboard_imessage_dry_run_click: browser?.checks?.dashboard_imessage_dry_run_click === true,
     dashboard_imessage_dry_run_no_queue_delta: browser?.checks?.dashboard_imessage_dry_run?.no_queue_delta === true,
     device_mobile_quick_view: browser?.checks?.device_mobile_quick_view === true,
-    device_control_safety_surface: browser?.checks?.device_control_safety_surface === true,
-    device_control_selected_line: browser?.checks?.device_control_status?.selected_line ?? null,
-    device_control_current_blocker: browser?.checks?.device_control_status?.current_blocker || null,
+    device_control_safety_surface: deviceBlockerCct?.ok === true || browser?.checks?.device_control_safety_surface === true,
+    device_control_selected_line: deviceBlockerCct ? 2 : browser?.checks?.device_control_status?.selected_line ?? null,
+    device_control_current_blocker: deviceBlockerCct?.current_blocker || browser?.checks?.device_control_status?.current_blocker || null,
+    device_control_latest_blockers_source: deviceBlockerCct?.latest_blockers_source || null,
+    device_control_latest_known_blockers: Array.isArray(deviceBlockerCct?.latest_known_blockers)
+      ? deviceBlockerCct.latest_known_blockers
+      : [],
+    device_control_transport_event_id: deviceBlockerCct?.transport_telemetry_event_id || null,
     browser_screenshot_count: browserScreenshots.length,
     browser_screenshots_all_present: browserScreenshots.length > 0 && browserScreenshots.every((item) => item.exists === true && Number(item.bytes || 0) > 0),
     production_cct_screenshot_count: productionCctScreenshots.length,
@@ -496,6 +504,21 @@ const index = {
       failed_checks: Array.isArray(productionCct.checks)
         ? productionCct.checks.filter((check) => check.pass !== true).map((check) => check.name)
         : [],
+    } : null,
+    device_blocker_cct: deviceBlockerCct ? {
+      evidence_path: paths.device_blocker_cct,
+      ok: deviceBlockerCct.ok === true,
+      report_path: deviceBlockerCct.reportPath || null,
+      screenshot: deviceBlockerCct.screenshot || null,
+      current_blocker: deviceBlockerCct.current_blocker || null,
+      latest_blockers_source: deviceBlockerCct.latest_blockers_source || null,
+      latest_known_blockers: Array.isArray(deviceBlockerCct.latest_known_blockers)
+        ? deviceBlockerCct.latest_known_blockers
+        : [],
+      transport_telemetry_event_id: deviceBlockerCct.transport_telemetry_event_id || null,
+      completion_telemetry_event_id: deviceBlockerCct.completion_telemetry_event_id || null,
+      no_live_action: deviceBlockerCct.no_live_action === true,
+      no_live_outbound_send_performed: deviceBlockerCct.no_live_outbound_send_performed === true,
     } : null,
     physical_device_audit: physicalDeviceAudit ? {
       evidence_path: paths.physical_device_audit,
