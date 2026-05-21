@@ -67,6 +67,9 @@ const evidenceIndex = load(evidenceIndexPath)
 const approvalPacket = load(approvalPacketPath)
 const productionCct = load(productionCctPath)
 const deviceBlockerCct = load(deviceBlockerCctPath)
+const productionDeviceStatus = productionCct?.deviceStatus && typeof productionCct.deviceStatus === 'object' && !Array.isArray(productionCct.deviceStatus)
+  ? productionCct.deviceStatus
+  : null
 const physicalDeviceAudit = load(physicalDeviceAuditPath)
 const physicalTransportDiagnostics = load(physicalTransportDiagnosticsPath)
 const approvalPacketMarkdownRaw = existsSync(approvalPacketMarkdownPath) ? readFileSync(approvalPacketMarkdownPath, 'utf8') : ''
@@ -182,6 +185,25 @@ function nextRequiredAction() {
   }
   return 'Get Julian-confirmed destination phone, exact message body, and explicit live-send permission, then follow docs/e2e-live-send-runbook.md.'
 }
+
+function deviceControlStatusFromProductionCct() {
+  if (!productionDeviceStatus) return null
+  const blockers = Array.isArray(productionDeviceStatus.blockers) ? productionDeviceStatus.blockers : []
+  return {
+    selected_line: productionDeviceStatus?.transport_visibility?.line ?? 2,
+    current_blocker: blockers[0] || null,
+    latest_blockers_source: productionDeviceStatus.latest_blockers_source || null,
+    latest_known_blockers: blockers,
+    transport_telemetry_event_id: productionDeviceStatus.telemetry_event_id || null,
+    completion_telemetry_event_id: null,
+    no_live_action_performed: productionDeviceStatus?.transport_visibility?.no_live_action_performed === true ||
+      productionCct?.noLiveOutboundSendPerformed === true,
+    evidence_path: productionCct?.outDir ? `${productionCct.outDir}/report.json` : productionCctPath,
+    source: 'production_cct_device_status',
+  }
+}
+
+const productionCctDeviceControlStatus = deviceControlStatusFromProductionCct()
 
 const status = {
   complete: audit?.complete === true,
@@ -391,9 +413,10 @@ const status = {
     dashboard_imessage_dry_run_click: evidenceIndex?.summary?.dashboard_imessage_dry_run_click === true,
     dashboard_imessage_dry_run: evidenceIndex?.evidence_highlights?.browser?.dashboard_imessage_dry_run || null,
     device_mobile_quick_view: evidenceIndex?.summary?.device_mobile_quick_view === true,
-    device_control_safety_surface: deviceBlockerCct?.ok === true || evidenceIndex?.summary?.device_control_safety_surface === true,
-    device_control_status: deviceBlockerCct?.ok === true
-      ? {
+    device_control_safety_surface: Boolean(productionCctDeviceControlStatus) || deviceBlockerCct?.ok === true || evidenceIndex?.summary?.device_control_safety_surface === true,
+    device_control_status: productionCctDeviceControlStatus ||
+      (deviceBlockerCct?.ok === true
+        ? {
           selected_line: 2,
           current_blocker: deviceBlockerCct.current_blocker,
           latest_blockers_source: deviceBlockerCct.latest_blockers_source,
@@ -405,7 +428,9 @@ const status = {
           no_live_action_performed: deviceBlockerCct.no_live_action === true && deviceBlockerCct.no_live_outbound_send_performed === true,
           evidence_path: deviceBlockerCct.reportPath || deviceBlockerCctPath,
         }
-      : evidenceIndex?.evidence_highlights?.browser?.device_control_status || null,
+        : evidenceIndex?.evidence_highlights?.device_control_status ||
+          evidenceIndex?.evidence_highlights?.browser?.device_control_status ||
+          null),
     mobile_metric_count: evidenceIndex?.summary?.mobile_metric_count ?? null,
     mobile_metrics_overflow_free: evidenceIndex?.summary?.mobile_metrics_overflow_free === true,
     scheduled_ui_matches_api: evidenceIndex?.summary?.scheduled_ui_matches_api === true,
