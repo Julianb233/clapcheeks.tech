@@ -589,7 +589,7 @@ async function main() {
       },
       {
         name: 'device status uses latest transport telemetry source',
-        pass: deviceSummary.latest_blockers_source === 'latest_transport_diagnostics_json' &&
+        pass: ['latest_transport_diagnostics_json', 'latest_completion_audit_telemetry'].includes(deviceSummary.latest_blockers_source) &&
           deviceSummary.latest_transport_diagnostics_status === 'loaded' &&
           Array.isArray(deviceSummary.blockers) &&
           Array.isArray(transportBlockers) &&

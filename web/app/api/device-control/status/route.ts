@@ -406,6 +406,32 @@ function currentPhysicalIOSBlocker(latestAudit: LatestCompletionAudit, blockers:
   return blockers[0] || 'physical_readiness_not_verified'
 }
 
+function effectiveTransportVisibilitySource(
+  latestAudit: LatestCompletionAudit,
+  latestTransport: LatestTransportDiagnostics,
+) {
+  const auditTransport = latestAudit.transport_visibility || null
+  const diagnosticsTransport = latestTransport.transport_visibility || null
+  const auditTime = latestAudit.telemetry_occurred_at || 0
+  const diagnosticsTime = latestTransport.telemetry_occurred_at || 0
+  if (auditTransport && (!diagnosticsTransport || auditTime >= diagnosticsTime)) {
+    return {
+      transport_visibility: auditTransport,
+      source: latestAudit.source === 'convex_telemetry' ? 'latest_completion_audit_telemetry' : 'latest_completion_audit_json',
+    }
+  }
+  return {
+    transport_visibility: diagnosticsTransport || auditTransport,
+    source: latestTransport.status === 'loaded'
+      ? 'latest_transport_diagnostics_json'
+      : latestAudit.source === 'convex_telemetry'
+        ? 'convex_telemetry'
+        : latestAudit.status === 'missing' || latestAudit.status === 'unreadable'
+          ? 'fallback_static_blockers'
+          : 'latest_completion_audit_json',
+  }
+}
+
 function readInboundRepairTcc() {
   try {
     if (!existsSync(INBOUND_REPAIR_EVIDENCE_PATH)) {
@@ -462,8 +488,14 @@ export async function GET() {
     latestCompletionAuditForUser(user.id),
     latestTransportDiagnosticsForUser(user.id),
   ])
-  const transportVisibility = latestTransportDiagnostics.transport_visibility || latestCompletionAudit.transport_visibility
-  const physicalIOSBlockers = latestPhysicalIOSBlockers(latestCompletionAudit, latestTransportDiagnostics)
+  const effectiveTransport = effectiveTransportVisibilitySource(latestCompletionAudit, latestTransportDiagnostics)
+  const transportVisibility = effectiveTransport.transport_visibility
+  const effectiveLatestTransportDiagnostics = {
+    ...latestTransportDiagnostics,
+    blockers: cleanStringArray(transportVisibility?.blockers),
+    transport_visibility: transportVisibility,
+  }
+  const physicalIOSBlockers = latestPhysicalIOSBlockers(latestCompletionAudit, effectiveLatestTransportDiagnostics)
   const effectiveLatestCompletionAudit = {
     ...latestCompletionAudit,
     blockers: physicalIOSBlockers,
@@ -511,15 +543,9 @@ export async function GET() {
       screenshot_probe: 'capture.physical_ios_screenshot',
       current_blocker: currentPhysicalIOSBlocker(latestCompletionAudit, physicalIOSBlockers),
       latest_known_blockers: physicalIOSBlockers,
-      latest_blockers_source: latestTransportDiagnostics.status === 'loaded'
-        ? 'latest_transport_diagnostics_json'
-        : latestCompletionAudit.source === 'convex_telemetry'
-        ? 'convex_telemetry'
-        : latestCompletionAudit.status === 'missing' || latestCompletionAudit.status === 'unreadable'
-        ? 'fallback_static_blockers'
-        : 'latest_completion_audit_json',
+      latest_blockers_source: effectiveTransport.source,
       transport_visibility: transportVisibility,
-      latest_transport_diagnostics: latestTransportDiagnostics,
+      latest_transport_diagnostics: effectiveLatestTransportDiagnostics,
       local_latest_audit_status: localLatestCompletionAudit.status,
       next_step: exactPhysicalUnblock,
     },
@@ -587,7 +613,7 @@ export async function GET() {
       ...COMPLETION_AUDIT,
       latest_result: effectiveLatestCompletionAudit,
       latest_transport_diagnostics_path: LATEST_TRANSPORT_DIAGNOSTICS_PATH,
-      latest_transport_diagnostics: latestTransportDiagnostics,
+      latest_transport_diagnostics: effectiveLatestTransportDiagnostics,
     },
   })
 }
