@@ -422,6 +422,12 @@ const status = {
     mobile_metrics: evidenceIndex?.evidence_highlights?.mobile_metrics?.pages || {},
     artifact_freshness: evidenceIndex?.evidence_highlights?.artifact_freshness || {
       all_required_fresh: null,
+      current_production_fresh: null,
+      current_production_oldest_age_seconds: null,
+      current_production_stale_artifacts: [],
+      historical_fresh: null,
+      historical_oldest_age_seconds: null,
+      historical_stale_artifacts: [],
       max_age_seconds: null,
       oldest_required_age_seconds: null,
       stale_artifacts: [],
@@ -523,7 +529,7 @@ console.log(`Scheduled live gate: blocked_by_preflight=${status.scheduled_flow.l
 console.log(`Scheduled live gate plan: redacted=${status.scheduled_flow.live_preflight_redacted_plan_present} sha256=${status.scheduled_flow.live_preflight_gate_status?.redacted_execution_plan?.message_sha256 ? 'present' : 'missing'}`)
 console.log(`Intelligence UI/API: match=${status.visual_evidence.intelligence_ui_matches_api} reply_rate=${status.visual_evidence.intelligence_api_binding?.expected?.reply_rate_percent ?? 'n/a'} replied=${status.visual_evidence.intelligence_api_binding?.expected?.replied ?? 'n/a'}`)
 console.log(`Analytics mobile UI/API: match=${status.visual_evidence.analytics_mobile_ui_matches_api} matches=${status.visual_evidence.analytics_mobile_api_binding?.expected?.matches ?? 'n/a'} rizz=${status.visual_evidence.analytics_mobile_api_binding?.expected?.rizz_score ?? 'n/a'}`)
-console.log(`Artifact freshness: fresh=${status.visual_evidence.artifact_freshness.all_required_fresh ?? 'n/a'} max_age=${status.visual_evidence.artifact_freshness.max_age_seconds ?? 'n/a'}s stale=${status.visual_evidence.artifact_freshness.stale_artifacts?.length ?? 'n/a'} oldest=${status.visual_evidence.artifact_freshness.oldest_required_age_seconds ?? 'n/a'}s`)
+console.log(`Artifact freshness: current_production=${status.visual_evidence.artifact_freshness.current_production_fresh ?? status.visual_evidence.artifact_freshness.all_required_fresh ?? 'n/a'} historical=${status.visual_evidence.artifact_freshness.historical_fresh ?? status.visual_evidence.artifact_freshness.all_required_fresh ?? 'n/a'} max_age=${status.visual_evidence.artifact_freshness.max_age_seconds ?? 'n/a'}s current_stale=${status.visual_evidence.artifact_freshness.current_production_stale_artifacts?.length ?? 'n/a'} historical_stale=${status.visual_evidence.artifact_freshness.historical_stale_artifacts?.length ?? status.visual_evidence.artifact_freshness.stale_artifacts?.length ?? 'n/a'} current_oldest=${status.visual_evidence.artifact_freshness.current_production_oldest_age_seconds ?? 'n/a'}s historical_oldest=${status.visual_evidence.artifact_freshness.historical_oldest_age_seconds ?? status.visual_evidence.artifact_freshness.oldest_required_age_seconds ?? 'n/a'}s`)
 console.log(`Insights data: contract=${status.insights_data.contract} matches=${status.insights_data.matches ?? 'n/a'} conversations=${status.insights_data.conversations ?? 'n/a'} platforms=${status.insights_data.platform_count ?? 'n/a'} days=${status.insights_data.time_series_rows ?? 'n/a'}`)
 console.log(`Dashboard health: contract=${status.dashboard_health.contract} overall=${status.dashboard_health.overall ?? 'n/a'} convex=${status.dashboard_health.convex_status ?? 'n/a'} missing_required=${status.dashboard_health.missing_required ?? 'n/a'} blockers=${status.dashboard_health.missing_required_services.map((item) => item.name).join(',') || 'none'} sendbird=${status.dashboard_health.sendbird_status ?? 'n/a'} redacted=${status.dashboard_health.token_values_omitted}`)
 console.log(`Scheduled flow: created=${status.scheduled_flow.created} approved=${status.scheduled_flow.approved} dry_run=${status.scheduled_flow.dry_run} provenance=${status.scheduled_flow.dry_run_provenance_verified} live_gate=${status.scheduled_flow.live_blocked_by_preflight_gate} cleanup=${status.scheduled_flow.cleanup_cancel && status.scheduled_flow.fixture_cleanup} active_fixtures=${status.scheduled_flow.active_fixtures ?? 'n/a'}`)

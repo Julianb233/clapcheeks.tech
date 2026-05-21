@@ -179,11 +179,27 @@ const requiredFreshArtifactKeys = [
   'physical_transport_diagnostics',
   'completion',
 ]
+const currentProductionFreshArtifactKeys = [
+  'production_cct',
+  'device_blocker_cct',
+]
 const requiredFreshArtifacts = [
   ...requiredFreshArtifactKeys.map((key) => ({ key, ...artifacts[key] })).filter((item) => item.path),
   ...browserScreenshots.map((item, index) => ({ key: `screenshot_${index + 1}`, ...item })),
 ]
+const currentProductionFreshArtifacts = [
+  ...currentProductionFreshArtifactKeys.map((key) => ({ key, ...artifacts[key] })).filter((item) => item.path),
+  ...productionCctScreenshots.map((item, index) => ({ key: `production_cct_screenshot_${index + 1}`, ...item })),
+]
 const staleArtifacts = requiredFreshArtifacts
+  .filter((artifact) => artifact.fresh !== true)
+  .map((artifact) => ({
+    key: artifact.key,
+    path: artifact.path,
+    exists: artifact.exists === true,
+    age_seconds: artifact.age_seconds ?? null,
+  }))
+const staleCurrentProductionArtifacts = currentProductionFreshArtifacts
   .filter((artifact) => artifact.fresh !== true)
   .map((artifact) => ({
     key: artifact.key,
@@ -194,6 +210,10 @@ const staleArtifacts = requiredFreshArtifacts
 const oldestRequiredArtifactAgeSeconds = Math.max(
   0,
   ...requiredFreshArtifacts.map((item) => Number(item.age_seconds || 0)),
+)
+const oldestCurrentProductionArtifactAgeSeconds = Math.max(
+  0,
+  ...currentProductionFreshArtifacts.map((item) => Number(item.age_seconds || 0)),
 )
 
 const index = {
@@ -352,6 +372,11 @@ const index = {
     messages_db_sample_outbound_rows: messagesDb?.sample_outbound_rows ?? null,
     scheduled_dry_run_provenance_verified: scheduledRequirement?.detail?.dry_run_provenance_ok === true,
     evidence_max_age_seconds: maxArtifactAgeSeconds,
+    current_production_artifacts_fresh: staleCurrentProductionArtifacts.length === 0,
+    current_production_stale_artifact_count: staleCurrentProductionArtifacts.length,
+    oldest_current_production_artifact_age_seconds: oldestCurrentProductionArtifactAgeSeconds,
+    historical_artifacts_fresh: staleArtifacts.length === 0,
+    historical_stale_artifact_count: staleArtifacts.length,
     evidence_artifacts_fresh: staleArtifacts.length === 0,
     stale_artifact_count: staleArtifacts.length,
     oldest_required_artifact_age_seconds: oldestRequiredArtifactAgeSeconds,
@@ -401,6 +426,12 @@ const index = {
     } : null,
     artifact_freshness: {
       max_age_seconds: maxArtifactAgeSeconds,
+      current_production_fresh: staleCurrentProductionArtifacts.length === 0,
+      current_production_oldest_age_seconds: oldestCurrentProductionArtifactAgeSeconds,
+      current_production_stale_artifacts: staleCurrentProductionArtifacts,
+      historical_fresh: staleArtifacts.length === 0,
+      historical_oldest_age_seconds: oldestRequiredArtifactAgeSeconds,
+      historical_stale_artifacts: staleArtifacts,
       all_required_fresh: staleArtifacts.length === 0,
       oldest_required_age_seconds: oldestRequiredArtifactAgeSeconds,
       stale_artifacts: staleArtifacts,
@@ -659,7 +690,7 @@ if (index.evidence_highlights.physical_device_audit) {
 if (index.evidence_highlights.scheduled_live_preflight_gate) {
   console.log(`Scheduled live gate: blocked_by_preflight=${index.evidence_highlights.scheduled_live_preflight_gate.ok} no_send=${index.evidence_highlights.scheduled_live_preflight_gate.no_send_performed} missing=${index.evidence_highlights.scheduled_live_preflight_gate.missing.length}`)
 }
-console.log(`Artifact freshness: fresh=${index.summary.evidence_artifacts_fresh} max_age=${index.summary.evidence_max_age_seconds}s stale=${index.summary.stale_artifact_count} oldest=${index.summary.oldest_required_artifact_age_seconds}s`)
+console.log(`Artifact freshness: current_production=${index.summary.current_production_artifacts_fresh} historical=${index.summary.historical_artifacts_fresh} max_age=${index.summary.evidence_max_age_seconds}s current_stale=${index.summary.current_production_stale_artifact_count} historical_stale=${index.summary.historical_stale_artifact_count} current_oldest=${index.summary.oldest_current_production_artifact_age_seconds}s historical_oldest=${index.summary.oldest_required_artifact_age_seconds}s`)
 if (index.evidence_highlights.live_preflight) {
   console.log(`Live preflight: ready=${index.evidence_highlights.live_preflight.ok_to_run_live_harness} no_send=${index.evidence_highlights.live_preflight.no_send_performed} missing=${index.evidence_highlights.live_preflight.missing.length}`)
 }
