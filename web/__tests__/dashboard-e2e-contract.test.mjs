@@ -1063,6 +1063,10 @@ test('browser visual proof records durable mobile viewport metrics', () => {
 })
 
 test('production CCT proof covers dashboard health, roster controls, and current transport blockers', () => {
+  assert.match(files.productionCctScript, /operatorPassword\(\)/)
+  assert.match(files.productionCctScript, /find-generic-password/)
+  assert.match(files.productionCctScript, /ensureAuthenticated/)
+  assert.match(files.productionCctScript, /source: 'operator_login'/)
   assert.match(files.productionCctScript, /dashboard health card renders live service status/)
   assert.match(files.productionCctScript, /roster search and filter controls render/)
   assert.match(files.productionCctScript, /settings report controls render/)

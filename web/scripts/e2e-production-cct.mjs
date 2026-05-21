@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { mkdirSync, writeFileSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
 import path from 'node:path'
 
 const baseUrl = (process.env.CLAPCHEEKS_PRODUCTION_CCT_BASE_URL || 'https://clapcheeks.tech').replace(/\/$/, '')
@@ -10,6 +11,8 @@ const latestReportPath = process.env.CLAPCHEEKS_PRODUCTION_CCT_LATEST || '/tmp/c
 const ts = new Date().toISOString().replace(/[:.]/g, '-')
 const outDir = path.join(outputRoot, `clapcheeks-prod-current-cct-${ts}`)
 const reportPath = path.join(outDir, 'report.json')
+const operatorEmail = process.env.CLAPCHEEKS_OPERATOR_EMAIL || 'julianb233@gmail.com'
+const operatorKeychainService = process.env.CLAPCHEEKS_OPERATOR_KEYCHAIN_SERVICE || 'clapcheeks.tech operator login'
 
 const routes = [
   '/dashboard',
@@ -384,6 +387,88 @@ async function pageProof(client, route) {
   return data
 }
 
+function operatorPassword() {
+  if (process.env.CLAPCHEEKS_OPERATOR_PASSWORD) return process.env.CLAPCHEEKS_OPERATOR_PASSWORD
+  try {
+    return execFileSync('/usr/bin/security', ['find-generic-password', '-w', '-s', operatorKeychainService], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim()
+  } catch {
+    return ''
+  }
+}
+
+async function ensureAuthenticated(client) {
+  await client.send('Page.navigate', { url: routeUrl('/dashboard') })
+  await new Promise((resolve) => setTimeout(resolve, 1500))
+  const current = await evaluate(
+    client,
+    `(() => ({
+      url: location.href,
+      text: document.body?.innerText || '',
+      emailInputs: document.querySelectorAll('input[type="email"], input[name="email"]').length,
+      passwordInputs: document.querySelectorAll('input[type="password"], input[name="password"]').length,
+    }))()`,
+  )
+  if (!current.url.includes('/login') && !/sign in/i.test(current.text)) {
+    return { authenticated: true, source: 'existing_session', url: current.url }
+  }
+
+  const password = operatorPassword()
+  if (!password) {
+    return {
+      authenticated: false,
+      source: 'missing_operator_password',
+      url: current.url,
+      error: `Missing CLAPCHEEKS_OPERATOR_PASSWORD or Keychain service "${operatorKeychainService}"`,
+    }
+  }
+
+  await client.send('Page.navigate', { url: routeUrl('/login') })
+  await new Promise((resolve) => setTimeout(resolve, 1000))
+  await evaluate(
+    client,
+    `(() => {
+      const setNativeValue = (element, value) => {
+        const prototype = Object.getPrototypeOf(element)
+        const descriptor = Object.getOwnPropertyDescriptor(prototype, 'value')
+        if (descriptor?.set) descriptor.set.call(element, value)
+        else element.value = value
+        element.dispatchEvent(new Event('input', { bubbles: true }))
+        element.dispatchEvent(new Event('change', { bubbles: true }))
+      }
+      setNativeValue(document.querySelector('input[name="email"], input[type="email"]'), ${JSON.stringify(operatorEmail)})
+      setNativeValue(document.querySelector('input[name="password"], input[type="password"]'), ${JSON.stringify(password)})
+      document.querySelector('button[type="submit"]')?.click()
+      return true
+    })()`,
+  )
+
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 500))
+    const status = await evaluate(
+      client,
+      `(() => ({
+        url: location.href,
+        text: document.body?.innerText || '',
+      }))()`,
+    )
+    if (status.url.includes('/dashboard') || status.text.includes('ROSTER COMMAND CENTER')) {
+      return { authenticated: true, source: 'operator_login', url: status.url }
+    }
+    if (/invalid login credentials|operator auth is not configured/i.test(status.text)) {
+      return { authenticated: false, source: 'operator_login', url: status.url, error: status.text.slice(0, 500) }
+    }
+  }
+
+  const finalStatus = await evaluate(
+    client,
+    `(() => ({ url: location.href, text: (document.body?.innerText || '').slice(0, 500) }))()`,
+  )
+  return { authenticated: false, source: 'operator_login_timeout', ...finalStatus }
+}
+
 async function runSafeFixture(client) {
   const fixtureStamp = Date.now().toString().slice(-6)
   const fixture = await api(client, 'POST', '/api/matches/offline', {
@@ -483,6 +568,8 @@ async function main() {
       deviceScaleFactor: 1,
       mobile: false,
     })
+
+    const auth = await ensureAuthenticated(client)
 
     const pages = []
     for (const route of routes) {
@@ -677,6 +764,7 @@ async function main() {
       outDir,
       baseUrl,
       chromeDebugUrl,
+      auth,
       pages,
       screenshots,
       linkChecks,
@@ -701,6 +789,7 @@ async function main() {
     const summary = {
       reportPath,
       latestReportPath,
+      auth,
       passed: report.passed,
       total: report.total,
       failed: checks.filter((check) => !check.pass),
@@ -709,7 +798,7 @@ async function main() {
       screenshots,
     }
     console.log(JSON.stringify(summary, null, 2))
-    if (report.passed !== report.total) process.exitCode = 1
+    if (!auth.authenticated || report.passed !== report.total) process.exitCode = 1
   } finally {
     client.close()
   }
