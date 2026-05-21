@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from 'react'
 import Link from 'next/link'
 
 const POLL_INTERVAL = 30_000 // 30 seconds
-const ONLINE_THRESHOLD = 2 * 60 * 1000 // 2 minutes
+const ONLINE_THRESHOLD = 5 * 60 * 1000 // match /api/agent/status runtime heartbeat freshness
 
 interface DeviceStatus {
   last_seen_at: string

@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/convex/server'
 import { convexQuery } from '@/lib/convex/http'
 
-const ONLINE_THRESHOLD_MS = 2 * 60 * 1000
+const ONLINE_THRESHOLD_MS = 5 * 60 * 1000
 
 function msToIso(value: unknown) {
   if (typeof value === 'number' && Number.isFinite(value)) return new Date(value).toISOString()

@@ -669,6 +669,8 @@ function FinalCTA() {
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
+const RUNTIME_HEARTBEAT_FRESH_MS = 5 * 60 * 1000
+
 type RuntimeStatus = {
   tokenHealth: TokenHealthSummary | null
   heartbeat: Record<string, unknown> | null
@@ -708,9 +710,12 @@ function RuntimeStatusPanel({ status }: { status: RuntimeStatus }) {
       : typeof lastHeartbeat === 'string'
         ? lastHeartbeat
         : null
+  const heartbeatFresh = Boolean(
+    lastHeartbeatIso && Date.now() - new Date(lastHeartbeatIso).getTime() < RUNTIME_HEARTBEAT_FRESH_MS,
+  )
   const missingTokens = status.tokenHealth?.missing_required ?? null
   const requiredPlatforms = status.tokenHealth?.platforms.filter((p) => p.required) ?? []
-  const blocked = Boolean(status.error || missingTokens || !lastHeartbeatIso)
+  const blocked = Boolean(status.error || missingTokens || !heartbeatFresh)
   const sendBirdCapture = status.tokenHealth?.sendbird.capture_status
   const sendBirdCaptureDate = sendBirdCapture?.snapshot_mtime_ms
     ? new Date(sendBirdCapture.snapshot_mtime_ms).toLocaleString()
@@ -740,9 +745,9 @@ function RuntimeStatusPanel({ status }: { status: RuntimeStatus }) {
         <div className="mt-5 grid gap-3 md:grid-cols-3">
           <StatusTile
             label="Convex heartbeat"
-            value={lastHeartbeatIso ? 'online' : 'missing'}
+            value={heartbeatFresh ? 'online' : lastHeartbeatIso ? 'stale' : 'missing'}
             detail={lastHeartbeatIso ? new Date(lastHeartbeatIso).toLocaleString() : 'No latest telemetry row'}
-            ok={Boolean(lastHeartbeatIso)}
+            ok={heartbeatFresh}
           />
           <StatusTile
             label="Required app tokens"

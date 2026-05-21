@@ -10,6 +10,9 @@ const files = {
   scheduledPage: readFileSync('app/(main)/scheduled/page.tsx', 'utf8'),
   intelligencePage: readFileSync('app/(main)/intelligence/page.tsx', 'utf8'),
   dashboardPage: readFileSync('app/(main)/dashboard/page.tsx', 'utf8'),
+  agentStatusRoute: readFileSync('app/api/agent/status/route.ts', 'utf8'),
+  agentStatusBadge: readFileSync('app/(main)/dashboard/components/agent-status-badge.tsx', 'utf8'),
+  devicePage: readFileSync('app/(main)/device/page.tsx', 'utf8'),
   briefingCard: readFileSync('app/(main)/dashboard/components/briefing-card.tsx', 'utf8'),
   appSidebar: readFileSync('components/layout/app-sidebar.tsx', 'utf8'),
   rosterCard: readFileSync('components/roster/RosterCard.tsx', 'utf8'),
@@ -152,6 +155,15 @@ test('dashboard briefing uses Convex-backed conversations for stale-convo count'
   assert.match(files.briefingCard, /getInboundWatcherHealth/)
   assert.match(files.briefingCard, /Runtime Blockers/)
   assert.match(files.briefingCard, /Inbound watcher healthy/)
+})
+
+test('dashboard and device use the same fresh heartbeat window', () => {
+  assert.match(files.agentStatusRoute, /ONLINE_THRESHOLD_MS = 5 \* 60 \* 1000/)
+  assert.match(files.agentStatusBadge, /ONLINE_THRESHOLD = 5 \* 60 \* 1000/)
+  assert.match(files.devicePage, /RUNTIME_HEARTBEAT_FRESH_MS = 5 \* 60 \* 1000/)
+  assert.match(files.devicePage, /heartbeatFresh/)
+  assert.match(files.devicePage, /value=\{heartbeatFresh \? 'online' : lastHeartbeatIso \? 'stale' : 'missing'\}/)
+  assert.match(files.devicePage, /ok=\{heartbeatFresh\}/)
 })
 
 test('roster thumbnails load eagerly inside scrollable kanban columns', () => {
