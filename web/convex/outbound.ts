@@ -303,6 +303,18 @@ export const sendDue = internalMutation({
 
     const enqueued: string[] = [];
     for (const row of due) {
+      const platform = (row.platform || "imessage").toLowerCase();
+      if (platform !== "imessage" && platform !== "sms") {
+        // Do not route app-platform scheduled sends through iMessage. Hinge/Tinder
+        // need platform-specific approval payloads (SendBird channel / Tinder match id)
+        // so fail closed rather than sending to a phone fallback.
+        await ctx.db.patch(row._id, {
+          status: "failed",
+          rejection_reason: `${platform} scheduled send requires platform-specific approval routing`,
+          updated_at: now,
+        });
+        continue;
+      }
       if (!row.phone) {
         // No delivery handle — skip rather than silently drop.
         await ctx.db.patch(row._id, {

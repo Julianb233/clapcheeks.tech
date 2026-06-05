@@ -362,6 +362,112 @@ export const countPendingApprovalsForUser = query({
   },
 });
 
+export const getApprovalById = query({
+  args: {
+    id: v.id("approval_queue"),
+    user_id: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const row = await ctx.db.get(args.id);
+    if (!row) return null;
+    if (row.user_id !== args.user_id) throw new Error("Forbidden");
+    return row;
+  },
+});
+
+function _stringField(data: Record<string, unknown>, ...keys: string[]): string | undefined {
+  for (const key of keys) {
+    const value = data[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return undefined;
+}
+
+function _platformForApproval(row: { platform?: string }, proposedData: Record<string, unknown>): string {
+  const raw =
+    (typeof row.platform === "string" && row.platform) ||
+    _stringField(proposedData, "platform", "source_platform") ||
+    "imessage";
+  return raw.toLowerCase();
+}
+
+function _buildApprovedSendJob(
+  row: {
+    _id: unknown;
+    match_id?: string;
+    match_name?: string;
+    platform?: string;
+    proposed_data?: unknown;
+  },
+  body: string | undefined,
+  approvalId: unknown,
+): { job_type: string; payload: Record<string, unknown> } {
+  if (!body || !body.trim()) {
+    throw new Error("approval_missing_body");
+  }
+  const proposedData: Record<string, unknown> =
+    typeof row.proposed_data === "object" && row.proposed_data !== null
+      ? (row.proposed_data as Record<string, unknown>)
+      : {};
+  const platform = _platformForApproval(row, proposedData);
+  const basePayload: Record<string, unknown> = {
+    match_id: row.match_id,
+    match_name: row.match_name,
+    person_id: proposedData.person_id,
+    conversation_id: proposedData.conversation_id,
+    body: body.trim(),
+    source: "approved_draft",
+    approval_id: approvalId,
+  };
+
+  if (platform === "hinge") {
+    const sendbirdChannelUrl = _stringField(
+      proposedData,
+      "sendbird_channel_url",
+      "sendbirdChannelUrl",
+      "channel_url",
+      "channelUrl",
+    );
+    if (!sendbirdChannelUrl) {
+      throw new Error("approval_missing_hinge_sendbird_channel_url");
+    }
+    return {
+      job_type: "send_hinge",
+      payload: {
+        ...basePayload,
+        sendbird_channel_url: sendbirdChannelUrl,
+        external_match_id: _stringField(proposedData, "external_match_id", "subject_id") ?? row.match_id,
+      },
+    };
+  }
+
+  if (platform === "tinder") {
+    const matchId =
+      _stringField(proposedData, "match_id", "external_match_id", "tinder_match_id") ??
+      row.match_id;
+    if (!matchId) {
+      throw new Error("approval_missing_tinder_match_id");
+    }
+    return {
+      job_type: "send_tinder",
+      payload: {
+        ...basePayload,
+        match_id: matchId,
+        wire_format: _stringField(proposedData, "wire_format") ?? "json",
+      },
+    };
+  }
+
+  return {
+    job_type: "send_imessage",
+    payload: {
+      ...basePayload,
+      handle: _stringField(proposedData, "handle", "phone", "imessage_handle"),
+      line: proposedData.line,
+    },
+  };
+}
+
 export const decideApproval = mutation({
   args: {
     id: v.id("approval_queue"),
@@ -385,32 +491,27 @@ export const decideApproval = mutation({
     ) {
       updates.proposed_text = args.edited_text.trim();
     }
+
+    // Build and validate the platform-specific send job before flipping status.
+    // This keeps invalid Hinge/Tinder approvals from becoming approved rows that
+    // later fail as accidental iMessage jobs.
+    const approvedJob = args.status === "approved"
+      ? _buildApprovedSendJob(
+          row,
+          (updates.proposed_text as string | undefined) ?? row.proposed_text ?? undefined,
+          args.id,
+        )
+      : null;
+
     await ctx.db.patch(args.id, updates);
 
-    // AI-9599: when approved, enqueue an agent_jobs row so the Mac runner
-    // actually fires the iMessage. Without this the approval was a dead-end
-    // (status flipped but nothing else happened).
-    if (args.status === "approved") {
-      const body =
-        (updates.proposed_text as string | undefined) ??
-        row.proposed_text ??
-        undefined;
-      // proposed_data may carry person_id / handle set by the autonomy engine.
-      const proposedData: Record<string, unknown> =
-        typeof row.proposed_data === "object" && row.proposed_data !== null
-          ? (row.proposed_data as Record<string, unknown>)
-          : {};
+    // AI-9599/CC Tech 2026-06-03: when approved, enqueue the correct platform
+    // job so Hinge/Tinder approvals do not accidentally route through iMessage.
+    if (approvedJob) {
       await ctx.db.insert("agent_jobs", {
         user_id: args.user_id,
-        job_type: "send_imessage",
-        payload: {
-          match_id: row.match_id,
-          person_id: proposedData.person_id,
-          handle: proposedData.handle,
-          body,
-          source: "approved_draft",
-          approval_id: args.id,
-        },
+        job_type: approvedJob.job_type,
+        payload: approvedJob.payload,
         status: "queued",
         priority: 1,
         attempts: 0,

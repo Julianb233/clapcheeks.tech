@@ -16,8 +16,10 @@ export const listForUser = query({
         v.literal("ended"),
       ),
     ),
+    limit: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
+    const limit = Math.min(Math.max(Math.floor(args.limit ?? 200), 1), 200);
     if (args.status) {
       return await ctx.db
         .query("conversations")
@@ -25,19 +27,65 @@ export const listForUser = query({
           q.eq("user_id", args.user_id).eq("status", args.status!),
         )
         .order("desc")
-        .take(200);
+        .take(limit);
     }
     return await ctx.db
       .query("conversations")
       .withIndex("by_last_message", (q) => q.eq("user_id", args.user_id))
       .order("desc")
-      .take(200);
+      .take(limit);
   },
 });
 
 // AI-9545 — list a person's conversations across all platforms.
 // Used by clapcheeks-local cadence_runner.py to evaluate cadence per
 // person regardless of which channel the thread is on.
+// Read-only candidate list for stale-thread re-engagement lanes. This returns
+// conversations that are safe for a stager to inspect; the actual sender still
+// must perform live platform/chat.db freshness verification before any outbound.
+export const listStaleCandidates = query({
+  args: {
+    user_id: v.string(),
+    min_idle_hours: v.optional(v.number()),
+    platform: v.optional(
+      v.union(
+        v.literal("hinge"),
+        v.literal("tinder"),
+        v.literal("bumble"),
+        v.literal("imessage"),
+        v.literal("instagram"),
+        v.literal("other"),
+      ),
+    ),
+    limit: v.optional(v.number()),
+    now_ms: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const now = args.now_ms ?? Date.now();
+    const minIdleMs = (args.min_idle_hours ?? 24) * 60 * 60 * 1000;
+    const cutoff = now - minIdleMs;
+    const limit = Math.min(Math.max(Math.floor(args.limit ?? 25), 1), 100);
+    const rows = await ctx.db
+      .query("conversations")
+      .withIndex("by_last_message", (q) => q.eq("user_id", args.user_id))
+      .order("asc")
+      .take(500);
+
+    return rows
+      .filter((row) => row.status === "active")
+      .filter((row) => !args.platform || row.platform === args.platform)
+      .filter((row) => {
+        const activityAt = row.last_message_at ?? row.updated_at ?? row.created_at;
+        if (activityAt > cutoff) return false;
+        // Prefer threads where she was the latest sender, or where no outbound
+        // is known. This avoids re-pinging rows where Julian already followed up.
+        if (!row.last_inbound_at) return false;
+        return !row.last_outbound_at || row.last_inbound_at > row.last_outbound_at;
+      })
+      .slice(0, limit);
+  },
+});
+
 export const listForPerson = query({
   args: { person_id: v.id("people") },
   handler: async (ctx, args) => {
