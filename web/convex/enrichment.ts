@@ -1321,7 +1321,7 @@ export const _hasRecentPatternInterrupt = internalQuery({
   },
   handler: async (ctx, args) => {
     // Scan queued + running + completed agent_jobs for this person.
-    const statuses = ["queued", "running", "done"] as const;
+    const statuses = ["queued", "running", "completed"] as const;
     for (const status of statuses) {
       const rows = await ctx.db
         .query("agent_jobs")

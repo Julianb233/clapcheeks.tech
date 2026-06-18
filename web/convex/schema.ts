@@ -561,6 +561,7 @@ export default defineSchema({
     // ONLY on dedicated test rows for E2E send-pipeline verification. Real
     // prospects must never have this set. Operator-set, default unset.
     dev_mode_bypass_overpursue: v.optional(v.boolean()),
+    active_hours_computed: v.optional(v.array(v.float64())),
 
     created_at: v.number(),
     updated_at: v.number(),
@@ -860,33 +861,6 @@ export default defineSchema({
     // touch was scheduled (or "skipped" sentinel "-1") so the 6h sweep cron can
     // detect un-processed soft_no touches without re-querying scheduled_touches.
     recovery_scheduled_at: v.optional(v.number()),
-    // AI-10022 — closed-loop feedback learning.
-    // draft_original is the immutable first AI draft (preserved across edits).
-    // draft_insights is the "why this draft?" blob the daemon attaches when it drafts.
-    // operator_feedback is the freeform critique Julian gave before regenerating.
-    // edit_diff_chars is |edited - original| char count, computed at commitPreview.
-    draft_original: v.optional(v.string()),
-    draft_insights: v.optional(v.object({
-      time_gap_hours: v.optional(v.number()),
-      last_inbound_at: v.optional(v.number()),
-      last_outbound_at: v.optional(v.number()),
-      rag_citations: v.optional(v.array(v.object({
-        text: v.string(),
-        score: v.number(),
-      }))),
-      callback_topics: v.optional(v.array(v.string())),
-      cadence_rule_applied: v.optional(v.string()),
-      hard_rules_checked: v.optional(v.object({
-        callback: v.boolean(),
-        emotion_match: v.boolean(),
-        specific_question: v.boolean(),
-        no_pivot_to_julian: v.boolean(),
-      })),
-      template_reasoning: v.optional(v.string()),
-      voice_corpus_used: v.optional(v.number()),
-    })),
-    operator_feedback: v.optional(v.string()),
-    edit_diff_chars: v.optional(v.number()),
     created_at: v.number(),
     updated_at: v.number(),
   })
