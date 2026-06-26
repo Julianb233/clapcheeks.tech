@@ -22,9 +22,9 @@ export async function GET() {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  // Fetch last 30 days of analytics
+  // AI-9592 F9 — 7-day window so tips reflect recent, actionable data (was 30).
   const since = new Date()
-  since.setDate(since.getDate() - 30)
+  since.setDate(since.getDate() - 7)
   const sinceStr = since.toISOString().split('T')[0]
 
   const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL || process.env.CONVEX_URL
@@ -110,10 +110,14 @@ export async function GET() {
   const positives = getPositiveInsights(metrics)
 
   // Get cached coaching tips or generate new ones
-  let coaching = await getLatestCoaching(supabase, user.id)
+  // AI-9592 F9 — coaching sessions + telemetry live under the Convex
+  // fleet-julian namespace, not the Supabase auth UUID. Passing user.id here
+  // made generateCoaching query telemetry with the wrong key -> empty rows
+  // -> null tips. Use fleetUserId so tips actually reflect real data.
+  let coaching = await getLatestCoaching(supabase, fleetUserId)
   if (!coaching) {
     try {
-      coaching = await generateCoaching(supabase, user.id)
+      coaching = await generateCoaching(supabase, fleetUserId)
     } catch (error) {
       console.error('Failed to generate coaching:', error)
     }

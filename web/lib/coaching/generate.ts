@@ -79,9 +79,9 @@ export async function generateCoaching(client: unknown, userId: string) {
   const existing = await getLatestCoaching(client, userId)
   if (existing) return existing
 
-  // Fetch last 30 days of analytics from Convex
+  // AI-9592 F9 — 7-day window so tips reflect recent, actionable data (was 30).
   const since = new Date()
-  since.setDate(since.getDate() - 30)
+  since.setDate(since.getDate() - 7)
   const sinceStr = since.toISOString().split('T')[0]
 
   const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL || process.env.CONVEX_URL
@@ -192,7 +192,7 @@ Return ONLY the JSON array, no other text.`,
     messages: [
       {
         role: 'user',
-        content: `Here are my dating stats for the past 30 days:
+        content: `Here are my dating stats for the past 7 days:
 
 Platform breakdown:
 ${platformStats}
