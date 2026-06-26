@@ -15,6 +15,7 @@ import IMessageTestPanel from './components/imessage-test-panel'
 import BriefingCard from './components/briefing-card'
 import SystemHealthCheck from './components/system-health-check'
 import { getLatestCoaching } from '@/lib/coaching/generate'
+import { getFleetUserId } from '@/lib/fleet-user'
 import { TrendCard } from './components/trend-card'
 import { DashboardCharts } from './components/dashboard-charts'
 import { calculateRizzScore, getRizzTrend } from '@/lib/rizz'
@@ -199,7 +200,8 @@ export default async function Dashboard() {
   ])
 
   // Fetch coaching session
-  const coachingSession = await getLatestCoaching(convex, user.id)
+  // AI-9592 F9 — coaching sessions live under the Convex fleet-julian namespace.
+  const coachingSession = await getLatestCoaching(convex, getFleetUserId())
 
   const isSubscribed = subRes.data?.status === 'active'
   const userPlan = (profileRes.data?.subscription_tier || 'base') as 'base' | 'elite'

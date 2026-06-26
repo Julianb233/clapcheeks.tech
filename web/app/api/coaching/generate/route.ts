@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { generateCoaching } from '@/lib/coaching/generate'
+import { getFleetUserId } from '@/lib/fleet-user'
 import { checkLimit, incrementUsage } from '@/lib/usage'
 
 export async function POST() {
@@ -32,7 +33,10 @@ export async function POST() {
   }
 
   try {
-    const session = await generateCoaching(supabase, user.id)
+    // AI-9592 F9 — coaching telemetry lives under the Convex fleet-julian
+    // namespace, not the Supabase auth UUID. Passing user.id returned empty
+    // rows -> null. Use fleetUserId so tips reflect real data.
+    const session = await generateCoaching(supabase, getFleetUserId())
 
     if (!session) {
       return NextResponse.json(
