@@ -155,17 +155,29 @@ export default async function MatchDetailPage({
     channel: m.channel,
   }))
 
-  // AI-9572 — Resolve Convex conversation_id for the reactive thread
+  // AI-9572 — Resolve Convex conversation_id for the reactive thread.
+  // AI-9584 F1 — iMessage matches frequently have external_id = null and only
+  // her_phone set. getByMatchId stores external_match_id as the RAW E.164 phone
+  // (verified live: "+1619..." resolves, "imessage:+1619..." does not), so fall
+  // back to herPhone / imessageHandle. Without this, convexConversationId stays
+  // null, the reactive useQuery hits 'skip', and inbound bubbles require a page
+  // refresh instead of updating <=2s.
   let convexConversationId: string | null = null
-  if (externalId) {
+  const convexMatchKeys = [externalId, herPhone, imessageHandle].filter(
+    (k): k is string => typeof k === 'string' && k.length > 0,
+  )
+  for (const key of convexMatchKeys) {
     try {
       const conv = await convex.query(api.conversations.getByMatchId, {
         user_id: getFleetUserId(),
-        external_match_id: externalId,
+        external_match_id: key,
       })
-      if (conv) convexConversationId = conv._id
+      if (conv) {
+        convexConversationId = conv._id
+        break
+      }
     } catch {
-      // non-fatal
+      // non-fatal — try the next candidate key
     }
   }
 
