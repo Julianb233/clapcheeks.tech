@@ -1,4 +1,5 @@
 import withPWA from "@ducanh2912/next-pwa"
+import { withSentryConfig } from "@sentry/nextjs"
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
@@ -37,7 +38,7 @@ const nextConfig = {
 // AI-9500 W7: Enable PWA via @ducanh2912/next-pwa so the service worker is
 // generated on every build with fresh content hashes. Offline-first for
 // navigation; network-first for everything else. Defensive — disables in dev.
-export default withPWA({
+const pwaConfig = withPWA({
   dest: "public",
   disable: process.env.NODE_ENV === "development",
   register: true,
@@ -82,3 +83,25 @@ export default withPWA({
     ],
   },
 })(nextConfig)
+
+// AI-8333 Phase 34 (Closed Alpha): wrap the final config with Sentry so
+// production builds upload source maps (readable stack traces during the
+// alpha) and route Sentry events through a same-origin tunnel that ad
+// blockers won't drop. Build-time upload is a no-op unless SENTRY_AUTH_TOKEN
+// + org/project are present in the CI/Vercel env, so local/dev builds are
+// unaffected.
+export default withSentryConfig(pwaConfig, {
+  org: process.env.SENTRY_ORG,
+  project: process.env.SENTRY_PROJECT,
+  authToken: process.env.SENTRY_AUTH_TOKEN,
+  silent: !process.env.CI,
+  // Serve Sentry requests through /monitoring to dodge ad blockers.
+  tunnelRoute: "/monitoring",
+  // Tree-shake Sentry logger statements out of the client bundle.
+  disableLogger: true,
+  // Only attempt source-map upload when we actually have an auth token.
+  sourcemaps: {
+    disable: !process.env.SENTRY_AUTH_TOKEN,
+  },
+  widenClientFileUpload: true,
+})
