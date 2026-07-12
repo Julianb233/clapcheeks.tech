@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
+import { PRICING } from '@/lib/data/pricing'
 
 interface Invoice {
   id: string
@@ -121,7 +122,7 @@ export default function BillingClient({ plan, subscriptionStatus, hasStripeCusto
   // AI-8926: super_admin / comp'd users are marked elite/active in `profiles`
   // without ever creating a Stripe customer.  Honor that — only show the
   // upsell for genuinely inactive accounts.
-  const isProfileActive = subscriptionStatus === 'active' && (plan === 'elite' || plan === 'base')
+  const isProfileActive = subscriptionStatus === 'active' && ['starter', 'pro', 'elite', 'base'].includes(plan)
   if (!isProfileActive && (!hasStripeCustomer || subscriptionStatus === 'inactive')) {
     return (
       <div className="space-y-6">
@@ -137,18 +138,19 @@ export default function BillingClient({ plan, subscriptionStatus, hasStripeCusto
             </div>
           )}
           <div className="flex flex-col sm:flex-row items-center justify-center gap-3 sm:gap-4">
-            <button
-              onClick={() => handleCheckout('base')}
-              className="bg-white/10 hover:bg-white/15 text-white font-semibold px-6 py-2.5 rounded-xl transition-all text-sm w-full sm:w-auto"
-            >
-              Base — $97/mo
-            </button>
-            <button
-              onClick={() => handleCheckout('elite')}
-              className="bg-brand-600 hover:bg-brand-500 text-white font-semibold px-6 py-2.5 rounded-xl transition-all text-sm shadow-lg shadow-brand-900/40 w-full sm:w-auto"
-            >
-              Elite — $197/mo
-            </button>
+            {PRICING.map((p) => (
+              <button
+                key={p.plan}
+                onClick={() => handleCheckout(p.plan)}
+                className={`font-semibold px-6 py-2.5 rounded-xl transition-all text-sm w-full sm:w-auto cursor-pointer ${
+                  p.popular
+                    ? 'bg-brand-600 hover:bg-brand-500 text-white shadow-lg shadow-brand-900/40'
+                    : 'bg-white/10 hover:bg-white/15 text-white'
+                }`}
+              >
+                {p.name} — ${p.monthlyPrice}/mo
+              </button>
+            ))}
           </div>
         </div>
       </div>
@@ -168,8 +170,9 @@ export default function BillingClient({ plan, subscriptionStatus, hasStripeCusto
     )
   }
 
-  const planName = plan === 'elite' ? 'Elite' : 'Base'
-  const planPrice = plan === 'elite' ? '$197' : '$97'
+  const currentPlanObj = PRICING.find(p => p.plan === plan)
+  const planName = currentPlanObj ? currentPlanObj.name : plan === 'base' ? 'Base' : plan.charAt(0).toUpperCase() + plan.slice(1)
+  const planPrice = currentPlanObj ? `$${currentPlanObj.monthlyPrice}` : plan === 'base' ? '$97' : ''
 
   return (
     <div className="space-y-6">
@@ -226,7 +229,7 @@ export default function BillingClient({ plan, subscriptionStatus, hasStripeCusto
           </p>
         )}
         <div className="flex items-center gap-3 mt-4">
-          {plan === 'base' && (
+          {['starter', 'pro', 'base'].includes(plan) && (
             <button
               onClick={openPortal}
               className="bg-brand-600 hover:bg-brand-500 text-white text-sm font-semibold px-5 py-2 rounded-xl transition-all"

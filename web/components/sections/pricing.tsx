@@ -1,56 +1,6 @@
 import Link from 'next/link'
 import { Check } from 'lucide-react'
-
-const plans = [
-  {
-    name: 'Starter',
-    price: '$29',
-    period: '/mo',
-    tagline: 'Perfect for getting started',
-    features: [
-      '3 platforms: Tinder, Bumble, Hinge',
-      '100 swipes/day per platform',
-      'AI conversation replies',
-      'Basic analytics',
-    ],
-    cta: 'Get Started',
-    ctaHref: '/pricing',
-    popular: false,
-  },
-  {
-    name: 'Pro',
-    price: '$59',
-    period: '/mo',
-    tagline: 'For serious daters',
-    features: [
-      'Everything in Starter +',
-      '7 platforms (+ Grindr, Badoo, Happn, OKCupid)',
-      '150 swipes/day',
-      'Calendar date booking',
-      'NLP style personalization',
-      'Photo optimizer',
-    ],
-    cta: 'Get Started',
-    ctaHref: '/pricing',
-    popular: true,
-  },
-  {
-    name: 'Elite',
-    price: '$99',
-    period: '/mo',
-    tagline: 'The unfair advantage',
-    features: [
-      'Everything in Pro +',
-      'All 10 platforms',
-      '300 swipes/day',
-      'Re-engagement sequences',
-      'Priority support',
-    ],
-    cta: 'Get Started',
-    ctaHref: '/pricing',
-    popular: false,
-  },
-]
+import { PRICING } from '@/lib/data/pricing'
 
 export default function Pricing() {
   return (
@@ -85,7 +35,7 @@ export default function Pricing() {
 
         {/* Cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-5xl mx-auto">
-          {plans.map((plan) => (
+          {PRICING.map((plan) => (
             <div
               key={plan.name}
               className={`relative flex flex-col rounded-2xl p-6 transition-all duration-300 ${
@@ -113,8 +63,8 @@ export default function Pricing() {
                   {plan.name}
                 </h3>
                 <div className="flex items-baseline gap-1 mb-2">
-                  <span className="font-display text-5xl text-white leading-none">{plan.price}</span>
-                  <span className="font-body text-white/35 text-sm">{plan.period}</span>
+                  <span className="font-display text-5xl text-white leading-none">${plan.monthlyPrice}</span>
+                  <span className="font-body text-white/35 text-sm">/mo</span>
                 </div>
                 <p className="font-body text-xs text-white/35">{plan.tagline}</p>
               </div>
@@ -151,7 +101,7 @@ export default function Pricing() {
 
               {/* CTA */}
               <Link
-                href={plan.ctaHref}
+                href="/pricing"
                 className={`block text-center font-body font-bold text-sm py-3 rounded-xl transition-all duration-200 active:scale-[0.98] uppercase tracking-wider ${
                   plan.popular
                     ? 'bg-gradient-to-r from-[#C9A427] to-[#E8C547] hover:from-[#B89020] hover:to-[#D4B040] text-black shadow-lg shadow-[#C9A427]/30'
