@@ -240,6 +240,7 @@ export default defineSchema({
         v.literal("imessage"), v.literal("sms"), v.literal("hinge"),
         v.literal("tinder"), v.literal("bumble"), v.literal("instagram"),
         v.literal("telegram"), v.literal("email"), v.literal("whatsapp"),
+        v.literal("lid"),                           // AI-8850: Apple LID (macOS Sequoia+)
       ),
       value: v.string(),                            // E.164 phone, lowercase email, or platform user id
       verified: v.boolean(),
