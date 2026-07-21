@@ -13,6 +13,7 @@ import {
 
 const NOW = 1_800_000_000_000;
 const SECRET = "dating-secret-fixture";
+const ELECTED_RUNNER = "clapcheeks-primary-dating-v2-test";
 
 type MutationFunction = {
   _handler: (ctx: any, args: Record<string, unknown>) => Promise<any>;
@@ -38,7 +39,7 @@ function job(id: string, jobType: string, status = "queued") {
     priority: 0,
     attempts: status === "running" ? 2 : 0,
     max_attempts: 3,
-    locked_by: status === "running" ? "primary-runner" : undefined,
+    locked_by: status === "running" ? ELECTED_RUNNER : undefined,
     locked_until: status === "running" ? NOW + 60_000 : undefined,
     created_at: NOW - 10_000,
     updated_at: NOW - 5_000,
@@ -99,7 +100,7 @@ describe("agent job dating runner authorization", () => {
         const state = harness([job(`job-${jobType}`, jobType)]);
         await expect(invoke(claimByTypes, state.ctx, {
           user_id: "fleet-julian",
-          agent_instance_id: "stale-runner",
+          agent_instance_id: ELECTED_RUNNER,
           allowed_job_types: [jobType],
           ...(provided ? { dating_runner_secret: provided } : {}),
         })).rejects.toThrow("Dating runner authorization failed");
@@ -113,7 +114,7 @@ describe("agent job dating runner authorization", () => {
     const state = harness([job("dating-job", "send_hinge")]);
     await expect(invoke(claimByTypes, state.ctx, {
       user_id: "fleet-julian",
-      agent_instance_id: "primary-runner",
+      agent_instance_id: ELECTED_RUNNER,
       allowed_job_types: ["send_hinge"],
       dating_runner_secret: SECRET,
     })).rejects.toThrow("Dating runner authorization failed");
@@ -124,7 +125,7 @@ describe("agent job dating runner authorization", () => {
     const state = harness([job("dating-job", "send_tinder")]);
     const result = await invoke(claimByTypes, state.ctx, {
       user_id: "fleet-julian",
-      agent_instance_id: "primary-runner",
+      agent_instance_id: ELECTED_RUNNER,
       allowed_job_types: ["send_tinder"],
       dating_runner_secret: SECRET,
       lock_seconds: 60,
@@ -132,9 +133,20 @@ describe("agent job dating runner authorization", () => {
     expect(result).toMatchObject({
       _id: "dating-job",
       status: "running",
-      locked_by: "primary-runner",
+      locked_by: ELECTED_RUNNER,
       attempts: 1,
     });
+  });
+
+  test("the capability cannot authorize a non-elected dating runner", async () => {
+    const state = harness([job("dating-job", "send_tinder")]);
+    await expect(invoke(claimByTypes, state.ctx, {
+      user_id: "fleet-julian",
+      agent_instance_id: "macbook16-dating-stale",
+      allowed_job_types: ["send_tinder"],
+      dating_runner_secret: SECRET,
+    })).rejects.toThrow("Dating runner authorization failed");
+    expect(state.patch).not.toHaveBeenCalled();
   });
 
   test("a mixed protected request rejects instead of falling through", async () => {
@@ -185,7 +197,7 @@ describe("agent job dating runner authorization", () => {
   });
 
   test.each([enqueue, enqueueAt])(
-    "protected enqueue endpoint %s requires the capability",
+    "protected enqueue endpoint %s requires the full runner identity",
     async (fn) => {
       const state = harness([]);
       const args = {
@@ -202,10 +214,92 @@ describe("agent job dating runner authorization", () => {
     },
   );
 
+  test.each([enqueue, enqueueAt])(
+    "protected enqueue endpoint %s rejects a capable non-elected runner",
+    async (fn) => {
+      const state = harness([]);
+      const args = {
+        user_id: "fleet-julian",
+        job_type: "send_hinge",
+        payload: {},
+        dating_runner_id: "macbook16-dating-stale",
+        dating_runner_secret: SECRET,
+        ...(fn === enqueueAt ? { run_at: NOW + 60_000 } : {}),
+      };
+      await expect(invoke(fn, state.ctx, args)).rejects.toThrow(
+        "Dating runner authorization failed",
+      );
+      expect(state.insert).not.toHaveBeenCalled();
+      expect(state.runAt).not.toHaveBeenCalled();
+    },
+  );
+
+  test.each([enqueue, enqueueAt])(
+    "protected enqueue endpoint %s rejects an elected runner without the capability",
+    async (fn) => {
+      const state = harness([]);
+      const args = {
+        user_id: "fleet-julian",
+        job_type: "send_hinge",
+        payload: {},
+        dating_runner_id: ELECTED_RUNNER,
+        dating_runner_secret: "wrong-secret",
+        ...(fn === enqueueAt ? { run_at: NOW + 60_000 } : {}),
+      };
+      await expect(invoke(fn, state.ctx, args)).rejects.toThrow(
+        "Dating runner authorization failed",
+      );
+      expect(state.insert).not.toHaveBeenCalled();
+      expect(state.runAt).not.toHaveBeenCalled();
+    },
+  );
+
+  test.each([enqueue, enqueueAt])(
+    "protected enqueue endpoint %s accepts the elected runner",
+    async (fn) => {
+      const state = harness([]);
+      const args = {
+        user_id: "fleet-julian",
+        job_type: "send_hinge",
+        payload: {},
+        dating_runner_id: ELECTED_RUNNER,
+        dating_runner_secret: SECRET,
+        ...(fn === enqueueAt ? { run_at: NOW + 60_000 } : {}),
+      };
+      await expect(invoke(fn, state.ctx, args)).resolves.toBeTruthy();
+      if (fn === enqueueAt) expect(state.runAt).toHaveBeenCalledOnce();
+      else expect(state.insert).toHaveBeenCalledOnce();
+    },
+  );
+
+  test("broad claim rejects a capable non-elected runner for protected work", async () => {
+    const state = harness([job("dating-job", "run_swipe")]);
+    await expect(invoke(claim, state.ctx, {
+      user_id: "fleet-julian",
+      agent_instance_id: "macbook16-dating-stale",
+      dating_runner_secret: SECRET,
+    })).resolves.toBeNull();
+    expect(state.patch).not.toHaveBeenCalled();
+  });
+
+  test.each([enqueue, enqueueAt])(
+    "ordinary enqueue endpoint %s does not require a dating runner identity",
+    async (fn) => {
+      const state = harness([]);
+      const args = {
+        user_id: "fleet-julian",
+        job_type: "enrich_person",
+        payload: {},
+        ...(fn === enqueueAt ? { run_at: NOW + 60_000 } : {}),
+      };
+      await expect(invoke(fn, state.ctx, args)).resolves.toBeTruthy();
+    },
+  );
+
   test("protected lease and terminal calls require the capability again", async () => {
     const claimArgs = {
       id: "dating-job",
-      agent_instance_id: "primary-runner",
+      agent_instance_id: ELECTED_RUNNER,
       claim_attempt: 2,
     };
     const renewal = harness([job("dating-job", "send_tinder", "running")]);
@@ -239,6 +333,35 @@ describe("agent job dating runner authorization", () => {
       const args = JSON.parse((fn as unknown as MutationFunction).exportArgs());
       expect(args.value.agent_instance_id.optional).toBe(false);
       expect(args.value.claim_attempt.optional).toBe(false);
+    }
+  });
+
+  test("protected lease and terminal calls reject a capable non-elected runner", async () => {
+    const running = job("dating-job", "send_tinder", "running");
+    running.locked_by = "macbook16-dating-stale";
+    const claimArgs = {
+      id: "dating-job",
+      agent_instance_id: "macbook16-dating-stale",
+      claim_attempt: 2,
+      dating_runner_secret: SECRET,
+    };
+
+    const renewal = harness([running]);
+    await expect(invoke(renewLease, renewal.ctx, claimArgs)).resolves.toEqual({
+      renewed: false,
+    });
+    expect(renewal.patch).not.toHaveBeenCalled();
+
+    for (const [fn, extra] of [
+      [complete, { result: {} }],
+      [fail, { error: "stale runner" }],
+      [failPermanent, { error: "stale runner" }],
+    ] as const) {
+      const state = harness([running]);
+      await expect(invoke(fn, state.ctx, { ...claimArgs, ...extra })).rejects.toThrow(
+        "Agent job lease is missing, expired, or mismatched",
+      );
+      expect(state.patch).not.toHaveBeenCalled();
     }
   });
 });

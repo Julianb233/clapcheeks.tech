@@ -17,6 +17,8 @@ type ClaimIdentity = {
   dating_runner_secret?: string;
 };
 
+const ELECTED_DATING_RUNNER_PREFIX = "clapcheeks-primary-dating-v2-";
+
 const DATING_JOB_TYPES = new Set([
   "send_hinge",
   "send_tinder",
@@ -37,13 +39,21 @@ function hasDatingCapability(provided: string | undefined): boolean {
   return Boolean(expected && provided && provided === expected);
 }
 
+function isElectedDatingRunner(agentInstanceId: string | undefined): boolean {
+  return Boolean(
+    agentInstanceId
+    && agentInstanceId.startsWith(ELECTED_DATING_RUNNER_PREFIX),
+  );
+}
+
 function mayAccessJob(
   jobType: string,
   agentInstanceId: string,
   datingRunnerSecret: string | undefined,
 ): boolean {
   if (DATING_JOB_TYPES.has(jobType)) {
-    return hasDatingCapability(datingRunnerSecret);
+    return isElectedDatingRunner(agentInstanceId)
+      && hasDatingCapability(datingRunnerSecret);
   }
   if (CALENDAR_WORKER_JOB_TYPES.has(jobType)) {
     return agentInstanceId.startsWith("vps-cal-");
@@ -51,12 +61,14 @@ function mayAccessJob(
   return true;
 }
 
-function requireDatingCapabilityForTypes(
+function requireDatingAuthorizationForTypes(
   jobTypes: string[],
+  agentInstanceId: string | undefined,
   provided: string | undefined,
 ): void {
   if (jobTypes.some((jobType) => DATING_JOB_TYPES.has(jobType))
-      && !hasDatingCapability(provided)) {
+      && (!isElectedDatingRunner(agentInstanceId)
+        || !hasDatingCapability(provided))) {
     throw new Error("Dating runner authorization failed");
   }
 }
@@ -99,10 +111,15 @@ export const enqueue = mutation({
     payload: v.any(),
     priority: v.optional(v.number()),
     max_attempts: v.optional(v.number()),
+    dating_runner_id: v.optional(v.string()),
     dating_runner_secret: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    requireDatingCapabilityForTypes([args.job_type], args.dating_runner_secret);
+    requireDatingAuthorizationForTypes(
+      [args.job_type],
+      args.dating_runner_id,
+      args.dating_runner_secret,
+    );
     const now = Date.now();
     return await ctx.db.insert("agent_jobs", {
       user_id: args.user_id,
@@ -126,10 +143,15 @@ export const enqueueAt = mutation({
     run_at: v.number(),
     priority: v.optional(v.number()),
     max_attempts: v.optional(v.number()),
+    dating_runner_id: v.optional(v.string()),
     dating_runner_secret: v.optional(v.string()),
   },
   handler: async (ctx, args): Promise<{ scheduled_id: unknown; run_at: number }> => {
-    requireDatingCapabilityForTypes([args.job_type], args.dating_runner_secret);
+    requireDatingAuthorizationForTypes(
+      [args.job_type],
+      args.dating_runner_id,
+      args.dating_runner_secret,
+    );
     const insertScheduled = (internal as any).agent_jobs._insertScheduled;
     const scheduledId: unknown = await ctx.scheduler.runAt(
       args.run_at,
@@ -185,8 +207,9 @@ export const claimByTypes = mutation({
     dating_runner_secret: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    requireDatingCapabilityForTypes(
+    requireDatingAuthorizationForTypes(
       args.allowed_job_types,
+      args.agent_instance_id,
       args.dating_runner_secret,
     );
     const queued = await ctx.db
