@@ -165,6 +165,8 @@ export default defineSchema({
     last_error: v.optional(v.string()),
     locked_by: v.optional(v.string()),    // agent instance id
     locked_until: v.optional(v.number()),
+    started_at: v.optional(v.number()),   // historical worker claim timestamp
+    last_heartbeat_at: v.optional(v.number()), // historical worker liveness timestamp
     result: v.optional(v.any()),
     created_at: v.number(),
     updated_at: v.number(),
