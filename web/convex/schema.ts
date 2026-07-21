@@ -1690,4 +1690,39 @@ export default defineSchema({
       dimensions: 3072,
       filterFields: ["user_id", "recipient_class"],
     }),
+
+  // AI-8329 Phase 44 — AUTO-01/AUTO-02. Every swipe (manual or engine) is
+  // logged here. Manual rows train the preference model; auto rows are audited
+  // and feed the rate-limit window count. `features` is a flat name->number
+  // map (one-hot for categoricals) so the linear model stays explainable.
+  swipe_decisions: defineTable({
+    user_id: v.string(),
+    platform: v.optional(v.string()),
+    external_candidate_id: v.optional(v.string()),
+    candidate_name: v.optional(v.string()),
+    direction: v.union(v.literal("like"), v.literal("pass")),
+    features: v.any(),                       // Record<string, number>
+    source: v.union(v.literal("manual"), v.literal("auto")),
+    predicted_probability: v.optional(v.number()),
+    confidence: v.optional(v.number()),
+    created_at: v.number(),
+  })
+    .index("by_user", ["user_id"])
+    .index("by_user_created", ["user_id", "created_at"])
+    .index("by_user_source_created", ["user_id", "source", "created_at"]),
+
+  // AI-8329 Phase 44 — AUTO-01. The learned preference model, one row per user.
+  // Snapshotted by the trainer so predict/dashboard reads are index lookups,
+  // not on-the-fly training.
+  swipe_preferences: defineTable({
+    user_id: v.string(),
+    weights: v.any(),                        // Record<string, number>
+    bias: v.number(),
+    feature_keys: v.array(v.string()),
+    feature_means: v.any(),                  // Record<string, number>
+    n_samples: v.number(),
+    accuracy: v.number(),                    // cross-validated [0,1], -1 if untrained
+    model_version: v.number(),
+    trained_at: v.number(),
+  }).index("by_user", ["user_id"]),
 });
