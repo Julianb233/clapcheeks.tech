@@ -6,8 +6,8 @@
 
 <!-- HANDOFF_STATE_START -->
 Active app: Codex
-Last session: 2026-07-21 — AI-8329: repaired the morning digest/swipe scheduler, future cadence scheduling, runtime dotenv loading, Gemini 2.5 fallback, and truthful job failures
-Next action: deploy the Convex functions and Mac Mini runtime, enable bounded full-auto morning swipes, then verify one Tinder/Hinge run and one CCT BlueBubbles message
+Last session: 2026-07-21 — AI-8329: deployed the morning scheduler/lease repair and Mac Mini dating worker; verified Convex, proxy, Gemini, and BlueBubbles health; all runtime tests pass
+Next action: Julian must explicitly approve clearing the May 10 emergency stop; then refresh Tinder bearer and capture a Hinge SendBird session through proxy port 18081 before one bounded live message/swipe proof
 <!-- HANDOFF_STATE_END -->
 
 ## How to use
