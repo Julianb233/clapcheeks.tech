@@ -105,10 +105,11 @@ export default defineSchema({
     // mirrored into Convex, `cdnId` is the Cloudinary resource id parsed from the
     // SendBird file.data ("cdnId":"<long-hex>/<short-id>"). A capture-file watcher
     // pairs newly-captured signed URLs with the matching message row by cdnId,
-    // downloads via the Cloudinary __cld_token__, transcribes via Gemini 2.0
+    // downloads via the Cloudinary __cld_token__, transcribes via Gemini
     // Flash, then patches `body` with the transcript via messages:patchByCdnId.
     cdnId: v.optional(v.string()),
     transcript_source: v.optional(v.union(
+      v.literal("gemini-2.5-flash"),
       v.literal("gemini-2.0-flash"),
       v.literal("whisper-1"),
       v.literal("manual"),
@@ -168,10 +169,14 @@ export default defineSchema({
     created_at: v.number(),
     updated_at: v.number(),
     completed_at: v.optional(v.number()),
+    // Production uses this to make repeated scheduler sweeps idempotent.
+    // Keep it optional for historical jobs created before dedupe keys existed.
+    dedupe_key: v.optional(v.string()),
   })
     .index("by_status_priority", ["status", "priority"])
     .index("by_user_status", ["user_id", "status"])
-    .index("by_user_type", ["user_id", "job_type"]),
+    .index("by_user_type", ["user_id", "job_type"])
+    .index("by_user_dedupe", ["user_id", "dedupe_key"]),
 
   // Per-conversation drip / re-engagement state machine.
   drip_states: defineTable({
