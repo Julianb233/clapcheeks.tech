@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildMorningSwipeJobs,
+  guardMorningSwipeJob,
   pacificWindowKey,
 } from "../lib/autonomy/morning-schedule";
 
@@ -46,5 +47,19 @@ describe("morning swipe jobs", () => {
         source: "morning_cron",
       },
     ]);
+  });
+
+  it("adds the fail-closed temporal and provider snapshot envelope", () => {
+    const [payload] = buildMorningSwipeJobs("swipes:2026-07-21");
+    const now = Date.parse("2026-07-21T16:00:00Z");
+    expect(guardMorningSwipeJob(payload, now)).toMatchObject({
+      enqueued_at_ms: now,
+      expires_at_ms: now + 60 * 60 * 1000,
+      mutation_snapshot: {
+        schema_version: 1,
+        scope: "swipe_session",
+        platform: "tinder",
+      },
+    });
   });
 });

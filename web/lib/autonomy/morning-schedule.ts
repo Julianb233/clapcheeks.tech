@@ -6,6 +6,32 @@ export interface MorningSwipeJob {
   source: "morning_cron";
 }
 
+export interface GuardedMorningSwipeJob extends MorningSwipeJob {
+  enqueued_at_ms: number;
+  expires_at_ms: number;
+  mutation_snapshot: {
+    schema_version: 1;
+    scope: "swipe_session";
+    platform: "tinder" | "hinge";
+  };
+}
+
+export function guardMorningSwipeJob(
+  payload: MorningSwipeJob,
+  nowMs: number,
+): GuardedMorningSwipeJob {
+  return {
+    ...payload,
+    enqueued_at_ms: nowMs,
+    expires_at_ms: nowMs + 60 * 60 * 1000,
+    mutation_snapshot: {
+      schema_version: 1,
+      scope: "swipe_session",
+      platform: payload.platform,
+    },
+  };
+}
+
 export function pacificWindowKey(
   nowMs: number,
   prefix: string,

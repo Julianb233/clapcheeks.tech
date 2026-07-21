@@ -1,11 +1,95 @@
 import { internalMutation, mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
+import type { Id } from "./_generated/dataModel";
+import type { MutationCtx } from "./_generated/server";
 import {
   buildMorningSwipeJobs,
+  guardMorningSwipeJob,
   pacificWindowKey,
 } from "../lib/autonomy/morning-schedule";
 import { claimContextMatches } from "../lib/agent-jobs/lease";
+
+type ClaimIdentity = {
+  id: Id<"agent_jobs">;
+  agent_instance_id: string;
+  claim_attempt: number;
+  dating_runner_secret?: string;
+};
+
+const DATING_JOB_TYPES = new Set([
+  "send_hinge",
+  "send_tinder",
+  "cadence_evaluate_one",
+  "drip_reengagement",
+  "run_swipe",
+  "sync_hinge",
+  "sync_tinder",
+]);
+
+const CALENDAR_WORKER_JOB_TYPES = new Set([
+  "fetch_calendar_slots",
+  "create_date_event",
+]);
+
+function hasDatingCapability(provided: string | undefined): boolean {
+  const expected = process.env.CONVEX_DATING_RUNNER_SECRET?.trim();
+  return Boolean(expected && provided && provided === expected);
+}
+
+function mayAccessJob(
+  jobType: string,
+  agentInstanceId: string,
+  datingRunnerSecret: string | undefined,
+): boolean {
+  if (DATING_JOB_TYPES.has(jobType)) {
+    return hasDatingCapability(datingRunnerSecret);
+  }
+  if (CALENDAR_WORKER_JOB_TYPES.has(jobType)) {
+    return agentInstanceId.startsWith("vps-cal-");
+  }
+  return true;
+}
+
+function requireDatingCapabilityForTypes(
+  jobTypes: string[],
+  provided: string | undefined,
+): void {
+  if (jobTypes.some((jobType) => DATING_JOB_TYPES.has(jobType))
+      && !hasDatingCapability(provided)) {
+    throw new Error("Dating runner authorization failed");
+  }
+}
+
+async function requireActiveClaim(ctx: MutationCtx, claim: ClaimIdentity) {
+  const job = await ctx.db.get(claim.id);
+  const now = Date.now();
+  if (
+    !job
+    || !claimContextMatches(
+      job,
+      claim.agent_instance_id,
+      claim.claim_attempt,
+      now,
+    )
+    || !mayAccessJob(
+      job.job_type,
+      claim.agent_instance_id,
+      claim.dating_runner_secret,
+    )
+  ) {
+    throw new Error("Agent job lease is missing, expired, or mismatched");
+  }
+  return { job, now };
+}
+
+function lockDurationMs(lockSeconds: number | undefined): number {
+  const seconds = lockSeconds ?? 120;
+  if (!Number.isFinite(seconds) || seconds <= 0) {
+    throw new Error("lock_seconds must be a positive number");
+  }
+  return seconds * 1000;
+}
 
 // Enqueue a job for the local Mac agent to pick up.
 export const enqueue = mutation({
@@ -15,8 +99,10 @@ export const enqueue = mutation({
     payload: v.any(),
     priority: v.optional(v.number()),
     max_attempts: v.optional(v.number()),
+    dating_runner_secret: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    requireDatingCapabilityForTypes([args.job_type], args.dating_runner_secret);
     const now = Date.now();
     return await ctx.db.insert("agent_jobs", {
       user_id: args.user_id,
@@ -40,8 +126,10 @@ export const enqueueAt = mutation({
     run_at: v.number(),
     priority: v.optional(v.number()),
     max_attempts: v.optional(v.number()),
+    dating_runner_secret: v.optional(v.string()),
   },
   handler: async (ctx, args): Promise<{ scheduled_id: unknown; run_at: number }> => {
+    requireDatingCapabilityForTypes([args.job_type], args.dating_runner_secret);
     const insertScheduled = (internal as any).agent_jobs._insertScheduled;
     const scheduledId: unknown = await ctx.scheduler.runAt(
       args.run_at,
@@ -94,8 +182,13 @@ export const claimByTypes = mutation({
     agent_instance_id: v.string(),
     allowed_job_types: v.array(v.string()),
     lock_seconds: v.optional(v.number()),
+    dating_runner_secret: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    requireDatingCapabilityForTypes(
+      args.allowed_job_types,
+      args.dating_runner_secret,
+    );
     const queued = await ctx.db
       .query("agent_jobs")
       .withIndex("by_user_status", (q) =>
@@ -105,7 +198,14 @@ export const claimByTypes = mutation({
       .collect();
 
     const allowed = new Set(args.allowed_job_types);
-    const target = queued.find((j) => allowed.has(j.job_type));
+    const target = queued.find((job) =>
+      allowed.has(job.job_type)
+      && mayAccessJob(
+        job.job_type,
+        args.agent_instance_id,
+        args.dating_runner_secret,
+      )
+    );
     if (!target) return null;
 
     const now = Date.now();
@@ -126,6 +226,7 @@ export const claim = mutation({
     user_id: v.string(),
     agent_instance_id: v.string(),
     lock_seconds: v.optional(v.number()),
+    dating_runner_secret: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const queued = await ctx.db
@@ -134,20 +235,27 @@ export const claim = mutation({
         q.eq("user_id", args.user_id).eq("status", "queued"),
       )
       .order("desc")
-      .first();
+      .collect();
 
-    if (!queued) return null;
+    const target = queued.find((job) =>
+      mayAccessJob(
+        job.job_type,
+        args.agent_instance_id,
+        args.dating_runner_secret,
+      )
+    );
+    if (!target) return null;
 
     const now = Date.now();
     const lockMs = (args.lock_seconds ?? 120) * 1000;
-    await ctx.db.patch(queued._id, {
+    await ctx.db.patch(target._id, {
       status: "running",
       locked_by: args.agent_instance_id,
       locked_until: now + lockMs,
-      attempts: queued.attempts + 1,
+      attempts: target.attempts + 1,
       updated_at: now,
     });
-    return await ctx.db.get(queued._id);
+    return await ctx.db.get(target._id);
   },
 });
 
@@ -156,22 +264,21 @@ export const complete = mutation({
   args: {
     id: v.id("agent_jobs"),
     result: v.optional(v.any()),
-    agent_instance_id: v.optional(v.string()),
-    claim_attempt: v.optional(v.number()),
+    agent_instance_id: v.string(),
+    claim_attempt: v.number(),
+    dating_runner_secret: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const job = await ctx.db.get(args.id);
-    if (!job) throw new Error("Not found");
-    if (!claimContextMatches(job, args.agent_instance_id, args.claim_attempt)) {
-      throw new Error("Stale or foreign job claim");
-    }
-    const now = Date.now();
+    const { now } = await requireActiveClaim(ctx, args);
     await ctx.db.patch(args.id, {
       status: "completed",
       result: args.result,
       completed_at: now,
+      locked_by: undefined,
+      locked_until: undefined,
       updated_at: now,
     });
+    return { completed: true as const };
   },
 });
 
@@ -180,22 +287,21 @@ export const fail = mutation({
   args: {
     id: v.id("agent_jobs"),
     error: v.string(),
-    agent_instance_id: v.optional(v.string()),
-    claim_attempt: v.optional(v.number()),
+    agent_instance_id: v.string(),
+    claim_attempt: v.number(),
+    dating_runner_secret: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const job = await ctx.db.get(args.id);
-    if (!job) throw new Error("Not found");
-    if (!claimContextMatches(job, args.agent_instance_id, args.claim_attempt)) {
-      throw new Error("Stale or foreign job claim");
-    }
-    const now = Date.now();
+    const { job, now } = await requireActiveClaim(ctx, args);
     if (job.attempts >= job.max_attempts) {
       await ctx.db.patch(args.id, {
         status: "failed",
         last_error: args.error,
+        locked_by: undefined,
+        locked_until: undefined,
         updated_at: now,
       });
+      return { failed: true as const, status: "failed" as const };
     } else {
       await ctx.db.patch(args.id, {
         status: "queued",
@@ -204,6 +310,7 @@ export const fail = mutation({
         locked_until: undefined,
         updated_at: now,
       });
+      return { failed: true as const, status: "queued" as const };
     }
   },
 });
@@ -218,16 +325,12 @@ export const failPermanent = mutation({
     id: v.id("agent_jobs"),
     error: v.string(),
     error_class: v.optional(v.string()),
-    agent_instance_id: v.optional(v.string()),
-    claim_attempt: v.optional(v.number()),
+    agent_instance_id: v.string(),
+    claim_attempt: v.number(),
+    dating_runner_secret: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const job = await ctx.db.get(args.id);
-    if (!job) throw new Error("Not found");
-    if (!claimContextMatches(job, args.agent_instance_id, args.claim_attempt)) {
-      throw new Error("Stale or foreign job claim");
-    }
-    const now = Date.now();
+    const { job, now } = await requireActiveClaim(ctx, args);
     const cls = args.error_class ? `[${args.error_class}] ` : "";
     await ctx.db.patch(args.id, {
       status: "failed",
@@ -238,6 +341,7 @@ export const failPermanent = mutation({
       locked_until: undefined,
       updated_at: now,
     });
+    return { failed: true as const, status: "failed" as const };
   },
 });
 
@@ -247,20 +351,34 @@ export const renewLease = mutation({
     agent_instance_id: v.string(),
     claim_attempt: v.number(),
     lock_seconds: v.optional(v.number()),
+    dating_runner_secret: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const job = await ctx.db.get(args.id);
-    if (!job) throw new Error("Not found");
-    if (!claimContextMatches(job, args.agent_instance_id, args.claim_attempt)) {
-      throw new Error("Stale or foreign job claim");
-    }
     const now = Date.now();
+    if (
+      !job
+      || !claimContextMatches(
+        job,
+        args.agent_instance_id,
+        args.claim_attempt,
+        now,
+      )
+      || !mayAccessJob(
+        job.job_type,
+        args.agent_instance_id,
+        args.dating_runner_secret,
+      )
+    ) {
+      return { renewed: false as const };
+    }
+    const lockedUntil = now + lockDurationMs(args.lock_seconds);
     await ctx.db.patch(args.id, {
-      locked_until: now + (args.lock_seconds ?? 120) * 1000,
+      locked_until: lockedUntil,
       last_heartbeat_at: now,
       updated_at: now,
     });
-    return { renewed: true, locked_until: now + (args.lock_seconds ?? 120) * 1000 };
+    return { renewed: true as const, locked_until: lockedUntil };
   },
 });
 
@@ -317,10 +435,11 @@ export const enqueueMorningSwipes = internalMutation({
         continue;
       }
       const now = Date.now();
+      const guardedPayload = guardMorningSwipeJob(payload, now);
       await ctx.db.insert("agent_jobs", {
         user_id: userId,
         job_type: "run_swipe",
-        payload,
+        payload: guardedPayload,
         status: "queued",
         priority: 1,
         attempts: 0,
