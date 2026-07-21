@@ -189,6 +189,16 @@ export const getPreferenceModel = query({
   },
 });
 
+export const getAutonomyConfig = query({
+  args: { user_id: v.string() },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("autonomy_config")
+      .withIndex("by_user", (q) => q.eq("user_id", args.user_id))
+      .first();
+  },
+});
+
 export const predictSwipe = query({
   args: { user_id: v.string(), features: v.any() },
   handler: async (ctx, args) => {

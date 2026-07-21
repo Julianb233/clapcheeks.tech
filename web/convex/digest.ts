@@ -12,16 +12,21 @@
 import { v } from "convex/values";
 import { internalAction, mutation, internalMutation, query } from "./_generated/server";
 import { internal } from "./_generated/api";
+import { pacificWindowKey } from "../lib/autonomy/morning-schedule";
 
 // ---------------------------------------------------------------------------
-// generateDaily — fired by the cron at 9am Pacific (17:00 UTC).
+// generateDaily — checked every five minutes; idempotency limits it to one
+// run during the 08:00-11:59 America/Los_Angeles recovery window.
 // ---------------------------------------------------------------------------
 export const generateDaily = internalAction({
   args: {},
   handler: async (ctx): Promise<{ enqueued: boolean; reason?: string }> => {
+    const scheduleKey = pacificWindowKey(Date.now(), "digest");
+    if (!scheduleKey) return { enqueued: false, reason: "outside_pacific_morning" };
     return await ctx.runMutation(internal.digest._enqueueDigestJob, {
       user_id: "fleet-julian",
       reason: "daily_cron",
+      schedule_key: scheduleKey,
     });
   },
 });
@@ -31,8 +36,8 @@ export const generateDaily = internalAction({
 // ---------------------------------------------------------------------------
 export const generateNow = mutation({
   args: { user_id: v.optional(v.string()) },
-  handler: async (ctx, args) => {
-    return await ctx.runMutation(internal.digest._enqueueDigestJob, {
+  handler: async (ctx, args): Promise<any> => {
+    return await ctx.runMutation((internal as any).digest._enqueueDigestJob, {
       user_id: args.user_id ?? "fleet-julian",
       reason: "manual_dashboard",
     });
@@ -43,7 +48,11 @@ export const generateNow = mutation({
 // _enqueueDigestJob — internal helper, dedups in-flight digest jobs.
 // ---------------------------------------------------------------------------
 export const _enqueueDigestJob = internalMutation({
-  args: { user_id: v.string(), reason: v.string() },
+  args: {
+    user_id: v.string(),
+    reason: v.string(),
+    schedule_key: v.optional(v.string()),
+  },
   handler: async (ctx, args) => {
     const now = Date.now();
     const existing = await ctx.db
@@ -56,10 +65,21 @@ export const _enqueueDigestJob = internalMutation({
       (j) => j.status === "queued" || j.status === "running",
     );
     if (inFlight) return { enqueued: false, reason: "already_in_flight" };
+    if (
+      args.schedule_key &&
+      existing.some((j) => j.payload?.schedule_key === args.schedule_key)
+    ) {
+      return { enqueued: false, reason: "already_ran_today" };
+    }
     await ctx.db.insert("agent_jobs", {
       user_id: args.user_id,
       job_type: "send_digest_to_julian",
-      payload: { user_id: args.user_id, reason: args.reason, generated_at: now },
+      payload: {
+        user_id: args.user_id,
+        reason: args.reason,
+        generated_at: now,
+        schedule_key: args.schedule_key,
+      },
       status: "queued",
       priority: 3,
       attempts: 0,
