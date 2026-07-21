@@ -51,7 +51,6 @@ import type * as spending from "../spending.js";
 import type * as telemetry from "../telemetry.js";
 import type * as touches from "../touches.js";
 import type * as voice from "../voice.js";
-import type * as voice_feedback_corpus from "../voice_feedback_corpus.js";
 
 import type {
   ApiFromModules,
@@ -103,7 +102,6 @@ declare const fullApi: ApiFromModules<{
   telemetry: typeof telemetry;
   touches: typeof touches;
   voice: typeof voice;
-  voice_feedback_corpus: typeof voice_feedback_corpus;
 }>;
 
 /**
