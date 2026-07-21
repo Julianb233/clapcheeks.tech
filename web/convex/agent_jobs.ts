@@ -5,6 +5,7 @@ import {
   buildMorningSwipeJobs,
   pacificWindowKey,
 } from "../lib/autonomy/morning-schedule";
+import { claimContextMatches } from "../lib/agent-jobs/lease";
 
 // Enqueue a job for the local Mac agent to pick up.
 export const enqueue = mutation({
@@ -155,8 +156,15 @@ export const complete = mutation({
   args: {
     id: v.id("agent_jobs"),
     result: v.optional(v.any()),
+    agent_instance_id: v.optional(v.string()),
+    claim_attempt: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
+    const job = await ctx.db.get(args.id);
+    if (!job) throw new Error("Not found");
+    if (!claimContextMatches(job, args.agent_instance_id, args.claim_attempt)) {
+      throw new Error("Stale or foreign job claim");
+    }
     const now = Date.now();
     await ctx.db.patch(args.id, {
       status: "completed",
@@ -172,10 +180,15 @@ export const fail = mutation({
   args: {
     id: v.id("agent_jobs"),
     error: v.string(),
+    agent_instance_id: v.optional(v.string()),
+    claim_attempt: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const job = await ctx.db.get(args.id);
     if (!job) throw new Error("Not found");
+    if (!claimContextMatches(job, args.agent_instance_id, args.claim_attempt)) {
+      throw new Error("Stale or foreign job claim");
+    }
     const now = Date.now();
     if (job.attempts >= job.max_attempts) {
       await ctx.db.patch(args.id, {
@@ -205,10 +218,15 @@ export const failPermanent = mutation({
     id: v.id("agent_jobs"),
     error: v.string(),
     error_class: v.optional(v.string()),
+    agent_instance_id: v.optional(v.string()),
+    claim_attempt: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const job = await ctx.db.get(args.id);
     if (!job) throw new Error("Not found");
+    if (!claimContextMatches(job, args.agent_instance_id, args.claim_attempt)) {
+      throw new Error("Stale or foreign job claim");
+    }
     const now = Date.now();
     const cls = args.error_class ? `[${args.error_class}] ` : "";
     await ctx.db.patch(args.id, {
@@ -220,6 +238,29 @@ export const failPermanent = mutation({
       locked_until: undefined,
       updated_at: now,
     });
+  },
+});
+
+export const renewLease = mutation({
+  args: {
+    id: v.id("agent_jobs"),
+    agent_instance_id: v.string(),
+    claim_attempt: v.number(),
+    lock_seconds: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const job = await ctx.db.get(args.id);
+    if (!job) throw new Error("Not found");
+    if (!claimContextMatches(job, args.agent_instance_id, args.claim_attempt)) {
+      throw new Error("Stale or foreign job claim");
+    }
+    const now = Date.now();
+    await ctx.db.patch(args.id, {
+      locked_until: now + (args.lock_seconds ?? 120) * 1000,
+      last_heartbeat_at: now,
+      updated_at: now,
+    });
+    return { renewed: true, locked_until: now + (args.lock_seconds ?? 120) * 1000 };
   },
 });
 
