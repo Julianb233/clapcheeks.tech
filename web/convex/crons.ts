@@ -66,13 +66,19 @@ crons.interval(
   internal.touches.drainDue,
 );
 
-// AI-9449 — Daily morning digest (9am Pacific = 17:00 UTC; cron is UTC).
-// Generates ranked list of active conversations + draft replies, queues a
-// send_digest_to_julian job for the Mac Mini daemon to deliver.
+// Daily morning work is checked every five minutes. The handlers apply an
+// America/Los_Angeles 08:00-11:59 recovery window plus per-day idempotency,
+// so DST changes and a short deployment outage cannot skip or duplicate work.
 crons.cron(
-  "daily-digest-9am-pacific",
-  "0 17 * * *",
+  "daily-digest-8am-pacific",
+  "*/5 * * * *",
   internal.digest.generateDaily,
+);
+
+crons.cron(
+  "daily-full-auto-swipes-pacific",
+  "*/5 * * * *",
+  internal.agent_jobs.enqueueMorningSwipes,
 );
 
 // AI-9449 — Date-ask sweep every 6h. When time_to_ask_score crosses 0.7

@@ -1,8 +1,63 @@
 import { internalMutation, mutation, query } from "./_generated/server";
 import { v } from "convex/values";
+import { internal } from "./_generated/api";
+import {
+  buildMorningSwipeJobs,
+  pacificWindowKey,
+} from "../lib/autonomy/morning-schedule";
 
 // Enqueue a job for the local Mac agent to pick up.
 export const enqueue = mutation({
+  args: {
+    user_id: v.string(),
+    job_type: v.string(),
+    payload: v.any(),
+    priority: v.optional(v.number()),
+    max_attempts: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    return await ctx.db.insert("agent_jobs", {
+      user_id: args.user_id,
+      job_type: args.job_type,
+      payload: args.payload,
+      status: "queued",
+      priority: args.priority ?? 0,
+      attempts: 0,
+      max_attempts: args.max_attempts ?? 3,
+      created_at: now,
+      updated_at: now,
+    });
+  },
+});
+
+export const enqueueAt = mutation({
+  args: {
+    user_id: v.string(),
+    job_type: v.string(),
+    payload: v.any(),
+    run_at: v.number(),
+    priority: v.optional(v.number()),
+    max_attempts: v.optional(v.number()),
+  },
+  handler: async (ctx, args): Promise<{ scheduled_id: unknown; run_at: number }> => {
+    const insertScheduled = (internal as any).agent_jobs._insertScheduled;
+    const scheduledId: unknown = await ctx.scheduler.runAt(
+      args.run_at,
+      insertScheduled,
+      {
+        user_id: args.user_id,
+        job_type: args.job_type,
+        payload: args.payload,
+        priority: args.priority,
+        max_attempts: args.max_attempts,
+      },
+    );
+    return { scheduled_id: scheduledId, run_at: args.run_at };
+  },
+});
+
+export const _insertScheduled = internalMutation({
   args: {
     user_id: v.string(),
     job_type: v.string(),
@@ -172,19 +227,69 @@ export const failPermanent = mutation({
 export const listForUser = query({
   args: { user_id: v.string() },
   handler: async (ctx, args) => {
-    const queued = await ctx.db
+    const statuses = ["queued", "running", "completed", "failed"] as const;
+    const groups = await Promise.all(
+      statuses.map((status) =>
+        ctx.db
+          .query("agent_jobs")
+          .withIndex("by_user_status", (q) =>
+            q.eq("user_id", args.user_id).eq("status", status),
+          )
+          .order("desc")
+          .take(100),
+      ),
+    );
+    return groups
+      .flat()
+      .sort((a, b) => b.updated_at - a.updated_at)
+      .slice(0, 100);
+  },
+});
+
+export const enqueueMorningSwipes = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const userId = "fleet-julian";
+    const baseKey = pacificWindowKey(Date.now(), "swipes");
+    if (!baseKey) return { enqueued: 0, reason: "outside_pacific_morning" };
+
+    const config = await ctx.db
+      .query("autonomy_config")
+      .withIndex("by_user", (q) => q.eq("user_id", userId))
+      .first();
+    if (config?.global_level !== "full_auto") {
+      return {
+        enqueued: 0,
+        reason: `autonomy_${config?.global_level ?? "unset"}`,
+      };
+    }
+
+    const existing = await ctx.db
       .query("agent_jobs")
-      .withIndex("by_user_status", (q) =>
-        q.eq("user_id", args.user_id).eq("status", "queued"),
+      .withIndex("by_user_type", (q) =>
+        q.eq("user_id", userId).eq("job_type", "run_swipe"),
       )
-      .take(50);
-    const running = await ctx.db
-      .query("agent_jobs")
-      .withIndex("by_user_status", (q) =>
-        q.eq("user_id", args.user_id).eq("status", "running"),
-      )
-      .take(50);
-    return [...running, ...queued];
+      .collect();
+    let enqueued = 0;
+    for (const payload of buildMorningSwipeJobs(baseKey)) {
+      if (existing.some((job) => job.payload?.schedule_key === payload.schedule_key)) {
+        continue;
+      }
+      const now = Date.now();
+      await ctx.db.insert("agent_jobs", {
+        user_id: userId,
+        job_type: "run_swipe",
+        payload,
+        status: "queued",
+        priority: 1,
+        attempts: 0,
+        max_attempts: 2,
+        created_at: now,
+        updated_at: now,
+      });
+      enqueued++;
+    }
+    return { enqueued, reason: enqueued ? undefined : "already_ran_today" };
   },
 });
 

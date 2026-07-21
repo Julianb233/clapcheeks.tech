@@ -5,9 +5,9 @@
 > a session. Protocol: [`AGENTS.md`](./AGENTS.md) → "Cross-tool handoff". Linear: AI-8615.
 
 <!-- HANDOFF_STATE_START -->
-Active app: Claude Code
-Last session: 2026-07-09 — AI-8615: shipped canonical Mac Mini↔iPhone Tailscale Serve runbook (docs/LOCAL_MAC_IPHONE.md) + this cross-tool handoff layer
-Next action: On the Mac Mini (currently SSH-unreachable), run the AC3 device-verify checklist in docs/LOCAL_MAC_IPHONE.md — `npm run dev`, `tailscale serve --bg http://127.0.0.1:<port>`, add the ts.net origin to Supabase Redirect URLs, open on iPhone, confirm login + one critical path
+Active app: Codex
+Last session: 2026-07-21 — AI-8329: repaired the morning digest/swipe scheduler, future cadence scheduling, runtime dotenv loading, Gemini 2.5 fallback, and truthful job failures
+Next action: deploy the Convex functions and Mac Mini runtime, enable bounded full-auto morning swipes, then verify one Tinder/Hinge run and one CCT BlueBubbles message
 <!-- HANDOFF_STATE_END -->
 
 ## How to use
