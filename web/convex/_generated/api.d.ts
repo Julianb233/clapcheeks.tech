@@ -10,6 +10,7 @@
 
 import type * as agentDeviceTokens from "../agentDeviceTokens.js";
 import type * as agent_jobs from "../agent_jobs.js";
+import type * as autonomy from "../autonomy.js";
 import type * as backfill from "../backfill.js";
 import type * as billing from "../billing.js";
 import type * as calendar from "../calendar.js";
@@ -50,6 +51,7 @@ import type * as spending from "../spending.js";
 import type * as telemetry from "../telemetry.js";
 import type * as touches from "../touches.js";
 import type * as voice from "../voice.js";
+import type * as voice_feedback_corpus from "../voice_feedback_corpus.js";
 
 import type {
   ApiFromModules,
@@ -60,6 +62,7 @@ import type {
 declare const fullApi: ApiFromModules<{
   agentDeviceTokens: typeof agentDeviceTokens;
   agent_jobs: typeof agent_jobs;
+  autonomy: typeof autonomy;
   backfill: typeof backfill;
   billing: typeof billing;
   calendar: typeof calendar;
@@ -100,6 +103,7 @@ declare const fullApi: ApiFromModules<{
   telemetry: typeof telemetry;
   touches: typeof touches;
   voice: typeof voice;
+  voice_feedback_corpus: typeof voice_feedback_corpus;
 }>;
 
 /**
