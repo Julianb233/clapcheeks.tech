@@ -2,6 +2,23 @@ import { mutation, query } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import { Id } from "./_generated/dataModel";
+import { deriveConversationDirectionState } from "../lib/tinder-direction-repair";
+
+const ELECTED_DATING_RUNNER_PREFIX = "clapcheeks-primary-dating-v2-";
+
+function requireDatingRepairAuthorization(
+  runnerId: string,
+  providedSecret: string,
+): void {
+  const expectedSecret = process.env.CONVEX_DATING_RUNNER_SECRET?.trim();
+  if (
+    !runnerId.startsWith(ELECTED_DATING_RUNNER_PREFIX)
+    || !expectedSecret
+    || providedSecret !== expectedSecret
+  ) {
+    throw new Error("Dating runner authorization failed");
+  }
+}
 
 // Append a message to a conversation. Called by the local Mac agent when
 // it imports a new inbound iMessage / dating-app message, or by the user
@@ -69,6 +86,153 @@ export const append = mutation({
     }
 
     return messageId;
+  },
+});
+
+// Repair Tinder imports whose direction was classified with an obsolete
+// captured account id. This is intentionally capability-gated, Tinder-only,
+// import-only, and body-blind: callers can change direction for known provider
+// GUIDs but cannot edit message text or touch another platform.
+export const repairImportedTinderDirections = mutation({
+  args: {
+    user_id: v.string(),
+    dating_runner_id: v.string(),
+    dating_runner_secret: v.string(),
+    dry_run: v.optional(v.boolean()),
+    repairs: v.array(v.object({
+      external_guid: v.string(),
+      direction: v.union(v.literal("inbound"), v.literal("outbound")),
+    })),
+  },
+  handler: async (ctx, args) => {
+    requireDatingRepairAuthorization(
+      args.dating_runner_id,
+      args.dating_runner_secret,
+    );
+    if (args.repairs.length > 500) {
+      throw new Error("Tinder direction repair is limited to 500 rows");
+    }
+
+    const seen = new Set<string>();
+    const corrections: Array<{
+      message_id: Id<"messages">;
+      conversation_id: Id<"conversations">;
+      direction: "inbound" | "outbound";
+    }> = [];
+    const affectedConversationIds = new Set<Id<"conversations">>();
+
+    for (const repair of args.repairs) {
+      if (!repair.external_guid.startsWith("tinder:")) continue;
+      if (seen.has(repair.external_guid)) continue;
+      seen.add(repair.external_guid);
+
+      const message = await ctx.db
+        .query("messages")
+        .withIndex("by_external_guid", (q) =>
+          q.eq("external_guid", repair.external_guid),
+        )
+        .first();
+      if (
+        !message
+        || message.user_id !== args.user_id
+        || message.source !== "import"
+        || message.direction === repair.direction
+      ) {
+        continue;
+      }
+
+      const conversation = await ctx.db.get(message.conversation_id);
+      if (
+        !conversation
+        || conversation.user_id !== args.user_id
+        || conversation.platform !== "tinder"
+      ) {
+        continue;
+      }
+
+      corrections.push({
+        message_id: message._id,
+        conversation_id: message.conversation_id,
+        direction: repair.direction,
+      });
+      affectedConversationIds.add(message.conversation_id);
+    }
+
+    if (args.dry_run) {
+      return {
+        dry_run: true,
+        scanned: seen.size,
+        corrected: corrections.length,
+        conversations: affectedConversationIds.size,
+        cancelled_jobs: 0,
+      };
+    }
+
+    for (const correction of corrections) {
+      await ctx.db.patch(correction.message_id, {
+        direction: correction.direction,
+      });
+    }
+
+    const now = Date.now();
+    const affectedExternalMatchIds = new Set<string>();
+    for (const conversationId of affectedConversationIds) {
+      const conversation = await ctx.db.get(conversationId);
+      if (!conversation) continue;
+      affectedExternalMatchIds.add(conversation.external_match_id);
+      const messages = await ctx.db
+        .query("messages")
+        .withIndex("by_conversation", (q) =>
+          q.eq("conversation_id", conversationId),
+        )
+        .collect();
+      const state = deriveConversationDirectionState(messages);
+      await ctx.db.patch(conversationId, {
+        ...state,
+        updated_at: now,
+      });
+    }
+
+    // Any queued Tinder send derived from the corrupted transcript must be
+    // discarded. A fresh sync/cadence pass may create a new job only from the
+    // repaired state after the operator clears the emergency stop.
+    const queuedJobs = await ctx.db
+      .query("agent_jobs")
+      .withIndex("by_user_status", (q) =>
+        q.eq("user_id", args.user_id).eq("status", "queued"),
+      )
+      .collect();
+    let cancelledJobs = 0;
+    for (const job of queuedJobs) {
+      if (job.job_type !== "send_tinder") continue;
+      const payload = job.payload as Record<string, unknown> | undefined;
+      const matchId = String(payload?.match_id ?? payload?.external_match_id ?? "");
+      const conversationId = String(payload?.conversation_id ?? "");
+      if (
+        !affectedExternalMatchIds.has(matchId)
+        && !Array.from(affectedConversationIds).some(
+          (id) => String(id) === conversationId,
+        )
+      ) {
+        continue;
+      }
+      await ctx.db.patch(job._id, {
+        status: "cancelled",
+        last_error: "cancelled_after_tinder_direction_repair",
+        locked_by: undefined,
+        locked_until: undefined,
+        updated_at: now,
+      });
+      cancelledJobs += 1;
+    }
+
+    return {
+      dry_run: false,
+      scanned: seen.size,
+      corrected: corrections.length,
+      conversations: affectedConversationIds.size,
+      cancelled_jobs: cancelledJobs,
+    };
   },
 });
 
