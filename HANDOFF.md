@@ -6,8 +6,8 @@
 
 <!-- HANDOFF_STATE_START -->
 Active app: Codex
-Last session: 2026-07-21 — fixed stale Tinder self-ID direction inversion; repaired 35 imported messages across 6 conversations, cancelled 1 queued send, and deployed the guarded Convex repair mutation to production
-Next action: keep PR 219 aligned with deployed production, verify CI, then resume the local Tinder runner only after the repaired sync completes with zero active send jobs
+Last session: 2026-07-21 — deployed the guarded Tinder direction repair; runtime PR 61 made normal replies conversation-first; PR 62 preserved non-dating runners; 588 tests pass
+Next action: verify PR 219 and a repaired sync with zero active sends before resuming Tinder; then observe the next natural reply for tone and rotate the two fleet auth values exposed by a diagnostic dump
 <!-- HANDOFF_STATE_END -->
 
 ## How to use
