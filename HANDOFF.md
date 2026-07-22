@@ -6,8 +6,8 @@
 
 <!-- HANDOFF_STATE_START -->
 Active app: Codex
-Last session: 2026-07-21 — emergency stop cleared; runtime PR 51 shipped direct, affectionate two-choice date asks plus same-message number requests after acceptance; 382 tests pass
-Next action: install the `macbook16-dating` repo/runtime credentials, proxy, and launchd runner on the 16-inch MBP; refresh Tinder/Hinge sessions, then verify one bounded live conversation
+Last session: 2026-07-21 — fixed stale Tinder self-ID direction inversion; repaired 35 imported messages across 6 conversations, cancelled 1 queued send, and deployed the guarded Convex repair mutation to production
+Next action: keep PR 219 aligned with deployed production, verify CI, then resume the local Tinder runner only after the repaired sync completes with zero active send jobs
 <!-- HANDOFF_STATE_END -->
 
 ## How to use
