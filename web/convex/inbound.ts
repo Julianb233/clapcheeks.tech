@@ -30,6 +30,7 @@ export const interpretInboundForOne = internalAction({
     person_id: v.id("people"),
     conversation_id: v.id("conversations"),
     message_external_guid: v.optional(v.string()),
+    message_sent_at: v.number(),
   },
   handler: async (ctx, args): Promise<{ enqueued: number }> => {
     const person = await ctx.runQuery(internal.inbound._getPerson, {
@@ -43,20 +44,31 @@ export const interpretInboundForOne = internalAction({
 
     // Throttle enrich_courtship to once per 30 min per person.
     if (now - last > 30 * 60 * 1000) {
-      await ctx.runMutation(internal.inbound._enqueueEnrichJob, {
+      const inserted = await ctx.runMutation(internal.inbound._enqueueEnrichJob, {
         user_id: person.user_id,
         person_id: args.person_id,
         conversation_id: args.conversation_id,
       });
-      enqueued++;
+      if (inserted) enqueued++;
     }
 
-    // Always re-evaluate cadence; cheap.
-    await ctx.runMutation(internal.inbound._enqueueCadenceJob, {
-      user_id: person.user_id,
-      person_id: args.person_id,
-    });
-    enqueued++;
+    // A replay/backfill must never become a live send trigger. The watcher can
+    // legitimately import recent history after downtime, but only an inbound
+    // delivered within this bounded window may open an immediate cadence
+    // evaluation. Normal scheduled re-engagement remains a separate path.
+    const cadenceTriggerMaxAgeMs = 15 * 60 * 1000;
+    const cadenceTriggerFutureSkewMs = 5 * 60 * 1000;
+    const cadenceTriggerAgeMs = now - args.message_sent_at;
+    const isLiveCadenceTrigger =
+      cadenceTriggerAgeMs >= -cadenceTriggerFutureSkewMs
+      && cadenceTriggerAgeMs <= cadenceTriggerMaxAgeMs;
+    if (isLiveCadenceTrigger) {
+      const inserted = await ctx.runMutation(internal.inbound._enqueueCadenceJob, {
+        user_id: person.user_id,
+        person_id: args.person_id,
+      });
+      if (inserted) enqueued++;
+    }
 
     return { enqueued };
   },
@@ -137,6 +149,21 @@ export const _enqueueEnrichJob = internalMutation({
     conversation_id: v.id("conversations"),
   },
   handler: async (ctx, args) => {
+    for (const status of ["queued", "running"] as const) {
+      const existing = await ctx.db
+        .query("agent_jobs")
+        .withIndex("by_user_status", (q) =>
+          q.eq("user_id", args.user_id).eq("status", status),
+        )
+        .filter((q) =>
+          q.and(
+            q.eq(q.field("job_type"), "enrich_courtship"),
+            q.eq(q.field("payload.person_id"), args.person_id),
+          ),
+        )
+        .first();
+      if (existing) return false;
+    }
     const now = Date.now();
     await ctx.db.insert("agent_jobs", {
       user_id: args.user_id,
@@ -152,12 +179,28 @@ export const _enqueueEnrichJob = internalMutation({
       created_at: now,
       updated_at: now,
     } as any);
+    return true;
   },
 });
 
 export const _enqueueCadenceJob = internalMutation({
   args: { user_id: v.string(), person_id: v.id("people") },
   handler: async (ctx, args) => {
+    for (const status of ["queued", "running"] as const) {
+      const existing = await ctx.db
+        .query("agent_jobs")
+        .withIndex("by_user_status", (q) =>
+          q.eq("user_id", args.user_id).eq("status", status),
+        )
+        .filter((q) =>
+          q.and(
+            q.eq(q.field("job_type"), "cadence_evaluate_one"),
+            q.eq(q.field("payload.person_id"), args.person_id),
+          ),
+        )
+        .first();
+      if (existing) return false;
+    }
     const now = Date.now();
     await ctx.db.insert("agent_jobs", {
       user_id: args.user_id,
@@ -170,5 +213,6 @@ export const _enqueueCadenceJob = internalMutation({
       created_at: now,
       updated_at: now,
     } as any);
+    return true;
   },
 });

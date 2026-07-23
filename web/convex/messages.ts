@@ -570,6 +570,7 @@ export const upsertFromWebhook = mutation({
         person_id: resolvedPersonId!,
         conversation_id: convId,
         message_external_guid: args.external_guid,
+        message_sent_at: args.sent_at,
       });
     }
 
