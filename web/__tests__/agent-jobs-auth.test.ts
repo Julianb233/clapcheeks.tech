@@ -138,6 +138,44 @@ describe("agent job dating runner authorization", () => {
     });
   });
 
+  test("claimByTypes honors priority before newest-first query order", async () => {
+    const newestSync = job("newest-sync", "sync_hinge");
+    newestSync._creationTime = NOW - 1_000;
+    newestSync.created_at = NOW - 1_000;
+    newestSync.priority = 0;
+    const boundedCanary = job("bounded-canary", "run_swipe");
+    boundedCanary._creationTime = NOW - 10_000;
+    boundedCanary.created_at = NOW - 10_000;
+    boundedCanary.priority = 20;
+    const state = harness([newestSync, boundedCanary]);
+
+    const result = await invoke(claimByTypes, state.ctx, {
+      user_id: "fleet-julian",
+      agent_instance_id: ELECTED_RUNNER,
+      allowed_job_types: ["sync_hinge", "run_swipe"],
+      dating_runner_secret: SECRET,
+    });
+
+    expect(result._id).toBe("bounded-canary");
+  });
+
+  test("broad claim uses FIFO order when priorities tie", async () => {
+    const newest = job("newest", "enrich_person");
+    newest._creationTime = NOW - 1_000;
+    newest.created_at = NOW - 1_000;
+    const oldest = job("oldest", "enrich_person");
+    oldest._creationTime = NOW - 10_000;
+    oldest.created_at = NOW - 10_000;
+    const state = harness([newest, oldest]);
+
+    const result = await invoke(claim, state.ctx, {
+      user_id: "fleet-julian",
+      agent_instance_id: "ordinary-runner",
+    });
+
+    expect(result._id).toBe("oldest");
+  });
+
   test("the capability cannot authorize a non-elected dating runner", async () => {
     const state = harness([job("dating-job", "send_tinder")]);
     await expect(invoke(claimByTypes, state.ctx, {

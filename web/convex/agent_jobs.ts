@@ -103,6 +103,20 @@ function lockDurationMs(lockSeconds: number | undefined): number {
   return seconds * 1000;
 }
 
+type ClaimQueueOrder = {
+  priority?: number;
+  created_at?: number;
+  _creationTime?: number;
+};
+
+function compareClaimOrder(a: ClaimQueueOrder, b: ClaimQueueOrder): number {
+  const priorityDelta = (b.priority ?? 0) - (a.priority ?? 0);
+  if (priorityDelta !== 0) return priorityDelta;
+  const aCreated = a.created_at ?? a._creationTime ?? 0;
+  const bCreated = b.created_at ?? b._creationTime ?? 0;
+  return aCreated - bCreated;
+}
+
 // Enqueue a job for the local Mac agent to pick up.
 export const enqueue = mutation({
   args: {
@@ -221,14 +235,16 @@ export const claimByTypes = mutation({
       .collect();
 
     const allowed = new Set(args.allowed_job_types);
-    const target = queued.find((job) =>
-      allowed.has(job.job_type)
-      && mayAccessJob(
-        job.job_type,
-        args.agent_instance_id,
-        args.dating_runner_secret,
+    const target = queued
+      .filter((job) =>
+        allowed.has(job.job_type)
+        && mayAccessJob(
+          job.job_type,
+          args.agent_instance_id,
+          args.dating_runner_secret,
+        )
       )
-    );
+      .sort(compareClaimOrder)[0];
     if (!target) return null;
 
     const now = Date.now();
@@ -260,13 +276,15 @@ export const claim = mutation({
       .order("desc")
       .collect();
 
-    const target = queued.find((job) =>
-      mayAccessJob(
-        job.job_type,
-        args.agent_instance_id,
-        args.dating_runner_secret,
+    const target = queued
+      .filter((job) =>
+        mayAccessJob(
+          job.job_type,
+          args.agent_instance_id,
+          args.dating_runner_secret,
+        )
       )
-    );
+      .sort(compareClaimOrder)[0];
     if (!target) return null;
 
     const now = Date.now();
