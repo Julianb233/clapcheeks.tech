@@ -157,6 +157,9 @@ def _handle_send_imessage(payload: dict) -> dict:
 
     if not body:
         raise ValueError("send_imessage payload requires body or generate_at_fire_time=True")
+    from clapcheeks.autonomy.approval import validate_send_approval_envelope
+    if not validate_send_approval_envelope(payload, body):
+        return {"skipped": True, "reason": "exact_approval_required"}
 
     # Send via BlueBubbles. Optional media attachment.
     from clapcheeks.imessage.bluebubbles import BlueBubblesClient

@@ -170,11 +170,8 @@ Style details: ${JSON.stringify(voiceProfile.profile_data || {})}`
       }`
     : ''
 
-  const fallbackReplies = buildFallbackReplies(conversationContext, matchName, platform, profileContext)
-
   if (!anthropicApiKey) {
-    await storeReplySuggestions(convex, userId, conversationContext, fallbackReplies)
-    return fallbackReplies
+    return []
   }
 
   const anthropic = new Anthropic({ apiKey: anthropicApiKey })
@@ -199,10 +196,12 @@ Style details: ${JSON.stringify(voiceProfile.profile_data || {})}`
     '',
     'Rules:',
     "- Match the user's texting style exactly (length, emoji, capitalization, formality)",
-    '- Generate 3 replies with different styles:',
-    '  1. witty. clever, humorous, shows personality',
-    '  2. warm. genuine, caring, emotionally engaged',
-    '  3. direct. confident, straightforward, no fluff',
+    '- Generate one ranked reply, not generic tone options.',
+    '- Make one primary conversational move and ask at most one question.',
+    '- Answer any direct question first, then share or ask only what advances this thread.',
+    '- Match her approximate energy and length.',
+    '- Reject generic praise, interview questions, coach language, entitlement, unsupported pet names, repeated facts, and stale references.',
+    '- If the thread is conversion ready, stop unnecessary banter and propose two bounded date choices.',
     '- Each reply includes a "reasoning" field explaining why that reply works',
     '- Keep replies natural. They should sound like the user, not an AI',
     '- Consider conversation context and momentum',
@@ -210,7 +209,7 @@ Style details: ${JSON.stringify(voiceProfile.profile_data || {})}`
     '- Each reply max 160 characters',
     '- ABSOLUTELY no hyphens, dashes, em dashes, en dashes, semicolons, ellipsis, curly quotes',
     '',
-    'Return ONLY a JSON array of 3 suggestions, no other text.',
+    'Return ONLY a JSON array containing exactly one suggestion, no other text.',
   ]
     .filter(Boolean)
     .join('\n')
@@ -228,15 +227,14 @@ Style details: ${JSON.stringify(voiceProfile.profile_data || {})}`
 
 ${conversationContext}${profileSection}
 
-Generate 3 reply options.
+Generate the single best reply.
 Return JSON: [{ "text": "reply", "tone": "witty|warm|direct", "reasoning": "why this works", "confidence": 0.0-1.0 }]`,
         },
       ],
     })
   } catch (error) {
-    console.error('Anthropic reply generation failed, using local fallback:', error)
-    await storeReplySuggestions(convex, userId, conversationContext, fallbackReplies)
-    return fallbackReplies
+    console.error('Anthropic reply generation failed; returning no draft:', error)
+    return []
   }
 
   const responseText = message.content[0].type === 'text' ? message.content[0].text : ''
@@ -245,10 +243,11 @@ Return JSON: [{ "text": "reply", "tone": "witty|warm|direct", "reasoning": "why 
     suggestions = JSON.parse(responseText)
   } catch {
     const match = responseText.match(/\[[\s\S]*\]/)
-    if (match) {
+    if (!match) return []
+    try {
       suggestions = JSON.parse(match[0])
-    } else {
-      throw new Error('Failed to parse reply suggestions from Claude response')
+    } catch {
+      return []
     }
   }
 
@@ -263,90 +262,15 @@ Return JSON: [{ "text": "reply", "tone": "witty|warm|direct", "reasoning": "why 
     // Bad drafts are dropped silently here; agent/drafter.py logs discards to Convex.
   }
 
-  // If everything got dropped, keep the originals with sanitize applied as a
-  // least-bad fallback so the UI still shows something.
-  const finalList = cleaned.length > 0
-    ? cleaned
-    : suggestions.map((s) => ({ ...s, text: sanitizeDraft(s.text).slice(0, 160) }))
+  // A rejected model output is not replaced with generic or unvalidated copy.
+  const finalList = cleaned
+    .sort((a, b) => b.confidence - a.confidence)
+    .slice(0, 1)
+  if (finalList.length === 0) return []
 
   await storeReplySuggestions(convex, userId, conversationContext, finalList)
 
   return finalList
-}
-
-function latestInboundLine(conversationContext: string) {
-  const lines = conversationContext
-    .split('\n')
-    .map((line) => line.trim())
-    .filter(Boolean)
-  const inbound = [...lines].reverse().find((line) => /^(them|her):/i.test(line))
-  return (inbound || lines[lines.length - 1] || '')
-    .replace(/^(them|her|you|me|julian):\s*/i, '')
-    .trim()
-}
-
-function buildFallbackReplies(
-  conversationContext: string,
-  matchName: string,
-  platform: string,
-  profileContext?: unknown
-): ReplySuggestion[] {
-  const inbound = latestInboundLine(conversationContext)
-  const inboundLower = inbound.toLowerCase()
-  const profileText =
-    typeof profileContext === 'string'
-      ? profileContext
-      : profileContext
-        ? JSON.stringify(profileContext)
-        : ''
-  const combined = `${inboundLower} ${profileText.toLowerCase()} ${platform.toLowerCase()}`
-
-  let specificQuestion = 'what was the best part?'
-  let warmReply = 'okay that sounds fun'
-  let directReply = 'we should compare notes over drinks this week'
-
-  if (/(hike|hiking|trail|joshua tree|desert)/i.test(combined)) {
-    specificQuestion = 'what was the best part of the hike?'
-    warmReply = 'that sounds sick'
-    directReply = 'we should compare hike stories over drinks this week'
-  } else if (/(food|restaurant|dinner|cook|cooking|taco|sushi|coffee)/i.test(combined)) {
-    specificQuestion = 'what spot should i try first?'
-    warmReply = 'okay your taste sounds dangerous'
-    directReply = 'we should compare food takes over drinks this week'
-  } else if (/(music|concert|show|song|playlist|dj)/i.test(combined)) {
-    specificQuestion = 'what song is on repeat right now?'
-    warmReply = 'okay i respect the music taste'
-    directReply = 'we should trade playlists over drinks this week'
-  } else if (/(dog|cat|puppy|pet)/i.test(combined)) {
-    specificQuestion = 'what is their name?'
-    warmReply = 'that is very cute'
-    directReply = 'i need the pet lore over drinks this week'
-  } else if (inbound) {
-    const clean = inbound.replace(/[^\w\s?']/g, ' ').replace(/\s+/g, ' ').trim()
-    if (clean.length <= 36) warmReply = `okay ${clean.toLowerCase()} is funny`
-  }
-
-  const raw: ReplySuggestion[] = [
-    {
-      text: specificQuestion,
-      tone: 'witty',
-      reasoning: 'Local fallback asks one specific, short follow up in Julian voice.',
-      confidence: 0.62,
-    },
-    {
-      text: warmReply,
-      tone: 'warm',
-      reasoning: 'Short warm acknowledgement without overcommitting.',
-      confidence: 0.68,
-    },
-    {
-      text: directReply,
-      tone: 'direct',
-      reasoning: 'Direct option moves toward a date while staying casual.',
-      confidence: 0.64,
-    },
-  ]
-  return raw.map((s) => ({ ...s, text: sanitizeDraft(s.text).slice(0, 160) }))
 }
 
 async function storeReplySuggestions(

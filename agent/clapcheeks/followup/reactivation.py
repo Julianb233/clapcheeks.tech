@@ -42,7 +42,83 @@ a daemon fired.
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any, Optional
+
+
+@dataclass(frozen=True)
+class ReactivationContext:
+    native_thread_current: bool
+    prior_reciprocity: bool
+    identity_verified: bool
+    specific_callback: str | None
+    latest_julian_outbound_at: datetime
+    consecutive_unanswered_outbounds: int
+    prior_cta: str | None = None
+    prior_reactivation_attempts: int = 0
+    boundary_or_rejection: bool = False
+    delivery_failure: bool = False
+    sensitive_context: bool = False
+    manual_handling: bool = False
+
+
+@dataclass(frozen=True)
+class ReactivationDecision:
+    eligible: bool
+    reason: str
+    priority: str | None = None
+    must_rebuild_reciprocity: bool = False
+    allow_off_app_request: bool = False
+    allow_date_request: bool = False
+
+
+def evaluate_reactivation(
+    context: ReactivationContext,
+    *,
+    now: datetime | None = None,
+) -> ReactivationDecision:
+    """One-shot stale recovery using only current native-thread evidence."""
+    now = now or datetime.now(timezone.utc)
+    sent_at = context.latest_julian_outbound_at
+    if sent_at.tzinfo is None:
+        sent_at = sent_at.replace(tzinfo=timezone.utc)
+    age_hours = (now - sent_at).total_seconds() / 3600
+
+    if context.prior_reactivation_attempts >= 1:
+        return ReactivationDecision(False, "recovery_cycle_exhausted")
+    if (
+        context.boundary_or_rejection
+        or context.delivery_failure
+        or context.sensitive_context
+        or context.manual_handling
+    ):
+        return ReactivationDecision(False, "stop_condition")
+    if not context.native_thread_current:
+        return ReactivationDecision(False, "native_thread_uncertified")
+    if not context.identity_verified:
+        return ReactivationDecision(False, "identity_unverified")
+    if not context.prior_reciprocity:
+        return ReactivationDecision(False, "no_prior_reciprocity")
+    if context.consecutive_unanswered_outbounds >= 2:
+        return ReactivationDecision(False, "too_many_unanswered_outbounds")
+    if age_hours < 72:
+        return ReactivationDecision(False, "too_soon")
+    if age_hours > 90 * 24:
+        return ReactivationDecision(False, "manual_review_over_90_days")
+    if age_hours > 7 * 24 and not (context.specific_callback or "").strip():
+        return ReactivationDecision(False, "specific_callback_required")
+
+    priority = "highest" if age_hours <= 7 * 24 else "normal"
+    rebuild = context.prior_cta in {"phone", "date"}
+    return ReactivationDecision(
+        True,
+        "eligible",
+        priority=priority,
+        must_rebuild_reciprocity=rebuild,
+        allow_off_app_request=False,
+        allow_date_request=False,
+    )
 
 # ---------------------------------------------------------------------------
 # Default template map (stage -> template string)

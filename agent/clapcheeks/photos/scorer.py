@@ -1,14 +1,8 @@
-"""Photo scorer — ranks profile photos by predicted swipe-right rate.
+"""Objective profile-photo diagnostics.
 
-Uses heuristics + AI vision (Kimi multimodal or local) to score each photo.
-Scoring criteria:
-- Face visibility and clarity (0-30 pts)
-- Smile detection (0-20 pts)
-- Background quality (indoor clutter vs outdoor/clean) (0-20 pts)
-- Lighting quality (0-15 pts)
-- Solo vs group (solo preferred for first photo) (0-15 pts)
-
-Total: 0-100 score per photo.
+The numeric aggregate is a technical-quality summary, never an attractiveness
+or predicted swipe-right score. Recommendations are advisory and never reorder
+a live profile.
 """
 from __future__ import annotations
 
@@ -116,7 +110,7 @@ def _heuristic_score(image_path: str | Path) -> PhotoScore:
     # Map heuristics to scoring categories
     lighting = (brightness * 0.6 + contrast * 0.4) * 15
     face = sharpness * 30  # sharpness as proxy for face clarity
-    smile = saturation * 20  # saturation as proxy (colorful = engaging)
+    smile = saturation * 20  # legacy field: color/exposure diagnostic only
     background = contrast * 20
     solo = aspect * 15
 
@@ -130,11 +124,11 @@ def _heuristic_score(image_path: str | Path) -> PhotoScore:
     if sharpness < 0.5:
         tips.append("Image is blurry — use a tripod or tap to focus before shooting.")
     if aspect < 0.7:
-        tips.append("Landscape photos perform worse — crop to portrait (4:5) ratio.")
+        tips.append("Crop is landscape; compare a portrait (4:5) crop in a controlled experiment.")
     if saturation < 0.5:
         tips.append("Colors look dull — shoot in natural light or boost saturation slightly.")
     if not tips:
-        tips.append("Solid photo! Consider A/B testing it in different profile positions.")
+        tips.append("Technical checks passed; consider a single-variable same-platform experiment.")
 
     return PhotoScore(
         path=str(image_path),
@@ -234,22 +228,16 @@ def _kimi_score(image_path: str | Path) -> PhotoScore | None:
 # ---------------------------------------------------------------------------
 
 def score_photo(image_path: str | Path) -> PhotoScore:
-    """Score a single image. Uses Kimi vision if available, else PIL heuristics."""
+    """Return objective local diagnostics; no attractiveness prediction."""
     image_path = Path(image_path)
     if not image_path.exists():
         raise FileNotFoundError(f"Image not found: {image_path}")
 
-    # Try Kimi vision first
-    result = _kimi_score(image_path)
-    if result is not None:
-        return result
-
-    # Fall back to heuristics
     return _heuristic_score(image_path)
 
 
 def rank_photos(image_paths: list[str | Path]) -> list[PhotoScore]:
-    """Score and rank a list of photos. Returns sorted best-first."""
+    """Sort technical quality only; this does not authorize live reordering."""
     scores = [score_photo(p) for p in image_paths]
     scores.sort(key=lambda s: s.score, reverse=True)
     for i, s in enumerate(scores, 1):
@@ -267,8 +255,8 @@ def get_recommendations(scores: list[PhotoScore]) -> list[str]:
     worst = scores[-1] if len(scores) > 1 else None
 
     recs.append(
-        f"Your best photo is {Path(best.path).name} (score: {best.score}/100) "
-        f"— use it as your first profile photo."
+        f"{Path(best.path).name} has the strongest technical diagnostics "
+        f"({best.score}/100). Test it as a single-variable recommendation only."
     )
 
     if worst and worst.score < 50:
@@ -280,11 +268,11 @@ def get_recommendations(scores: list[PhotoScore]) -> list[str]:
     avg = sum(s.score for s in scores) / len(scores)
     if avg < 60:
         recs.append(
-            "Your overall photo quality is below average. Focus on good lighting, "
+            "Technical diagnostics are weak across this set. Focus on good lighting, "
             "sharp focus, and portrait orientation."
         )
     elif avg >= 80:
-        recs.append("Your photo set looks strong! Try A/B testing the order.")
+        recs.append("Technical diagnostics look strong. Use a same-platform A/B test before drawing conclusions.")
 
     # Collect unique tips
     all_tips = []

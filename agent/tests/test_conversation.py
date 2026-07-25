@@ -125,8 +125,9 @@ class TestRunLoop:
         with patch("requests.post", return_value=mock_response):
             summary = mgr.run_loop()
 
-        assert summary["openers_sent"] == 2
-        assert mock_client.send_message.call_count == 2
+        assert summary["openers_sent"] == 0
+        assert summary["openers_prepared"] == 2
+        assert mock_client.send_message.call_count == 0
 
     @patch("clapcheeks.conversation.manager.sleep_jitter")
     @patch("clapcheeks.conversation.manager.get_stale_conversations", return_value=[])
@@ -147,5 +148,6 @@ class TestRunLoop:
         with patch("requests.post", return_value=mock_response):
             summary = mgr.run_loop()
 
-        assert summary["openers_sent"] == 1
+        assert summary["openers_sent"] == 0
+        assert summary["openers_prepared"] == 1
         mock_client.send_message.assert_not_called()

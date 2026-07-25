@@ -292,72 +292,13 @@ export const claimNextDue = internalMutation({
 
 export const sendDue = internalMutation({
   args: {},
-  handler: async (ctx) => {
-    const now = Date.now();
-    const due = await ctx.db
-      .query("outbound_scheduled_messages")
-      .withIndex("by_status_due", (q) =>
-        q.eq("status", "approved").lte("scheduled_at", now),
-      )
-      .take(25);
-
-    const enqueued: string[] = [];
-    for (const row of due) {
-      const platform = (row.platform || "imessage").toLowerCase();
-      if (platform !== "imessage" && platform !== "sms") {
-        // Do not route app-platform scheduled sends through iMessage. Hinge/Tinder
-        // need platform-specific approval payloads (SendBird channel / Tinder match id)
-        // so fail closed rather than sending to a phone fallback.
-        await ctx.db.patch(row._id, {
-          status: "failed",
-          rejection_reason: `${platform} scheduled send requires platform-specific approval routing`,
-          updated_at: now,
-        });
-        continue;
-      }
-      if (!row.phone) {
-        // No delivery handle — skip rather than silently drop.
-        await ctx.db.patch(row._id, {
-          status: "failed",
-          rejection_reason: "no phone/handle; cannot deliver",
-          updated_at: now,
-        });
-        continue;
-      }
-
-      // Mark sent first (atomic mutation serialization prevents
-      // a concurrent tick from claiming the same row).
-      await ctx.db.patch(row._id, {
-        status: "sent",
-        sent_at: now,
-        updated_at: now,
-      });
-
-      // Enqueue a send_imessage job for the Mac Mini runner.
-      // Payload mirrors the shape expected by _handle_send_imessage in
-      // agent/clapcheeks/convex_runner.py: { handle, body }.
-      await ctx.db.insert("agent_jobs", {
-        user_id: row.user_id,
-        job_type: "send_imessage",
-        payload: {
-          handle: row.phone,
-          body: row.message_text,
-          outbound_scheduled_message_id: row._id,
-          match_name: row.match_name,
-          source: "outbound_cron",
-        },
-        status: "queued",
-        priority: 1,
-        attempts: 0,
-        max_attempts: 3,
-        created_at: now,
-        updated_at: now,
-      });
-
-      enqueued.push(row._id);
-    }
-
-    return { enqueued_count: enqueued.length, enqueued };
+  handler: async () => {
+    return {
+      enqueued_count: 0,
+      enqueued: [],
+      paused: true,
+      reason: "exact_approval_envelope_required",
+    };
   },
 });
 
