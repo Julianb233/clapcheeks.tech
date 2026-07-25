@@ -16,6 +16,7 @@
 // mutations enforce ownership via the user_id arg matching the row's user_id.
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
+import { approvalFingerprint } from "../lib/conversation-ai/approval-envelope";
 
 // =============================================================
 // queued_replies
@@ -416,6 +417,7 @@ function _buildApprovedSendJob(
     person_id: proposedData.person_id,
     conversation_id: proposedData.conversation_id,
     body: body.trim(),
+    platform,
     source: "approved_draft",
     approval_id: approvalId,
   };
@@ -468,6 +470,25 @@ function _buildApprovedSendJob(
   };
 }
 
+function _recipientForApprovedJob(job: {
+  job_type: string;
+  payload: Record<string, unknown>;
+}): string {
+  const payload = job.payload;
+  if (job.job_type === "send_hinge") {
+    return String(
+      payload.person_id ??
+      payload.external_match_id ??
+      payload.sendbird_channel_url ??
+      "",
+    );
+  }
+  if (job.job_type === "send_tinder") {
+    return String(payload.person_id ?? payload.match_id ?? "");
+  }
+  return String(payload.person_id ?? payload.handle ?? "");
+}
+
 export const decideApproval = mutation({
   args: {
     id: v.id("approval_queue"),
@@ -480,6 +501,8 @@ export const decideApproval = mutation({
     if (!row) throw new Error("Not found");
     if (row.user_id !== args.user_id) throw new Error("Forbidden");
     const now = Date.now();
+    if (row.status !== "pending") throw new Error("approval_already_decided");
+    if (row.expires_at < now) throw new Error("approval_expired");
     const updates: Record<string, unknown> = {
       status: args.status,
       decided_at: now,
@@ -495,13 +518,57 @@ export const decideApproval = mutation({
     // Build and validate the platform-specific send job before flipping status.
     // This keeps invalid Hinge/Tinder approvals from becoming approved rows that
     // later fail as accidental iMessage jobs.
-    const approvedJob = args.status === "approved"
+    let approvedJob = args.status === "approved"
       ? _buildApprovedSendJob(
           row,
           (updates.proposed_text as string | undefined) ?? row.proposed_text ?? undefined,
           args.id,
         )
       : null;
+
+    if (approvedJob) {
+      const exactFinalText = String(approvedJob.payload.body ?? "");
+      const verifiedRecipient = _recipientForApprovedJob(approvedJob);
+      const verifiedChannel = String(approvedJob.payload.platform ?? row.platform ?? "imessage")
+        .toLowerCase();
+      if (!verifiedRecipient) throw new Error("approval_recipient_unverified");
+      const sourcePacketId = `approval:${String(args.id)}`;
+      const expiresAt = Math.min(row.expires_at, now + 15 * 60 * 1000);
+      const fingerprint = await approvalFingerprint({
+        recipient: verifiedRecipient,
+        channel: verifiedChannel,
+        exactBody: exactFinalText,
+        sourcePacketId,
+      });
+      const duplicate = await ctx.db
+        .query("approval_queue")
+        .withIndex("by_fingerprint", (q) =>
+          q.eq("recipient_channel_body_fingerprint", fingerprint),
+        )
+        .first();
+      if (duplicate && duplicate._id !== args.id) {
+        throw new Error("approval_duplicate");
+      }
+      const approvalEnvelope = {
+        verified_recipient: verifiedRecipient,
+        verified_channel: verifiedChannel,
+        exact_final_text: exactFinalText,
+        approval_timestamp: now,
+        expires_at: expiresAt,
+        source_packet_id: sourcePacketId,
+        recipient_channel_body_fingerprint: fingerprint,
+      };
+      approvedJob = {
+        ...approvedJob,
+        payload: {
+          ...approvedJob.payload,
+          approval_envelope: approvalEnvelope,
+        },
+      };
+      Object.assign(updates, approvalEnvelope, {
+        consumed_at: now,
+      });
+    }
 
     await ctx.db.patch(args.id, updates);
 
