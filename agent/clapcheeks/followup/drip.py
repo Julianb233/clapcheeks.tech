@@ -883,10 +883,10 @@ def _insert_queued_replies(
     # messages to go out without SOP/guideline review. Only allow auto-send
     # when explicitly re-enabled at process level, and never while the global
     # emergency stop file exists.
-    allow_auto_send = os.environ.get("CLAPCHEEKS_ALLOW_AUTO_SEND") == "1"
+    allow_auto_send = False
     stop_file = os.path.expanduser("~/.clapcheeks/EMERGENCY_STOP")
     if auto_send and not allow_auto_send:
-        logger.warning("drip auto-send suppressed: CLAPCHEEKS_ALLOW_AUTO_SEND is not enabled")
+        logger.warning("drip auto-send suppressed: exact approval envelope path is required")
     if auto_send and os.path.exists(stop_file):
         logger.critical("drip auto-send suppressed: EMERGENCY_STOP is active")
     if auto_send and allow_auto_send and not os.path.exists(stop_file) and platform_clients and platform in platform_clients:

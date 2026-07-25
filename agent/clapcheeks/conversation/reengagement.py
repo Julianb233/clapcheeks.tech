@@ -193,26 +193,11 @@ def run_reengagement_pass(platform_clients: dict, config: dict) -> dict:
             results["errors"] += 1
             continue
 
+        logger.info(
+            "[SHADOW ONLY] Would re-engage %s (%s, %d days, stage=%s): %s",
+            match.name, match.platform, match.days_cold, stage, message,
+        )
         if dry_run:
-            logger.info(
-                "[DRY RUN] Would re-engage %s (%s, %d days, stage=%s): %s",
-                match.name, match.platform, match.days_cold, stage, message,
-            )
             results["sent"] += 1
-            continue
-
-        try:
-            if client.send_message(match.match_id, message):
-                update_conversation(match.match_id, last_ts=time.time())
-                results["sent"] += 1
-                logger.info(
-                    "Re-engaged %s (%s, %d days, stage=%s)",
-                    match.name, match.platform, match.days_cold, stage,
-                )
-            else:
-                results["errors"] += 1
-        except Exception as exc:
-            logger.error("Failed to re-engage %s: %s", match.name, exc)
-            results["errors"] += 1
 
     return results

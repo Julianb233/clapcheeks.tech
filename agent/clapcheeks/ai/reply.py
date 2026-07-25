@@ -1,4 +1,4 @@
-"""AI reply generator — Ollama first, Claude API second, Kimi third, safe fallback last.
+"""AI reply generator — Ollama first, Claude API second, Kimi third, then no draft.
 
 Research-backed:
 - Ask for a date after ~7 messages, skip asking for phone number first
@@ -13,6 +13,11 @@ import logging
 import os
 
 from clapcheeks.config import load as load_config
+from clapcheeks.conversation.decision import (
+    ConversationDecision,
+    NextAction,
+    decision_from_history,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -25,12 +30,14 @@ _PLATFORM_TONE = {
 
 REPLY_SYSTEM = (
     "You are helping craft a reply in a dating app conversation. "
-    "Research-backed strategy: "
-    "Ask for a date after ~7 messages. Skip asking for phone number first "
-    "(60% chance date never happens if you ask for number before date). "
-    "Reference something specific from their messages. "
-    "Keep messages short — 1-2 sentences max, under 160 characters. "
-    "Never be creepy, desperate, or aggressive. "
+    "Make exactly one primary conversational move. Answer a direct question first. "
+    "Match her approximate energy and length. Use lowercase-first, contractions, "
+    "light punctuation, no hyphens, at most one question, and at most one emoji "
+    "only when supported by context. Reference only verified facts. "
+    "Reject generic praise, interview questions, coach language, entitlement, "
+    "unsupported pet names, repeated information, stale references, and excess length. "
+    "When reciprocal engagement makes a date appropriate, stop unnecessary banter "
+    "and use two bounded choices. Never be creepy, desperate, or aggressive. "
     "Reply with ONLY the message text."
 )
 
@@ -40,13 +47,29 @@ def generate_reply(
     platform: str,
     style: str = "casual",
     match_profile: dict | None = None,
-) -> str:
+    decision: ConversationDecision | None = None,
+) -> str | None:
     """Generate a reply given conversation history and platform.
 
-    Fallback chain: Ollama -> Claude API -> Kimi API -> safe string.
+    Fallback chain: Ollama -> Claude API -> Kimi API -> no draft.
     Injects user persona + match intel (zodiac, interests) into the system
     prompt. Pass `match_profile` (raw rec/user dict) to enable intel.
     """
+    decision = decision or decision_from_history(
+        conversation_history, match_profile=match_profile
+    )
+    if decision.next_action in {
+        NextAction.PAUSE,
+        NextAction.HUMAN_REVIEW,
+        NextAction.CLOSE,
+    }:
+        logger.info(
+            "Pre-draft decision suppressed generation: %s/%s",
+            decision.state.value,
+            decision.next_action.value,
+        )
+        return None
+
     from clapcheeks import persona as _persona
     from clapcheeks import match_intel as _intel
 
@@ -59,6 +82,14 @@ def generate_reply(
     system = REPLY_SYSTEM
     if tone:
         system += f"\nPlatform tone for {platform}: {tone}"
+    system += (
+        f"\nPre-draft decision: state={decision.state.value}; "
+        f"next_action={decision.next_action.value}; "
+        f"cadence_window={decision.cadence_window}; "
+        f"unanswered_outbound_count={decision.unanswered_outbound_count}; "
+        f"prior_cta={decision.prior_cta or 'none'}. "
+        "Do not change the selected next action."
+    )
     system = _persona.merge_into_system(system)
 
     if match_profile:
@@ -142,9 +173,8 @@ def generate_reply(
         except Exception as exc:
             logger.warning("Kimi API reply failed: %s", exc)
 
-    # Attempt 4: Safe fallback
-    logger.info("Using safe fallback reply.")
-    return "haha that's awesome"
+    logger.warning("All reply generation providers failed; returning no draft.")
+    return None
 
 
 # PHASE-E — AI-8319 — pipeline-gated reply.
@@ -154,11 +184,12 @@ def generate_reply_with_pipeline(
     style: str = "casual",
     match_profile: dict | None = None,
     user_id: str | None = None,
+    decision: ConversationDecision | None = None,
 ) -> list[str]:
     """Generate a reply, then sanitize + validate + split into message array.
 
-    Returns a list of 1-3 short messages ready to queue. Falls back to a safe
-    persona-compliant reply on discard.
+    Returns validated message parts ready to queue. A failed or discarded
+    generation returns an empty list so generic text cannot enter the queue.
     """
     from clapcheeks.ai import drafter as _drafter
 
@@ -167,7 +198,10 @@ def generate_reply_with_pipeline(
         platform=platform,
         style=style,
         match_profile=match_profile,
+        decision=decision,
     )
+    if not raw:
+        return []
 
     # Infer stage — < 3 messages = early
     stage = "early" if len(conversation_history) < 3 else "mid"
@@ -183,5 +217,5 @@ def generate_reply_with_pipeline(
     if result.ok and result.messages:
         return result.messages
 
-    logger.info("Reply discarded: %s", result.errors)
-    return ["haha that's awesome"]
+    logger.info("Reply discarded with no fallback: %s", result.errors)
+    return []

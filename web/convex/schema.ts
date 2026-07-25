@@ -868,6 +868,16 @@ export default defineSchema({
     // touch was scheduled (or "skipped" sentinel "-1") so the 6h sweep cron can
     // detect un-processed soft_no touches without re-querying scheduled_touches.
     recovery_scheduled_at: v.optional(v.number()),
+    // Exact romantic-send approval envelope. The fingerprint binds recipient,
+    // channel, body, and source packet; any edit requires a fresh approval.
+    approval_recipient: v.optional(v.string()),
+    approval_channel: v.optional(v.string()),
+    approval_exact_text: v.optional(v.string()),
+    approval_timestamp: v.optional(v.number()),
+    approval_expires_at: v.optional(v.number()),
+    approval_source_packet_id: v.optional(v.string()),
+    approval_fingerprint: v.optional(v.string()),
+    approval_consumed_at: v.optional(v.number()),
     created_at: v.number(),
     updated_at: v.number(),
   })
@@ -931,6 +941,74 @@ export default defineSchema({
     .index("by_user", ["user_id"])
     .index("by_user_status", ["user_id", "approval_status"])
     .index("by_asset_id", ["asset_id"]),
+
+  // Profile experiments use Julian's approved media_assets only. Match photos
+  // are deliberately excluded because they represent other people.
+  profile_photo_snapshots: defineTable({
+    user_id: v.string(),
+    platform: v.string(),
+    active_from_ms: v.number(),
+    active_to_ms: v.optional(v.number()),
+    ordered_photo_ids: v.array(v.id("media_assets")),
+    source_certified: v.boolean(),
+    created_at: v.number(),
+  })
+    .index("by_user_platform", ["user_id", "platform"])
+    .index("by_platform_active", ["platform", "active_from_ms"]),
+
+  profile_photo_experiments: defineTable({
+    user_id: v.string(),
+    platform: v.string(),
+    baseline_snapshot_id: v.id("profile_photo_snapshots"),
+    variant_snapshot_id: v.id("profile_photo_snapshots"),
+    single_variable_changed: v.string(),
+    status: v.union(
+      v.literal("planned"),
+      v.literal("running"),
+      v.literal("completed"),
+      v.literal("cancelled"),
+    ),
+    recommendation_only: v.boolean(),
+    limitations: v.array(v.string()),
+    created_at: v.number(),
+    completed_at: v.optional(v.number()),
+  })
+    .index("by_user_platform", ["user_id", "platform"])
+    .index("by_status", ["status"]),
+
+  profile_photo_metrics: defineTable({
+    experiment_id: v.id("profile_photo_experiments"),
+    snapshot_id: v.id("profile_photo_snapshots"),
+    platform: v.string(),
+    window_start_ms: v.number(),
+    window_end_ms: v.number(),
+    exposures_or_right_swipes: v.optional(v.number()),
+    matches: v.number(),
+    replies: v.number(),
+    number_exchanges: v.number(),
+    date_proposals: v.number(),
+    confirmed_dates: v.number(),
+    confidence: v.union(
+      v.literal("insufficient_evidence"),
+      v.literal("low"),
+      v.literal("moderate"),
+      v.literal("high"),
+    ),
+    limitations: v.array(v.string()),
+    diagnostics: v.optional(v.object({
+      lighting_exposure: v.optional(v.number()),
+      sharpness_resolution: v.optional(v.number()),
+      crop_aspect_ratio: v.optional(v.number()),
+      face_visibility: v.optional(v.number()),
+      solo_group_composition: v.optional(v.string()),
+      background_distraction: v.optional(v.number()),
+      profile_variety: v.optional(v.number()),
+      duplicate_photo_ids: v.array(v.id("media_assets")),
+    })),
+    created_at: v.number(),
+  })
+    .index("by_experiment", ["experiment_id"])
+    .index("by_platform_window", ["platform", "window_start_ms"]),
 
   // -----------------------------------------------------------------------
   // AI-9449 Wave 2.2 — calendar_slots cache.
@@ -1150,12 +1228,20 @@ export default defineSchema({
       v.literal("expired"),
     ),
     expires_at: v.number(),               // unix ms
+    verified_recipient: v.optional(v.string()),
+    verified_channel: v.optional(v.string()),
+    exact_final_text: v.optional(v.string()),
+    approval_timestamp: v.optional(v.number()),
+    source_packet_id: v.optional(v.string()),
+    recipient_channel_body_fingerprint: v.optional(v.string()),
+    consumed_at: v.optional(v.number()),
     decided_at: v.optional(v.number()),
     legacy_id: v.optional(v.string()),
     created_at: v.number(),
   })
     .index("by_user_status", ["user_id", "status"])
     .index("by_status_expires", ["status", "expires_at"])
+    .index("by_fingerprint", ["recipient_channel_body_fingerprint"])
     .index("by_legacy_id", ["legacy_id"]),
 
   // AI-9526 F4 — Per-user autonomy mode mirror. fireOne reads global_level

@@ -32,7 +32,11 @@ class ConversationManager:
         self._api_url = config.get("api_url", os.environ.get("CLAPCHEEKS_API_URL", "http://localhost:3001"))
         self._agent_token = config.get("agent_token", os.environ.get("CLAPCHEEKS_AGENT_TOKEN", ""))
         self._style = self._load_style()
-        self._dry_run = config.get("dry_run", False)
+        # Legacy platform automation is shadow-only. Exact approved sends use
+        # the Convex ApprovalEnvelope -> runner path instead.
+        self._dry_run = True
+        if not config.get("dry_run", False):
+            logger.warning("Legacy conversation manager forced to shadow-only mode.")
 
     def _load_style(self) -> str:
         from pathlib import Path
@@ -122,7 +126,9 @@ class ConversationManager:
                 logger.debug("Failed to log progression: %s", exc)
         threading.Thread(target=_post, daemon=True).start()
 
-    def generate_reply_for_conversation(self, conversation_history: list[dict], platform: str) -> str:
+    def generate_reply_for_conversation(
+        self, conversation_history: list[dict], platform: str
+    ) -> str | None:
         """Generate a reply using the local AI fallback chain."""
         return generate_reply(conversation_history, platform)
 
@@ -206,7 +212,14 @@ class ConversationManager:
             return False
 
     def process_replies(self) -> dict:
-        results = {"checked": 0, "replied": 0, "dates_proposed": 0, "reengaged": 0, "errors": 0}
+        results = {
+            "checked": 0,
+            "replied": 0,
+            "drafted": 0,
+            "dates_proposed": 0,
+            "reengaged": 0,
+            "errors": 0,
+        }
         try:
             matches = self._client.get_matches(count=30) if hasattr(self._client, "get_matches") else []
         except Exception:
@@ -283,7 +296,7 @@ class ConversationManager:
                 continue
             if self._dry_run:
                 logger.info("[DRY RUN] Would reply to %s: %s", name, reply)
-                results["replied"] += 1
+                results["drafted"] += 1
                 continue
             try:
                 if self._client.send_message(match_id, reply):
@@ -297,7 +310,7 @@ class ConversationManager:
 
     def _process_reengagements(self) -> dict:
         """Send re-engagement messages to conversations silent 48h+."""
-        results = {"reengaged": 0, "errors": 0}
+        results = {"reengaged": 0, "drafted": 0, "errors": 0}
         stale = get_stale_conversations(hours=48)
         for entry in stale[:5]:
             match_id = entry["match_id"]
@@ -306,7 +319,7 @@ class ConversationManager:
             msg = generate_reengagement(match_name=name, days_silent=days_silent)
             if self._dry_run:
                 logger.info("[DRY RUN] Would re-engage %s: %s", name, msg)
-                results["reengaged"] += 1
+                results["drafted"] += 1
                 continue
             try:
                 if self._client.send_message(match_id, msg):
@@ -328,23 +341,34 @@ class ConversationManager:
         )
 
     def run_loop(self) -> dict:
-        summary = {"openers_sent": 0, "replies_sent": 0, "dates_proposed": 0, "reengaged": 0, "errors": 0}
+        summary = {
+            "openers_sent": 0,
+            "openers_prepared": 0,
+            "replies_sent": 0,
+            "replies_prepared": 0,
+            "dates_proposed": 0,
+            "reengaged": 0,
+            "reengagements_prepared": 0,
+            "errors": 0,
+        }
         new_matches = self.get_new_matches()
         logger.info("Found %d new matches needing openers", len(new_matches))
         for match in new_matches[:10]:
             if self.send_opener(match):
-                summary["openers_sent"] += 1
+                summary["openers_prepared"] += 1
             else:
                 summary["errors"] += 1
             sleep_jitter("message")
         reply_results = self.process_replies()
         summary["replies_sent"] = reply_results["replied"]
+        summary["replies_prepared"] = reply_results["drafted"]
         summary["dates_proposed"] = reply_results["dates_proposed"]
         summary["errors"] += reply_results["errors"]
 
         # Re-engage stale conversations (48h+ silence)
         reengage_results = self._process_reengagements()
         summary["reengaged"] = reengage_results["reengaged"]
+        summary["reengagements_prepared"] = reengage_results["drafted"]
         summary["errors"] += reengage_results["errors"]
 
         return summary

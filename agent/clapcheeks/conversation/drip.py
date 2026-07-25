@@ -255,21 +255,8 @@ def _send_via_client(
     if not client:
         logger.debug("No platform client for %s; skipping send.", platform)
         return False
-    if dry_run:
-        logger.info("[dry-run drip] %s -> %s: %s", platform, match_id, message)
-        return True
-    try:
-        ok = client.send_message(match_id, message)
-        if ok:
-            update_conversation(
-                match_id,
-                last_ts=time.time(),
-                last_sender="us",
-            )
-        return ok
-    except Exception as exc:
-        logger.warning("drip send failed: %s", exc)
-        return False
+    logger.info("[shadow-only drip] %s -> %s: %s", platform, match_id, message)
+    return bool(dry_run)
 
 
 def _action_send_template(

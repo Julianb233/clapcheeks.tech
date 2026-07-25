@@ -1,11 +1,123 @@
 """Approval Gate — route actions through approval queue or auto-execute (AUTO-05)."""
 from __future__ import annotations
-import logging, time, uuid
+import hashlib, hmac, logging, time, uuid
 from dataclasses import dataclass, field
 from typing import Any
 from clapcheeks.autonomy.config import AutonomyConfig, MatchAutonomyOverride, needs_approval
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class ApprovalEnvelope:
+    """Single-use approval bound to recipient, channel, and exact final text."""
+
+    verified_recipient: str
+    verified_channel: str
+    exact_final_text: str
+    approval_timestamp: float
+    expires_at: float
+    source_packet_id: str
+    recipient_channel_body_fingerprint: str
+    consumed_at: float | None = None
+
+    @staticmethod
+    def _fingerprint(recipient: str, channel: str, body: str, source_packet_id: str) -> str:
+        canonical = "\x1f".join((recipient.strip(), channel.strip().casefold(), body, source_packet_id))
+        return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+    @classmethod
+    def create(
+        cls,
+        *,
+        recipient: str,
+        channel: str,
+        exact_final_text: str,
+        source_packet_id: str,
+        ttl_seconds: int = 900,
+        now: float | None = None,
+    ) -> "ApprovalEnvelope":
+        timestamp = time.time() if now is None else now
+        return cls(
+            verified_recipient=recipient,
+            verified_channel=channel,
+            exact_final_text=exact_final_text,
+            approval_timestamp=timestamp,
+            expires_at=timestamp + max(1, ttl_seconds),
+            source_packet_id=source_packet_id,
+            recipient_channel_body_fingerprint=cls._fingerprint(
+                recipient, channel, exact_final_text, source_packet_id
+            ),
+        )
+
+    def verify(
+        self,
+        *,
+        recipient: str,
+        channel: str,
+        exact_final_text: str,
+        now: float | None = None,
+    ) -> bool:
+        timestamp = time.time() if now is None else now
+        expected = self._fingerprint(recipient, channel, exact_final_text, self.source_packet_id)
+        return (
+            self.consumed_at is None
+            and timestamp <= self.expires_at
+            and recipient == self.verified_recipient
+            and channel.casefold() == self.verified_channel.casefold()
+            and exact_final_text == self.exact_final_text
+            and expected == self.recipient_channel_body_fingerprint
+        )
+
+    def consume(
+        self,
+        *,
+        recipient: str,
+        channel: str,
+        exact_final_text: str,
+        now: float | None = None,
+    ) -> bool:
+        timestamp = time.time() if now is None else now
+        if not self.verify(
+            recipient=recipient,
+            channel=channel,
+            exact_final_text=exact_final_text,
+            now=timestamp,
+        ):
+            return False
+        self.consumed_at = timestamp
+        return True
+
+
+def validate_send_approval_envelope(
+    payload: dict[str, Any],
+    exact_body: str,
+    *,
+    now: float | None = None,
+) -> bool:
+    """Runtime check used immediately before a transport send."""
+    envelope = payload.get("approval_envelope")
+    if not isinstance(envelope, dict):
+        return False
+    recipient = str(payload.get("person_id") or payload.get("handle") or "")
+    channel = str(envelope.get("verified_channel") or "")
+    source_packet_id = str(envelope.get("source_packet_id") or "")
+    approved_recipient = str(envelope.get("verified_recipient") or "")
+    approved_body = envelope.get("exact_final_text")
+    fingerprint = str(envelope.get("recipient_channel_body_fingerprint") or "")
+    expires_at = envelope.get("expires_at")
+    if not recipient or not channel or not source_packet_id or not isinstance(expires_at, (int, float)):
+        return False
+    timestamp_ms = (time.time() if now is None else now) * 1000
+    expected = ApprovalEnvelope._fingerprint(
+        approved_recipient, channel, str(approved_body or ""), source_packet_id
+    )
+    return (
+        approved_recipient == recipient
+        and approved_body == exact_body
+        and expires_at >= timestamp_ms
+        and hmac.compare_digest(fingerprint, expected)
+    )
 
 @dataclass
 class QueueItem:

@@ -71,6 +71,7 @@
 import { mutation, internalAction, internalMutation, query } from "./_generated/server";
 import { internal, api } from "./_generated/api";
 import { v } from "convex/values";
+import { approvalFingerprint } from "../lib/conversation-ai/approval-envelope";
 import { Id } from "./_generated/dataModel";
 
 const TOUCH_TYPE = v.union(
@@ -197,13 +198,35 @@ export const commitPreview = mutation({
     if (!touch) return { not_found: true };
     if (touch.status !== "scheduled") return { wrong_status: touch.status };
     if (!touch.is_preview) return { not_a_preview: true };
+    const conversation = touch.conversation_id
+      ? await ctx.db.get(touch.conversation_id)
+      : null;
+    const verifiedChannel = conversation?.platform;
+    if (!verifiedChannel) return { approval_blocked: true, reason: "channel_unverified" };
 
     const fireAt = args.scheduled_for_ms ?? Date.now() + 5 * 60 * 1000;
+    const approvedAt = Date.now();
+    const approvalSourcePacketId = `touch:${String(args.touch_id)}`;
+    const approvalRecipient = String(touch.person_id);
+    const approvalFingerprintValue = await approvalFingerprint({
+      recipient: approvalRecipient,
+      channel: verifiedChannel,
+      exactBody: args.edited_body,
+      sourcePacketId: approvalSourcePacketId,
+    });
     await ctx.db.patch(args.touch_id, {
       draft_body: args.edited_body,
       scheduled_for: fireAt,
       is_preview: false,
       generate_at_fire_time: false,
+      approval_recipient: approvalRecipient,
+      approval_channel: verifiedChannel,
+      approval_exact_text: args.edited_body,
+      approval_timestamp: approvedAt,
+      approval_expires_at: approvedAt + 15 * 60 * 1000,
+      approval_source_packet_id: approvalSourcePacketId,
+      approval_fingerprint: approvalFingerprintValue,
+      approval_consumed_at: undefined,
       updated_at: Date.now(),
     });
     const delayMs = Math.max(0, fireAt - Date.now());
@@ -739,14 +762,28 @@ export const fireOne = internalAction({
       return { fired: true, type: touch.type, debrief_generated: true };
     }
 
-    // AI-9526 F4 — respect per-user autonomy mode. If supervised, route to
-    // approval_queue instead of firing directly. auto_send / full_auto / semi_auto
-    // continue through. Default (no row) = auto_send so existing fleets are
-    // unchanged.
-    const autonomyLevel = await ctx.runQuery(internal.touches._getAutonomyLevel, {
-      user_id: touch.user_id,
-    });
-    if (autonomyLevel === "supervised") {
+    // Every romantic/social send requires a fresh exact approval envelope.
+    // Autonomy levels cannot bypass this gate.
+    const expectedFingerprint =
+      touch.approval_recipient &&
+      touch.approval_channel &&
+      touch.approval_exact_text !== undefined &&
+      touch.approval_source_packet_id
+        ? await approvalFingerprint({
+            recipient: touch.approval_recipient,
+            channel: touch.approval_channel,
+            exactBody: touch.approval_exact_text,
+            sourcePacketId: touch.approval_source_packet_id,
+          })
+        : null;
+    const approvalValid =
+      touch.approval_recipient === String(touch.person_id) &&
+      touch.approval_exact_text === touch.draft_body &&
+      touch.approval_fingerprint === expectedFingerprint &&
+      typeof touch.approval_expires_at === "number" &&
+      touch.approval_expires_at >= Date.now() &&
+      touch.approval_consumed_at === undefined;
+    if (!approvalValid) {
       await ctx.runMutation(api.queues.enqueueApproval, {
         user_id: touch.user_id,
         action_type: `touch:${touch.type}`,
@@ -754,13 +791,18 @@ export const fireOne = internalAction({
         proposed_text: touch.draft_body,
         proposed_data: { person_id: touch.person_id, touch_id: args.touch_id },
         confidence: 0.5,
-        ai_reasoning: `Autonomy=supervised; touch ${touch.type} parked for approval`,
+        ai_reasoning: `Exact approval envelope missing, changed, expired, or consumed for touch ${touch.type}`,
       });
       await ctx.runMutation(internal.touches._markFired, {
-        touch_id: args.touch_id, status: "skipped", skip_reason: "autonomy_supervised",
+        touch_id: args.touch_id, status: "skipped", skip_reason: "exact_approval_required",
       });
-      return { skipped: true, reason: "autonomy_supervised", queued_for_approval: true };
+      return { skipped: true, reason: "exact_approval_required", queued_for_approval: true };
     }
+    const consumed = await ctx.runMutation(internal.touches._consumeApproval, {
+      touch_id: args.touch_id,
+      fingerprint: touch.approval_fingerprint,
+    });
+    if (!consumed) return { skipped: true, reason: "approval_duplicate_or_changed" };
 
     // Enqueue an agent_jobs row for the Mac Mini daemon to actually send.
     // (Actual send happens daemon-side because BlueBubbles HTTP is on Mac.)
@@ -774,6 +816,13 @@ export const fireOne = internalAction({
       generate_at_fire_time: touch.generate_at_fire_time,
       media_asset_id: touch.media_asset_id,
       prompt_template: touch.prompt_template,
+      approval_recipient: touch.approval_recipient!,
+      approval_channel: touch.approval_channel!,
+      approval_exact_text: touch.approval_exact_text!,
+      approval_timestamp: touch.approval_timestamp!,
+      approval_expires_at: touch.approval_expires_at!,
+      approval_source_packet_id: touch.approval_source_packet_id!,
+      approval_fingerprint: touch.approval_fingerprint!,
     });
     await ctx.runMutation(internal.touches._markFired, {
       touch_id: args.touch_id, status: "fired",
@@ -954,6 +1003,29 @@ export const _reschedule = internalMutation({
   },
 });
 
+export const _consumeApproval = internalMutation({
+  args: {
+    touch_id: v.id("scheduled_touches"),
+    fingerprint: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const touch = await ctx.db.get(args.touch_id);
+    if (
+      !touch ||
+      touch.approval_consumed_at !== undefined ||
+      touch.approval_fingerprint !== args.fingerprint ||
+      (touch.approval_expires_at ?? 0) < Date.now()
+    ) {
+      return false;
+    }
+    await ctx.db.patch(args.touch_id, {
+      approval_consumed_at: Date.now(),
+      updated_at: Date.now(),
+    });
+    return true;
+  },
+});
+
 export const _enqueueSendJob = internalMutation({
   args: {
     user_id: v.string(),
@@ -964,6 +1036,13 @@ export const _enqueueSendJob = internalMutation({
     generate_at_fire_time: v.optional(v.boolean()),
     media_asset_id: v.optional(v.id("media_assets")),
     prompt_template: v.optional(v.string()),
+    approval_recipient: v.string(),
+    approval_channel: v.string(),
+    approval_exact_text: v.string(),
+    approval_timestamp: v.number(),
+    approval_expires_at: v.number(),
+    approval_source_packet_id: v.string(),
+    approval_fingerprint: v.string(),
   },
   handler: async (ctx, args) => {
     const now = Date.now();
@@ -978,6 +1057,15 @@ export const _enqueueSendJob = internalMutation({
         generate_at_fire_time: args.generate_at_fire_time,
         media_asset_id: args.media_asset_id,
         prompt_template: args.prompt_template,
+        approval_envelope: {
+          verified_recipient: args.approval_recipient,
+          verified_channel: args.approval_channel,
+          exact_final_text: args.approval_exact_text,
+          approval_timestamp: args.approval_timestamp,
+          expires_at: args.approval_expires_at,
+          source_packet_id: args.approval_source_packet_id,
+          recipient_channel_body_fingerprint: args.approval_fingerprint,
+        },
       },
       status: "queued",
       priority: args.type.startsWith("date_") ? 1 : 5,
@@ -1361,37 +1449,17 @@ Example format:
     if (!result && dsKey) result = await tryOpenAICompatLocal("https://api.deepseek.com/chat/completions", dsKey, "deepseek-chat");
     if (!result && grokKey) result = await tryOpenAICompatLocal("https://api.x.ai/v1/chat/completions", grokKey, "grok-2-latest");
 
-    // Validate: must be array of 3 objects with kind + body.
+    // Return one ranked candidate rather than three generic tone options.
     if (Array.isArray(result) && result.length >= 1 && result[0]?.kind && result[0]?.body) {
-      return result.slice(0, 3).map((c: any) => ({
+      return result.slice(0, 1).map((c: any) => ({
         kind: String(c.kind),
         body: String(c.body).slice(0, 200),
         reasoning: String(c.reasoning ?? "").slice(0, 300),
       }));
     }
 
-    // LLM failed — return safe fallbacks so the feature still works.
-    console.warn(`_draft3PostDateCandidates: LLM failed for person ${args.person_id}, using fallbacks`);
-    const fallbackName = name.split(" ")[0];
-    return [
-      {
-        kind: "callback",
-        body: notes
-          ? `Was just thinking about ${notes.slice(0, 40).split(".")[0].toLowerCase()}... good times`
-          : `${fallbackName} — I keep thinking about tonight. Really good time.`,
-        reasoning: "Fallback callback — references notes if available",
-      },
-      {
-        kind: "photo",
-        body: `Still smiling from tonight. You should send me that pic if you grabbed one`,
-        reasoning: "Fallback photo invite — natural excuse for continued contact",
-      },
-      {
-        kind: "generic",
-        body: `${fallbackName} — tonight was genuinely fun. Let's do this again`,
-        reasoning: "Fallback generic — warm, no pressure, open door",
-      },
-    ];
+    console.warn(`_draft3PostDateCandidates: LLM failed for person ${args.person_id}; no draft returned`);
+    return [];
   },
 });
 
@@ -1425,45 +1493,8 @@ export const _setPostDateCandidates = internalMutation({
 // ---------------------------------------------------------------------------
 export const autoPick6hCron = internalMutation({
   args: {},
-  handler: async (ctx) => {
-    const now = Date.now();
-    const sixHoursAgo = now - 6 * 60 * 60 * 1000;
-
-    // Find post_date_calibration touches still in "scheduled" with candidates
-    // but updated (candidates generated) more than 6h ago.
-    const candidates = await ctx.db
-      .query("scheduled_touches")
-      .withIndex("by_due", (q) => q.eq("status", "scheduled").lte("scheduled_for", now + 18 * 60 * 60 * 1000))
-      .filter((q) => q.eq(q.field("type"), "post_date_calibration"))
-      .collect();
-
-    let autoPicked = 0;
-    for (const touch of candidates) {
-      if (!touch.candidate_drafts?.length) continue;
-      // Only auto-pick if touch was scheduled and candidates have been set for 6+ hours.
-      // We use updated_at as the proxy for when candidates were written.
-      if (touch.updated_at > sixHoursAgo) continue;
-      // Already has a draft_body = operator chose. Skip.
-      if (touch.draft_body) continue;
-
-      // Auto-pick "callback" — the highest-converting kind.
-      const callbackCandidate = touch.candidate_drafts.find((c) => c.kind === "callback");
-      const chosen = callbackCandidate ?? touch.candidate_drafts[0];
-
-      const fireAt = now + 5 * 60 * 1000;
-      await ctx.db.patch(touch._id, {
-        draft_body: chosen.body,
-        generate_at_fire_time: false,
-        scheduled_for: fireAt,
-        updated_at: now,
-      });
-      await ctx.scheduler.runAfter(5 * 60 * 1000, internal.touches.fireOne, {
-        touch_id: touch._id,
-      });
-      autoPicked++;
-    }
-
-    return { scanned: candidates.length, auto_picked: autoPicked };
+  handler: async () => {
+    return { scanned: 0, auto_picked: 0, paused: true, reason: "exact_approval_required" };
   },
 });
 
