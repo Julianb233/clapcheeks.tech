@@ -42,6 +42,7 @@ type BridgeConversationInput = {
   updated_at?: unknown;
   last_inbound_at?: unknown;
   last_outbound_at?: unknown;
+  metadata?: unknown;
 };
 
 type BridgeScheduledInput = {
@@ -51,6 +52,7 @@ type BridgeScheduledInput = {
   status?: unknown;
   execution_mode?: unknown;
   provider_reference?: unknown;
+  body?: unknown;
 };
 
 type BridgeMessageInput = {
@@ -70,6 +72,11 @@ export interface CctBridgePersonV2 {
   nextMove: string | null;
   nextFollowUpAt: string | null;
   channels: Array<"tinder" | "hinge" | "imessage">;
+  conversations: Array<{
+    id: string;
+    platform: "tinder" | "hinge" | "imessage";
+    version: number;
+  }>;
   policy: CctPersonPolicy;
 }
 
@@ -221,6 +228,25 @@ function channelsForPerson(
     .sort();
 }
 
+function conversationsForPerson(
+  person: BridgePersonInput,
+  conversations: BridgeConversationInput[],
+): CctBridgePersonV2["conversations"] {
+  const personId = String(person._id);
+  return conversations
+    .filter((conversation) => String(conversation.person_id ?? "") === personId)
+    .flatMap((conversation) => {
+      const platform = supportedPlatform(conversation.platform);
+      if (!platform) return [];
+      return [{
+        id: String(conversation._id),
+        platform,
+        version: asFiniteNumber(conversation.updated_at) ?? 0,
+      }];
+    })
+    .sort((left, right) => right.version - left.version);
+}
+
 function safeDisplayLabel(person: BridgePersonInput): string {
   const candidate =
     typeof person.display_name === "string" ? person.display_name.trim() : "";
@@ -265,6 +291,7 @@ export function buildCctSnapshotV2(input: {
           : null,
       nextFollowUpAt: asIso(person.next_followup_at),
       channels: channelsForPerson(person, input.conversations),
+      conversations: conversationsForPerson(person, input.conversations),
       policy: policyForPerson(person),
     };
   });

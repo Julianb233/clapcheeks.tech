@@ -88,6 +88,7 @@ describe("JuliBoop CCT read bridge", () => {
       "nextMove",
       "nextFollowUpAt",
       "channels",
+      "conversations",
       "policy",
     ]);
     expect(snapshot.people[0]).toMatchObject({
@@ -96,6 +97,13 @@ describe("JuliBoop CCT read bridge", () => {
       stage: "talking",
       temperature: "warm",
       channels: ["hinge"],
+      conversations: [
+        {
+          id: "conversation_1",
+          platform: "hinge",
+          version: now - 30_000,
+        },
+      ],
       policy: "automatic",
     });
     expect(snapshot.today).toMatchObject({
@@ -139,6 +147,7 @@ describe("JuliBoop CCT read bridge", () => {
       nextMove: null,
       nextFollowUpAt: null,
       channels: [],
+      conversations: [],
       policy: "manual_only",
     });
   });
