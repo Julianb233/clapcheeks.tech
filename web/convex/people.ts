@@ -760,6 +760,8 @@ export const updateCourtship = mutation({
       v.literal("pre_date"), v.literal("first_date_done"), v.literal("ongoing"),
       v.literal("exclusive"), v.literal("ghosted"), v.literal("ended"),
     )),
+    first_date_starts_at: v.optional(v.number()),
+    first_date_calendar_event_id: v.optional(v.string()),
     trust_signals_observed: v.optional(v.array(v.string())),
     trust_signals_missing: v.optional(v.array(v.string())),
     things_she_loves: v.optional(v.array(v.string())),
@@ -1142,7 +1144,8 @@ export const patchPerson = mutation({
     const patch: Record<string, any> = { updated_at: now };
     const allowed = [
       "display_name", "status", "cadence_profile", "whitelist_for_autoreply",
-      "courtship_stage", "hotness_rating", "effort_rating", "nurture_state",
+      "courtship_stage", "first_date_starts_at", "first_date_calendar_event_id",
+      "hotness_rating", "effort_rating", "nurture_state",
       "next_followup_kind", "operator_notes", "interests", "boundaries_stated",
       "things_she_loves", "things_she_dislikes", "active_hours_local",
       "dev_mode_bypass_overpursue",

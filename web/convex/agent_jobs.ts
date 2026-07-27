@@ -9,6 +9,7 @@ import {
   pacificWindowKey,
 } from "../lib/autonomy/morning-schedule";
 import { claimContextMatches } from "../lib/agent-jobs/lease";
+import { scheduledReceiptPatchFromJobResult } from "../lib/integrations/juliboop/scheduled-dispatch";
 
 type ClaimIdentity = {
   id: Id<"agent_jobs">;
@@ -93,6 +94,76 @@ async function requireActiveClaim(ctx: MutationCtx, claim: ClaimIdentity) {
     throw new Error("Agent job lease is missing, expired, or mismatched");
   }
   return { job, now };
+}
+
+async function updateScheduledMessageReceipt(
+  ctx: MutationCtx,
+  job: {
+    _id: Id<"agent_jobs">;
+    user_id: string;
+    payload?: unknown;
+  },
+  result: unknown,
+  now: number,
+) {
+  const payload =
+    job.payload && typeof job.payload === "object" && !Array.isArray(job.payload)
+      ? job.payload as Record<string, unknown>
+      : null;
+  const sourceId =
+    typeof payload?.source_scheduled_message_id === "string"
+      ? payload.source_scheduled_message_id
+      : "";
+  const scheduledId = ctx.db.normalizeId("scheduled_messages", sourceId);
+  if (!scheduledId) return;
+  const scheduled = await ctx.db.get(scheduledId);
+  if (
+    !scheduled
+    || scheduled.user_id !== job.user_id
+    || scheduled.job_id !== job._id
+  ) {
+    return;
+  }
+  await ctx.db.patch(scheduledId, scheduledReceiptPatchFromJobResult(result, now));
+}
+
+async function failScheduledMessage(
+  ctx: MutationCtx,
+  job: {
+    _id: Id<"agent_jobs">;
+    user_id: string;
+    payload?: unknown;
+  },
+  reason: string,
+  now: number,
+) {
+  const payload =
+    job.payload && typeof job.payload === "object" && !Array.isArray(job.payload)
+      ? job.payload as Record<string, unknown>
+      : null;
+  const sourceId =
+    typeof payload?.source_scheduled_message_id === "string"
+      ? payload.source_scheduled_message_id
+      : "";
+  const scheduledId = ctx.db.normalizeId("scheduled_messages", sourceId);
+  if (!scheduledId) return;
+  const scheduled = await ctx.db.get(scheduledId);
+  if (
+    !scheduled
+    || scheduled.user_id !== job.user_id
+    || scheduled.job_id !== job._id
+  ) {
+    return;
+  }
+  const safeReason = reason
+    .trim()
+    .replace(/[^a-zA-Z0-9._:-]+/g, "_")
+    .slice(0, 120) || "provider_execution_failed";
+  await ctx.db.patch(scheduledId, {
+    status: "failed",
+    failure_reason: safeReason,
+    updated_at: now,
+  });
 }
 
 function lockDurationMs(lockSeconds: number | undefined): number {
@@ -310,7 +381,7 @@ export const complete = mutation({
     dating_runner_secret: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const { now } = await requireActiveClaim(ctx, args);
+    const { job, now } = await requireActiveClaim(ctx, args);
     await ctx.db.patch(args.id, {
       status: "completed",
       result: args.result,
@@ -319,6 +390,7 @@ export const complete = mutation({
       locked_until: undefined,
       updated_at: now,
     });
+    await updateScheduledMessageReceipt(ctx, job, args.result, now);
     return { completed: true as const };
   },
 });
@@ -342,6 +414,7 @@ export const fail = mutation({
         locked_until: undefined,
         updated_at: now,
       });
+      await failScheduledMessage(ctx, job, args.error, now);
       return { failed: true as const, status: "failed" as const };
     } else {
       await ctx.db.patch(args.id, {
@@ -382,6 +455,7 @@ export const failPermanent = mutation({
       locked_until: undefined,
       updated_at: now,
     });
+    await failScheduledMessage(ctx, job, `${cls}${args.error}`, now);
     return { failed: true as const, status: "failed" as const };
   },
 });
