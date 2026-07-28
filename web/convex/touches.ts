@@ -596,12 +596,12 @@ async function _computeBodyShape(type: string, draftBody: string): Promise<strin
 // ---------------------------------------------------------------------------
 export const fireOne = internalAction({
   args: { touch_id: v.id("scheduled_touches") },
-  handler: async (ctx, args) => {
-    const touch = await ctx.runQuery(internal.touches._getTouch, { touch_id: args.touch_id });
+  handler: async (ctx, args): Promise<any> => {
+    const touch: any = await ctx.runQuery(internal.touches._getTouch, { touch_id: args.touch_id });
     if (!touch) return { skipped: true, reason: "touch_not_found" };
     if (touch.status !== "scheduled") return { skipped: true, reason: `status_${touch.status}` };
 
-    const person = await ctx.runQuery(internal.touches._getPerson, { person_id: touch.person_id });
+    const person: any = await ctx.runQuery(internal.touches._getPerson, { person_id: touch.person_id });
     if (!person) {
       await ctx.runMutation(internal.touches._markFired, {
         touch_id: args.touch_id, status: "skipped", skip_reason: "person_not_found",
@@ -664,13 +664,13 @@ export const fireOne = internalAction({
 
       // Collect fired touches in the last 7 days for this user.
       const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
-      const recentFired = await ctx.runQuery(internal.touches._getRecentFiredByUser, {
+      const recentFired: any[] = await ctx.runQuery(internal.touches._getRecentFiredByUser, {
         user_id: touch.user_id,
         since_ms: sevenDaysAgo,
       });
 
       // Check for shape collision (skip the touch itself — it's still "scheduled").
-      for (const fired of recentFired) {
+      for (const fired of recentFired as any[]) {
         if (fired._id === args.touch_id) continue;
         if (fired.fired_body_shape === bodyShape) {
           await ctx.runMutation(internal.touches._markFired, {
@@ -724,7 +724,7 @@ export const fireOne = internalAction({
     // will auto-fire after 6h if the operator hasn't chosen.
     // -----------------------------------------------------------------------
     if (touch.type === "post_date_calibration") {
-      const candidates = await ctx.runAction(internal.touches._draft3PostDateCandidates, {
+      const candidates: any = await ctx.runAction(internal.touches._draft3PostDateCandidates, {
         user_id: touch.user_id,
         person_id: touch.person_id,
         date_notes_text: touch.date_notes_text,
@@ -1082,7 +1082,7 @@ export const _enqueueSendJob = internalMutation({
 // ---------------------------------------------------------------------------
 
 // _getDebriefCard — thin query wrapper so internalAction can call it
-export const _getDebriefCard = internalMutation({
+export const _getDebriefCard = internalQuery({
   args: {
     person_id: v.id("people"),
     user_id: v.optional(v.string()),

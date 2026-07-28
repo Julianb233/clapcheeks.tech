@@ -107,6 +107,7 @@ crons.interval(
   "enqueue-calls-sync",
   { minutes: 15 },
   internal.agent_jobs.enqueueCallsSync,
+  {},
 );
 
 // AI-9500-C: Enqueue a Hinge message sync job every 5 minutes.
@@ -117,6 +118,7 @@ crons.interval(
   "enqueue-hinge-sync",
   { minutes: 5 },
   internal.agent_jobs.enqueueHingeSync,
+  {},
 );
 
 // AI-9500-E — Reply-velocity mirror weekly recalibration.
@@ -169,6 +171,7 @@ crons.interval(
   "enqueue-tinder-sync",
   { minutes: 5 },
   internal.agent_jobs.enqueueTinderSync,
+  {},
 );
 
 // AI-9500 W2 #G — Voice-memo trigger sweep every 6 hours.
