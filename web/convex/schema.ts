@@ -134,11 +134,26 @@ export default defineSchema({
     schedule_reason: v.optional(v.string()),
     status: v.union(
       v.literal("pending"),
+      v.literal("accepted"),
+      v.literal("queued"),
       v.literal("sent"),
+      v.literal("delivered"),
       v.literal("cancelled"),
+      v.literal("blocked"),
       v.literal("failed"),
     ),
     sent_message_id: v.optional(v.id("messages")),
+    idempotency_key: v.optional(v.string()),
+    execution_mode: v.optional(v.union(
+      v.literal("smart"),
+      v.literal("fixed"),
+    )),
+    expected_conversation_updated_at: v.optional(v.number()),
+    job_id: v.optional(v.id("agent_jobs")),
+    provider_reference: v.optional(v.string()),
+    delivered_at: v.optional(v.number()),
+    approval_envelope: v.optional(v.any()),
+    mutation_snapshot: v.optional(v.any()),
     failure_reason: v.optional(v.string()),
     created_at: v.number(),
     updated_at: v.number(),
@@ -345,6 +360,8 @@ export default defineSchema({
       v.literal("ghosted"),                            // unilateral silence on her end
       v.literal("ended"),                              // explicit end
     )),
+    first_date_starts_at: v.optional(v.number()),
+    first_date_calendar_event_id: v.optional(v.string()),
     trust_signals_observed: v.optional(v.array(v.string())),    // e.g. ["shares vulnerable details", "follows through on plans"]
     trust_signals_missing: v.optional(v.array(v.string())),     // e.g. ["never initiates", "only talks late at night"]
     things_she_loves: v.optional(v.array(v.string())),          // her stated favorite topics / hooks for the next message
