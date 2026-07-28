@@ -276,7 +276,7 @@ export const runCohortRetro = action({
     period_start_ms: v.number(),
     period_end_ms: v.number(),
   },
-  handler: async (ctx, args) => {
+  handler: async (ctx, args): Promise<any> => {
     console.log(
       `[cohort_retro] Starting retro for ${args.user_id} ` +
         `${new Date(args.period_start_ms).toISOString()} → ` +
@@ -318,14 +318,14 @@ export const runCohortRetro = action({
     const analyses: ConvAnalysis[] = [];
 
     for (const conv of conversations) {
-      const [messages, postDateTouches] = await Promise.all([
+      const [messages, postDateTouches]: [any[], any[]] = await Promise.all([
         ctx.runQuery(internal.cohort_retro._getMessagesForConversation, {
           conversation_id: conv._id,
         }),
         ctx.runQuery(internal.cohort_retro._getPostDateTouchesForConversation, {
           conversation_id: conv._id,
         }),
-      ]);
+      ]) as [any[], any[]];
 
       const { stage, openerLen, matchDayOfWeek } = classifyConversation(
         conv,
@@ -550,7 +550,7 @@ phone_swap→date: ${funnel.first_date_done + funnel.second_date_done + funnel.o
     };
 
     // Step 7: Insert into cohort_retros
-    const retroId = await ctx.runMutation(internal.cohort_retro._insertRetroRow, {
+    const retroId: any = await ctx.runMutation(internal.cohort_retro._insertRetroRow, {
       user_id: args.user_id,
       period_start_ms: args.period_start_ms,
       period_end_ms: args.period_end_ms,

@@ -635,8 +635,8 @@ export const getRosterKPIs = query({
       .filter((p) => {
         const emo = (p.emotional_state_recent ?? []).slice(-1)[0]?.state;
         const wasWarm =
-          emo === "happy" || emo === "playful" || emo === "flirty" ||
-          emo === "warm" || p.conversation_temperature === "warm" ||
+          emo === "playful" || emo === "flirty" ||
+          p.conversation_temperature === "warm" ||
           p.conversation_temperature === "hot";
         return wasWarm;
       })

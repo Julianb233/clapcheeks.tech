@@ -23,7 +23,7 @@
  *   - crons.ts: sweepDebriefExtraction every 24h
  */
 
-import { internalAction, internalMutation } from "./_generated/server";
+import { internalAction, internalMutation, internalQuery } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
 
@@ -175,7 +175,7 @@ Example:
 // ---------------------------------------------------------------------------
 // _getDossierForExtraction — thin internal query (no media)
 // ---------------------------------------------------------------------------
-export const _getDossierForExtraction = internalMutation({
+export const _getDossierForExtraction = internalQuery({
   args: { person_id: v.id("people") },
   handler: async (ctx, args) => {
     const person = await ctx.db.get(args.person_id);
