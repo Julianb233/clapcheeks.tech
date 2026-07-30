@@ -241,6 +241,21 @@ export async function POST(request: Request) {
         person_id: command.personId as Id<"people">,
         ...patch,
       });
+    } else if (command.type === "remove_person_from_cct") {
+      await convex.mutation(api.people.archivePerson, {
+        person_id: command.personId as Id<"people">,
+        reason: command.reason,
+      });
+      const readback = await loadOwnedPerson(command.personId);
+      if (!readback?.archived_at || readback.whitelist_for_autoreply !== false) {
+        return json({ error: "person_removal_readback_failed", requestId }, 503);
+      }
+      return json(receipt({
+        commandId: idempotencyKey,
+        requestId,
+        state: "completed",
+        updatedAt: readback.updated_at,
+      }));
     } else if (command.type === "set_relationship_stage") {
       await convex.mutation(api.people.patchPerson, {
         person_id: command.personId as Id<"people">,

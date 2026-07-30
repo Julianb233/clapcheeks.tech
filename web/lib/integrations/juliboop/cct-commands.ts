@@ -39,6 +39,11 @@ export type CctCommand =
       stage: "roster" | "talking" | "first_date" | "consistent";
     }
   | {
+      type: "remove_person_from_cct";
+      personId: string;
+      reason: string;
+    }
+  | {
       type: "set_first_date";
       personId: string;
       startsAt: string;
@@ -85,6 +90,7 @@ const COMMAND_KEYS: Record<string, Set<string>> = {
   set_person_policy: new Set(["type", "personId", "policy"]),
   set_global_automation: new Set(["type", "enabled"]),
   set_relationship_stage: new Set(["type", "personId", "stage"]),
+  remove_person_from_cct: new Set(["type", "personId", "reason"]),
   set_first_date: new Set([
     "type",
     "personId",
@@ -239,6 +245,12 @@ export function parseCctCommand(value: unknown): CctCommand {
         stage: stage as "roster" | "talking" | "first_date" | "consistent",
       };
     }
+    case "remove_person_from_cct":
+      return {
+        type,
+        personId: boundedString(command.personId, "personId"),
+        reason: boundedString(command.reason, "reason"),
+      };
     case "set_first_date":
       return {
         type,

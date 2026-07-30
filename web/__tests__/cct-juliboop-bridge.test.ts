@@ -152,6 +152,32 @@ describe("JuliBoop CCT read bridge", () => {
     });
   });
 
+  it("excludes archived people from CCT without deleting their canonical rows", () => {
+    const snapshot = buildCctSnapshotV2({
+      people: [
+        {
+          _id: "person_active",
+          display_name: "Active Person",
+          status: "active",
+        },
+        {
+          _id: "person_archived",
+          display_name: "Archived Person",
+          status: "active",
+          archived_at: 1_000,
+        },
+      ],
+      conversations: [],
+      scheduled: [],
+      globalAutomationEnabled: false,
+      now: 2_000,
+      requestId: "request_archive_filter",
+    });
+
+    expect(snapshot.people.map((person) => person.id)).toEqual(["person_active"]);
+    expect(snapshot.truncated).toBe(false);
+  });
+
   it("sanitizes and bounds a conversation page", () => {
     const page = buildCctConversationPage({
       conversation: {

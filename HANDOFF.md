@@ -6,8 +6,8 @@
 
 <!-- HANDOFF_STATE_START -->
 Active app: Codex
-Last session: 2026-07-21 — deployed the guarded Tinder direction repair; runtime PR 61 made normal replies conversation-first; PR 62 preserved non-dating runners; 588 tests pass
-Next action: verify PR 219 and a repaired sync with zero active sends before resuming Tinder; then observe the next natural reply for tone and rotate the two fleet auth values exposed by a diagnostic dump
+Last session: 2026-07-30 — added a reasoned, idempotent `remove_person_from_cct` bridge command that archives CCT membership, preserves the canonical person row, disables autoreply, and verifies readback; 153/153 tests pass
+Next action: review the draft PR, resolve the repository's existing TypeScript baseline and provide Stripe build credentials, then deploy this backend before enabling the paired JuliBoop card control
 <!-- HANDOFF_STATE_END -->
 
 ## How to use

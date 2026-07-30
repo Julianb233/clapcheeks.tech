@@ -30,6 +30,26 @@ describe("JuliBoop CCT command bridge", () => {
     ).toThrowError(
       expect.objectContaining({ code: "invalid_command" }),
     );
+    expect(
+      parseCctCommand({
+        type: "remove_person_from_cct",
+        personId: "person_opaque",
+        reason: "Not part of CCT",
+      }),
+    ).toEqual({
+      type: "remove_person_from_cct",
+      personId: "person_opaque",
+      reason: "Not part of CCT",
+    });
+    expect(() =>
+      parseCctCommand({
+        type: "remove_person_from_cct",
+        personId: "person_opaque",
+        reason: "",
+      }),
+    ).toThrowError(
+      expect.objectContaining({ code: "invalid_command" }),
+    );
   });
 
   it("rejects invalid schedule timestamps and oversized bodies", () => {

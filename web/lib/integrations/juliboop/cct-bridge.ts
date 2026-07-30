@@ -31,6 +31,7 @@ type BridgePersonInput = {
   next_followup_at?: unknown;
   next_best_move?: unknown;
   whitelist_for_autoreply?: unknown;
+  archived_at?: unknown;
   handles?: unknown;
 };
 
@@ -261,7 +262,10 @@ export function buildCctSnapshotV2(input: {
   now: number;
   requestId: string;
 }): CctSnapshotV2 {
-  const visiblePeople = input.people.slice(0, PEOPLE_LIMIT);
+  const eligiblePeople = input.people.filter(
+    (person) => asFiniteNumber(person.archived_at) === null,
+  );
+  const visiblePeople = eligiblePeople.slice(0, PEOPLE_LIMIT);
   const activeScheduled = input.scheduled.filter((row) =>
     ["pending", "accepted", "queued"].includes(String(row.status ?? "")),
   );
@@ -325,7 +329,7 @@ export function buildCctSnapshotV2(input: {
       runtime: { status: "healthy" },
     },
     people,
-    truncated: input.people.length > PEOPLE_LIMIT,
+    truncated: eligiblePeople.length > PEOPLE_LIMIT,
   };
 }
 
