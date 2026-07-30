@@ -9,6 +9,7 @@ import { getFleetUserId } from "@/lib/fleet-user";
 import {
   authorizeCctBridgeBearer,
   buildCctSnapshotV2,
+  CCT_PEOPLE_QUERY_LIMIT,
 } from "@/lib/integrations/juliboop/cct-bridge";
 
 const PRIVATE_HEADERS = {
@@ -42,7 +43,10 @@ export async function GET(request: Request) {
       };
     }).scheduled_messages.listForUser;
     const [people, conversations, scheduled, settings] = await Promise.all([
-      convex.query(api.people.listForUser, { user_id: userId, limit: 51 }),
+      convex.query(api.people.listForUser, {
+        user_id: userId,
+        limit: CCT_PEOPLE_QUERY_LIMIT,
+      }),
       convex.query(api.conversations.listForUser, {
         user_id: userId,
         limit: 200,
