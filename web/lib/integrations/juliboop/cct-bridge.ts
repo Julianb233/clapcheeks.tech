@@ -146,6 +146,7 @@ export interface CctSchedulePage {
 
 const MIN_BRIDGE_SECRET_LENGTH = 32;
 const PEOPLE_LIMIT = 50;
+export const CCT_PEOPLE_QUERY_LIMIT = 2_000;
 const SUPPORTED_CHANNELS = new Set(["tinder", "hinge", "imessage"]);
 const TEMPERATURES = new Set(["hot", "warm", "cool", "cold", "dormant"]);
 

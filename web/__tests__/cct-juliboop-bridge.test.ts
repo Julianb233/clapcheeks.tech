@@ -5,6 +5,7 @@ import {
   buildCctConversationPage,
   buildCctSchedulePage,
   buildCctSnapshotV2,
+  CCT_PEOPLE_QUERY_LIMIT,
 } from "../lib/integrations/juliboop/cct-bridge";
 
 const TOKEN = "bridge-test-token-with-at-least-32-characters";
@@ -175,6 +176,36 @@ describe("JuliBoop CCT read bridge", () => {
     });
 
     expect(snapshot.people.map((person) => person.id)).toEqual(["person_active"]);
+    expect(snapshot.truncated).toBe(false);
+  });
+
+  it("queries the full supported roster before filtering archived people", () => {
+    expect(CCT_PEOPLE_QUERY_LIMIT).toBe(2_000);
+
+    const snapshot = buildCctSnapshotV2({
+      people: [
+        ...Array.from({ length: 51 }, (_, index) => ({
+          _id: `person_archived_${index}`,
+          display_name: `Archived Person ${index}`,
+          status: "active",
+          archived_at: 1_000 + index,
+        })),
+        {
+          _id: "person_active_after_archived_page",
+          display_name: "Active Person",
+          status: "active",
+        },
+      ],
+      conversations: [],
+      scheduled: [],
+      globalAutomationEnabled: false,
+      now: 2_000,
+      requestId: "request_full_roster_filter",
+    });
+
+    expect(snapshot.people.map((person) => person.id)).toEqual([
+      "person_active_after_archived_page",
+    ]);
     expect(snapshot.truncated).toBe(false);
   });
 
