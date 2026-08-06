@@ -21,6 +21,7 @@
 import { internalAction, internalMutation, internalQuery, mutation } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
+import { isDatingRelevantPerson } from "../lib/clapcheeks/dating-relevance";
 
 // -------------------------------------------------------------------------
 // LLM provider abstraction (Convex-Action side, pure fetch — no SDK)
@@ -444,27 +445,6 @@ const VIBE_STALE_DAYS = 30;           // re-run vibe every 30 days
 // new inbound. Stagger spread (6s/each) means 30 calls span ~3 minutes,
 // well within Gemini 2.0 Flash rate limits.
 const MAX_PER_SWEEP = 30;
-const NINETY_DAYS_MS = 90 * 24 * 60 * 60 * 1000;
-const DATING_CHANNELS = new Set(["imessage", "hinge", "tinder", "bumble", "instagram"]);
-
-// AI-9500 audit: dating-relevance heuristic — must match the network page filter
-// in app/admin/clapcheeks-ops/network/page.tsx::isDatingRelevant. Sweeps
-// originally filtered by `google_contacts_labels.includes("CC TECH")` but
-// labels were never populated in Convex, so 0 candidates ever surfaced
-// despite ~71 active iMessage threads. This heuristic widens the net so
-// enrichment + vibe + cadence actually run.
-function isDatingRelevant(p: any, now: number): boolean {
-  if (!["lead", "active", "dating", "paused"].includes(p.status)) return false;
-  // Legacy CC TECH path stays valid in case labels start landing later.
-  if ((p.google_contacts_labels ?? []).includes("CC TECH")) return true;
-  const handles = p.handles ?? [];
-  const hasDatingHandle = handles.some((h: any) => DATING_CHANNELS.has(h.channel));
-  const hasRecentInbound = p.last_inbound_at && now - p.last_inbound_at < NINETY_DAYS_MS;
-  const hasOperatorRating = p.hotness_rating !== undefined || p.effort_rating !== undefined;
-  const isDatingVibe = p.vibe_classification === "dating";
-  const isImported = p.imported_from_profile_screenshot === true;
-  return Boolean(hasDatingHandle || hasRecentInbound || hasOperatorRating || isDatingVibe || isImported);
-}
 
 export const sweepCourtshipCandidates = internalMutation({
   args: {},
@@ -473,7 +453,7 @@ export const sweepCourtshipCandidates = internalMutation({
     const staleBefore = now - ENRICH_STALE_DAYS * 24 * 60 * 60 * 1000;
 
     const all = await ctx.db.query("people").collect();
-    const eligible = all.filter((p) => isDatingRelevant(p, now));
+    const eligible = all.filter((p) => isDatingRelevantPerson(p));
     const candidates = eligible
       .filter((p) => !p.courtship_last_analyzed || p.courtship_last_analyzed < staleBefore)
       .slice(0, MAX_PER_SWEEP);
@@ -598,7 +578,7 @@ export const sweepAskCandidates = internalMutation({
     // Whitelist + active-status + ttas-threshold gates remain — those are the
     // actual safety brakes; the label was just a coarse pre-filter.
     const candidates = all
-      .filter((p) => isDatingRelevant(p, now))
+      .filter((p) => isDatingRelevantPerson(p))
       .filter((p) => p.whitelist_for_autoreply === true)
       .filter((p) => p.status === "active")
       .filter((p) => (p.time_to_ask_score ?? 0) >= ASK_THRESHOLD)
@@ -689,7 +669,7 @@ export const sweepVibeCandidates = internalMutation({
     const all = await ctx.db.query("people").collect();
     const eligibleStale = all
       .filter((p) => !p.vibe_classified_at || p.vibe_classified_at < staleBefore)
-      .filter((p) => isDatingRelevant(p, now));
+      .filter((p) => isDatingRelevantPerson(p));
 
     let withConvCount = 0;
     const candidates: typeof eligibleStale = [];
@@ -1705,7 +1685,7 @@ export const sweepCompetitionSignalCandidates = internalMutation({
     const staleBefore = now - COMP_STALE_DAYS * 24 * 3600_000;
 
     const all = await ctx.db.query("people").collect();
-    const eligible = all.filter((p) => isDatingRelevant(p, now));
+    const eligible = all.filter((p) => isDatingRelevantPerson(p));
     const candidates = eligible
       .filter((p) =>
         !p.competition_signal_computed_at || p.competition_signal_computed_at < staleBefore,

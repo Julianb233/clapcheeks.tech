@@ -19,6 +19,7 @@
 
 import { useQuery } from "convex/react"
 import { api } from "@/convex/_generated/api"
+import { isDatingRelevantPerson } from "@/lib/clapcheeks/dating-relevance"
 import Link from "next/link"
 import { useState } from "react"
 
@@ -28,36 +29,6 @@ const STAGE_ORDER = [
   "matched", "early_chat", "phone_swap", "pre_date",
   "first_date_done", "ongoing", "exclusive", "ghosted", "ended",
 ]
-
-const NINETY_DAYS = 90 * 24 * 60 * 60 * 1000
-
-// Dating-only platforms: presence of one of these handles is itself a strong
-// signal the person is a romantic prospect. iMessage / SMS / Instagram /
-// Telegram / WhatsApp / email are all general-purpose and routinely carry
-// guys, family, clients, etc., so they don't count as a dating signal on
-// their own.
-const DATING_ONLY_CHANNELS = new Set(["hinge", "tinder", "bumble"])
-
-function isDatingRelevant(p: any): boolean {
-  if (!["lead", "active", "dating", "paused"].includes(p.status)) return false
-
-  // Hard exclude: anyone the vibe classifier already tagged as not-dating.
-  // This is the main fix for guys' names showing up in the network — Hitesh,
-  // Sean, Brendan, etc. all classify as "professional" or "platonic".
-  if (p.vibe_classification === "platonic" || p.vibe_classification === "professional") {
-    return false
-  }
-
-  // Definitive dating signals — any one of these is enough on its own.
-  const isImported = p.imported_from_profile_screenshot === true
-  const isDatingVibe = p.vibe_classification === "dating"
-  const hasOperatorRating = p.hotness_rating !== undefined || p.effort_rating !== undefined
-  const hasDatingAppHandle = (p.handles ?? []).some((h: any) =>
-    DATING_ONLY_CHANNELS.has(h.channel)
-  )
-
-  return Boolean(isImported || isDatingVibe || hasOperatorRating || hasDatingAppHandle)
-}
 
 function priorityScore(p: any): number {
   let score = 0
@@ -97,7 +68,7 @@ export default function NetworkPage() {
           !p.context_notes?.toLowerCase().includes(q)) return false
     }
     if (showArchived) return true
-    return showAll ? true : isDatingRelevant(p)
+    return showAll ? true : isDatingRelevantPerson(p)
   })
 
   // AI-9500 coach pulse — 3 buckets that tell you "what to do now":
