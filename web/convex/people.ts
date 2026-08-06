@@ -31,6 +31,7 @@ const HANDLE_CHANNEL = v.union(
   v.literal("imessage"), v.literal("sms"), v.literal("hinge"),
   v.literal("tinder"), v.literal("bumble"), v.literal("instagram"),
   v.literal("telegram"), v.literal("email"), v.literal("whatsapp"),
+  v.literal("lid"),                                 // AI-8850: Apple LID (macOS Sequoia+)
 );
 
 const CADENCE_PROFILE = v.union(
